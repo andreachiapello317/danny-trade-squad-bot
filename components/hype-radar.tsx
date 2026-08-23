@@ -151,14 +151,15 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.28em] text-lime-400 uppercase">
-            Solana · pump imminenti
+            Solana · listati e verificati
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Token che stanno entrando in hype
+            Nomi grossi che stanno partendo
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Non quelli già esplosi. Cerca pool giovani, buy pressure a 5 minuti, volume in
-            accelerazione e boost DexScreener appena pagati. Market cap sotto i 12M.
+            Solo token già su Jupiter verified, market cap da 15M in su, liquidità reale.
+            Cerchiamo l’accelerazione a 1 ora — niente launch da un’ora, niente boost pagati,
+            niente ticker già +80% oggi.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -186,7 +187,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium tracking-wide text-zinc-300 uppercase">
-            Possibili pump
+            In accelerazione
           </h2>
           {data?.generatedAt ? (
             <UpdatedAt iso={data.generatedAt} refreshing={loading} />
@@ -204,8 +205,8 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
             <div className="hidden grid-cols-[2.5rem_1fr_5rem_5.5rem_5.5rem_6.5rem_5.5rem] gap-3 bg-zinc-900/80 px-4 py-2 text-[11px] tracking-wide text-zinc-500 uppercase sm:grid">
               <span>#</span>
               <span>Token</span>
-              <span className="text-right">Pump</span>
-              <span className="text-right">5m</span>
+              <span className="text-right">Heat</span>
+              <span className="text-right">24h</span>
               <span className="text-right">1h</span>
               <span className="text-right">Mcap</span>
               <span className="text-right">Vol 1h</span>
@@ -227,6 +228,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                     </span>
                     <span className="block truncate text-xs text-zinc-500">
                       {token.name}
+                      {token.verified ? " · verified" : ""}
                       {token.check ? ` · ${token.check.label}` : ""}
                     </span>
                   </span>
@@ -235,7 +237,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                   {token.hypeScore}
                 </span>
                 <span className="hidden text-right text-sm sm:block">
-                  <Change value={token.priceChange5m} />
+                  <Change value={token.priceChange24h} />
                 </span>
                 <span className="hidden text-right text-sm sm:block">
                   <Change value={token.priceChange1h} />
@@ -255,7 +257,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       {(data.established ?? []).length ? (
         <section className="space-y-3">
           <h2 className="text-sm font-medium tracking-wide text-zinc-500 uppercase">
-            Già in hype — spesso tardi
+            Già pompate oggi — tardi
           </h2>
           <div className="grid gap-2 sm:grid-cols-2">
             {(data.established ?? []).map((token) => (
@@ -284,33 +286,32 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           <CardTitle>Come viene calcolato</CardTitle>
           <CardDescription>
             {data?.note ??
-              "Cerca token piccoli in accelerazione, non i ticker già in cima a CoinGecko."}
+              "Solo token già listati e verificati, in accelerazione sull’ora."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">
           <p>
-            <span className="block font-medium text-zinc-200">Buy pressure 5m</span>
-            Quanti acquisti vs vendite proprio ora, non il volume di ieri.
+            <span className="block font-medium text-zinc-200">Jupiter verified</span>
+            Niente launch anonimi. Serve mint in lista verified, cap da 15M e liquidità da 800k.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">Accelerazione</span>
-            Volume 1h molto sopra la media oraria delle ultime 24h.
+            <span className="block font-medium text-zinc-200">Heat a 1 ora</span>
+            Chi sta davvero partendo adesso, non chi ha già fatto +200% ieri.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">Pool giovane</span>
-            Token nati da poche ore, più boost DexScreener appena pagati. Ogni candidato passa RugCheck e il confronto del mint con i post X.
+            <span className="block font-medium text-zinc-200">Giornata ancora sana</span>
+            Un +10–40% sulle 24h conferma il movimento. Oltre +80% va sotto, tra i tardi.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">Cap piccolo</span>
-            Sotto i 12M, meglio tra 50k e 2M. I already-pumped restano sotto.
+            <span className="block font-medium text-zinc-200">RugCheck + X</span>
+            I primi della lista passano mint/freeze/LP e il confronto col profilo X ufficiale.
           </p>
         </CardContent>
       </Card>
 
       <p className="pb-8 text-xs leading-5 text-zinc-500">
-        Non è consulenza finanziaria. I memecoin Solana sono estremamente volatili e spesso
-        durano ore. Verifica sempre il mint prima di un swap. Fonti: CoinGecko, GeckoTerminal,
-        DexScreener e X.
+        Non è consulenza finanziaria. Anche un token listato può crollare. Verifica sempre il
+        mint prima di uno swap. Fonti: Jupiter verified, CoinGecko, GeckoTerminal, DexScreener, RugCheck e X.
       </p>
     </div>
   );
@@ -331,7 +332,9 @@ function WinnerCard({
         <TokenImage token={token} size={72} />
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="bg-lime-400 text-zinc-950 hover:bg-lime-300">Candidato pump</Badge>
+            <Badge className="bg-lime-400 text-zinc-950 hover:bg-lime-300">In heat</Badge>
+            {token.verified ? <Badge variant="outline">Jupiter verified</Badge> : null}
+            {token.listed ? <Badge variant="outline">CoinGecko</Badge> : null}
             {token.coinGeckoRank ? (
               <Badge variant="outline">CoinGecko #{token.coinGeckoRank}</Badge>
             ) : null}
@@ -349,9 +352,9 @@ function WinnerCard({
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Pump score" value={String(token.hypeScore)} />
-          <Stat label="Cambio 5m" value={<Change value={token.priceChange5m} />} />
+          <Stat label="Heat score" value={String(token.hypeScore)} />
           <Stat label="Cambio 1h" value={<Change value={token.priceChange1h} />} />
+          <Stat label="Cambio 24h" value={<Change value={token.priceChange24h} />} />
           <Stat
             label="Buy 5m"
             value={
@@ -362,22 +365,13 @@ function WinnerCard({
           />
           <Stat label="Market cap" value={formatUsd(token.marketCap)} />
           <Stat label="Volume 1h" value={formatUsd(token.volume1h)} />
-          <Stat label="Volume 5m" value={formatUsd(token.volume5m)} />
-          <Stat
-            label="Età pool"
-            value={
-              token.pairAgeHours == null
-                ? "—"
-                : token.pairAgeHours < 1
-                  ? `${Math.round(token.pairAgeHours * 60)} min`
-                  : `${token.pairAgeHours < 10 ? token.pairAgeHours.toFixed(1) : Math.round(token.pairAgeHours)} h`
-            }
-          />
+          <Stat label="Volume 24h" value={formatUsd(token.volume24h)} />
           <Stat label="Liquidità" value={formatUsd(token.liquidityUsd)} />
           <Stat
-            label="Boost fresco"
-            value={token.freshBoost ? "Sì" : token.boostAmount ? String(token.boostAmount) : "No"}
+            label="Organico Jupiter"
+            value={token.organicScore != null ? String(Math.round(token.organicScore)) : "—"}
           />
+          <Stat label="Cambio 5m" value={<Change value={token.priceChange5m} />} />
         </div>
 
         {token.check ? <CheckPanel check={token.check} /> : null}

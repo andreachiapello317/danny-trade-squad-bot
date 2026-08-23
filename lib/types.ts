@@ -37,6 +37,9 @@ export type HypeToken = {
   boostAmount: number;
   coinGeckoRank: number | null;
   geckoTerminalRank: number | null;
+  listed: boolean;
+  verified: boolean;
+  organicScore: number | null;
   hypeScore: number;
   socialScore: number;
   momentumScore: number;
@@ -76,6 +79,7 @@ export type HypeResponse = {
     dexScreener: boolean;
     x: boolean;
     rugcheck: boolean;
+    jupiter: boolean;
   };
   note: string;
 };

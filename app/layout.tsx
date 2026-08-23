@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Radar pump imminenti Solana",
+  title: "Radar Solana: nomi grossi in accelerazione",
   description:
-    "Token Solana ancora piccoli con pressione d'acquisto e hype in accelerazione, prima che il pump sia ovvio.",
+    "Token Solana già listati e verificati, market cap da 15M in su, che stanno partendo adesso. Niente launch da un'ora.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
