@@ -4,6 +4,8 @@ Classifica i memecoin Solana **ancora piccoli** che stanno accelerando: pression
 
 Non è la lista dei token già esplosi. Quelli finiscono sotto, in “già in hype”.
 
+Ogni candidato viene passato su RugCheck (mint, freeze, LP, holder) e confrontato con i post X del profilo ufficiale: se il mint non compare, resta una bandiera gialla.
+
 Non è consulenza finanziaria. I memecoin sono estremamente volatili.
 
 ## Avvio locale

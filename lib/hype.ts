@@ -1,5 +1,6 @@
 import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
-import { loadXSignals, twitterHandle } from "@/lib/x-signal";
+import { checkTokens } from "@/lib/legit";
+import { loadXSignal, loadXSignals, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
   "SOL",
@@ -644,6 +645,7 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "imminent" | "established" = 
     xTweetCount: x?.tweetCount ?? null,
     xPosts: x?.posts ?? [],
     reasons,
+    check: null,
   };
 }
 
@@ -668,9 +670,10 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const establishedDrafts = drafts.filter(isEstablished);
 
   const xSignals = await loadXSignals(
-    [...imminentDrafts, ...establishedDrafts]
+    [...imminentDrafts]
+      .sort((a, b) => (b.volume1h ?? 0) - (a.volume1h ?? 0))
+      .concat(establishedDrafts)
       .map((draft) => draft.twitterUrl)
-      .slice(0, 10)
   );
 
   const attach = (draft: Draft, mode: "imminent" | "established") => {
@@ -688,17 +691,37 @@ export async function getHypeBoard(): Promise<HypeResponse> {
     .sort((a, b) => b.hypeScore - a.hypeScore)
     .slice(0, 6);
 
+  const checks = await checkTokens(
+    await Promise.all(
+      [...tokens.slice(0, 6), ...established.slice(0, 2)].map(async (token) => {
+        const handle = twitterHandle(token.twitterUrl)?.toLowerCase();
+        const x =
+          (handle ? xSignals.get(handle) : null) ?? (await loadXSignal(token.twitterUrl));
+        return { mint: token.mint, x, pairAgeHours: token.pairAgeHours };
+      })
+    )
+  );
+
+  const withCheck = (token: HypeToken): HypeToken => ({
+    ...token,
+    check: checks.get(token.mint) ?? token.check,
+  });
+
+  const checkedTokens = tokens.map(withCheck);
+  const checkedEstablished = established.map(withCheck);
+
   return {
     generatedAt: new Date().toISOString(),
-    winner: tokens[0] ?? null,
-    tokens,
-    established,
+    winner: checkedTokens[0] ?? null,
+    tokens: checkedTokens,
+    established: checkedEstablished,
     sources: {
       coinGecko,
       geckoTerminal: geckoTerminal || newPools,
       dexScreener: dexScreener || boosts,
       x: xSignals.size > 0,
+      rugcheck: checks.size > 0,
     },
-    note: "Questa classifica cerca token ancora piccoli con pressione d'acquisto, volume in accelerazione, pool giovani e boost freschi — non quelli già esplosi.",
+    note: "Questa classifica cerca token ancora piccoli in accelerazione e li passa su RugCheck più i post X per vedere se il mint torna.",
   };
 }

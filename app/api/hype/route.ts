@@ -18,7 +18,7 @@ export async function GET() {
         winner: null,
         tokens: [],
         established: [],
-        sources: { coinGecko: false, geckoTerminal: false, dexScreener: false, x: false },
+        sources: { coinGecko: false, geckoTerminal: false, dexScreener: false, x: false, rugcheck: false },
         note: "Impossibile calcolare l'hype in questo momento.",
         error: true,
       },

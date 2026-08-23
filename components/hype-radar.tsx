@@ -225,7 +225,10 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                     <span className="block truncate font-medium text-zinc-100">
                       ${token.symbol}
                     </span>
-                    <span className="block truncate text-xs text-zinc-500">{token.name}</span>
+                    <span className="block truncate text-xs text-zinc-500">
+                      {token.name}
+                      {token.check ? ` · ${token.check.label}` : ""}
+                    </span>
                   </span>
                 </span>
                 <span className="text-right font-mono text-sm text-lime-300">
@@ -295,7 +298,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           </p>
           <p>
             <span className="block font-medium text-zinc-200">Pool giovane</span>
-            Token nati da poche ore, più boost DexScreener appena pagati.
+            Token nati da poche ore, più boost DexScreener appena pagati. Ogni candidato passa RugCheck e il confronto del mint con i post X.
           </p>
           <p>
             <span className="block font-medium text-zinc-200">Cap piccolo</span>
@@ -336,6 +339,7 @@ function WinnerCard({
               <Badge variant="outline">DEX #{token.geckoTerminalRank}</Badge>
             ) : null}
             {token.xHandle ? <Badge variant="outline">X @{token.xHandle}</Badge> : null}
+            {token.check ? <CheckBadge check={token.check} /> : null}
           </div>
           <CardTitle className="font-mono text-3xl tracking-tight sm:text-4xl">
             ${token.symbol}
@@ -376,6 +380,8 @@ function WinnerCard({
           />
         </div>
 
+        {token.check ? <CheckPanel check={token.check} /> : null}
+
         {token.xPosts.length ? (
           <div className="space-y-2">
             <p className="text-[11px] tracking-wide text-zinc-500 uppercase">Post recenti su X</p>
@@ -389,6 +395,11 @@ function WinnerCard({
                   className="block rounded-lg bg-black/30 px-3 py-2 transition hover:bg-black/50"
                 >
                   <p className="line-clamp-2 text-sm text-zinc-200">{post.text}</p>
+                  {token.check?.xMintInPosts &&
+                  token.mint &&
+                  post.text.toLowerCase().includes(token.mint.slice(-8).toLowerCase()) ? (
+                    <p className="mt-1 text-[11px] text-lime-400">Questo post cita il mint</p>
+                  ) : null}
                   <p className="mt-1.5 flex flex-wrap gap-3 font-mono text-[11px] text-zinc-500">
                     <span className="inline-flex items-center gap-1">
                       <Heart className="size-3" />
@@ -476,6 +487,53 @@ function WinnerCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function CheckBadge({ check }: { check: NonNullable<HypeToken["check"]> }) {
+  const tone =
+    check.verdict === "danger"
+      ? "border-red-400/40 text-red-300"
+      : check.verdict === "caution"
+        ? "border-amber-400/40 text-amber-200"
+        : check.verdict === "pass"
+          ? "border-lime-400/40 text-lime-300"
+          : "border-zinc-500 text-zinc-400";
+  return <Badge variant="outline" className={tone}>{check.label}</Badge>;
+}
+
+function CheckPanel({ check }: { check: NonNullable<HypeToken["check"]> }) {
+  return (
+    <div
+      className={
+        check.verdict === "danger"
+          ? "space-y-2 rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-3"
+          : check.verdict === "caution"
+            ? "space-y-2 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-3"
+            : "space-y-2 rounded-lg border border-lime-500/20 bg-lime-950/20 px-3 py-3"
+      }
+    >
+      <p className="text-[11px] tracking-wide text-zinc-400 uppercase">Verifica contratto + X</p>
+      <div className="flex flex-wrap gap-2 text-[11px] font-mono text-zinc-300">
+        <span>mint {check.mintRevoked == null ? "?" : check.mintRevoked ? "revocato" : "ATTIVO"}</span>
+        <span>freeze {check.freezeRevoked == null ? "?" : check.freezeRevoked ? "revocato" : "ATTIVO"}</span>
+        <span>
+          LP {check.lpLockedPct == null ? "?" : `${Math.round(check.lpLockedPct)}% locked`}
+        </span>
+        <span>holder {check.holders ?? "—"}</span>
+        <span>
+          X mint {check.xMintInPosts == null ? "?" : check.xMintInPosts ? "citato" : "non citato"}
+        </span>
+      </div>
+      <ul className="space-y-1 text-sm text-zinc-300">
+        {check.notes.map((note) => (
+          <li key={note}>▸ {note}</li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-zinc-500">
+        Non è un via libera. Un check ok non significa che il token sia sicuro.
+      </p>
+    </div>
   );
 }
 

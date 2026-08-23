@@ -8,6 +8,9 @@ export type XSignal = {
   posts: XPost[];
   engagement: number;
   xScore: number;
+  description: string | null;
+  joinedAt: string | null;
+  accountAgeHours: number | null;
 };
 
 type Json = Record<string, unknown>;
@@ -164,12 +167,19 @@ export async function loadXSignal(url: string | null): Promise<XSignal | null> {
 
   if (!user.screen_name && !posts.length && !ids.length) return null;
 
+  const joinedAt = str(user.joined);
+  const joinedMs = joinedAt ? Date.parse(joinedAt) : NaN;
   const signal = scoreSignal({
     handle: str(user.screen_name) ?? handle,
     followers: num(user.followers),
     tweetCount: num(user.tweets),
     verified: Boolean(asRecord(user.verification).verified),
     posts,
+    description: str(user.description),
+    joinedAt,
+    accountAgeHours: Number.isFinite(joinedMs)
+      ? Math.max(0, (Date.now() - joinedMs) / 3_600_000)
+      : null,
   });
   cache.set(handle.toLowerCase(), { at: Date.now(), value: signal });
   return signal;
@@ -180,7 +190,7 @@ export async function loadXSignals(
 ): Promise<Map<string, XSignal>> {
   const unique = [...new Set(urls.map(twitterHandle).filter((handle): handle is string => Boolean(handle)))];
   const results = await Promise.all(
-    unique.slice(0, 8).map(async (handle) => {
+    unique.slice(0, 10).map(async (handle) => {
       const signal = await loadXSignal(`https://x.com/${handle}`);
       return [handle.toLowerCase(), signal] as const;
     })

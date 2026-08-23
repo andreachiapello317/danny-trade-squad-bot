@@ -47,6 +47,22 @@ export type HypeToken = {
   xTweetCount: number | null;
   xPosts: XPost[];
   reasons: string[];
+  check: TokenCheck | null;
+};
+
+export type TokenCheck = {
+  verdict: "pass" | "caution" | "danger" | "unknown";
+  label: string;
+  rugScore: number | null;
+  mintRevoked: boolean | null;
+  freezeRevoked: boolean | null;
+  lpLockedPct: number | null;
+  topHolderPct: number | null;
+  holders: number | null;
+  rugged: boolean;
+  xMintInPosts: boolean | null;
+  xAccountAgeHours: number | null;
+  notes: string[];
 };
 
 export type HypeResponse = {
@@ -59,6 +75,7 @@ export type HypeResponse = {
     geckoTerminal: boolean;
     dexScreener: boolean;
     x: boolean;
+    rugcheck: boolean;
   };
   note: string;
 };
