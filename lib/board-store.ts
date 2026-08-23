@@ -35,14 +35,22 @@ export async function peekStoredBoard(): Promise<HypeResponse | null> {
   return stampBoard(stored.board, stored.at);
 }
 
+function usable(stored: StoredBoard | null): StoredBoard | null {
+  if (!stored?.board || typeof stored.at !== "number") return null;
+  if (stored.version !== BOARD_VERSION) return null;
+  return stored;
+}
+
 export async function readStoredBoard(): Promise<StoredBoard | null> {
-  if (memory) return memory;
+  const fromMemory = usable(memory);
+  if (fromMemory) return fromMemory;
+  memory = null;
   if (diskRead) return null;
   diskRead = true;
   try {
     const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as StoredBoard;
-    if (parsed?.board && typeof parsed.at === "number" && parsed.version === BOARD_VERSION) {
+    const parsed = usable(JSON.parse(raw) as StoredBoard);
+    if (parsed) {
       memory = parsed;
       return parsed;
     }
