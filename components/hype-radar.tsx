@@ -151,15 +151,14 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.28em] text-lime-400 uppercase">
-            Solana · listati e verificati
+            Solana · da 200k · launch 30 min
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Nomi grossi che stanno partendo
+            Cosa sta partendo adesso
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Jupiter verified, cap da 4M in su, liquidità reale. Il punteggio pesa X
-            (profilo ufficiale + post recenti) e l’accelerazione a 1 ora. Niente launch
-            da un’ora, niente ticker già +80% oggi.
+            Market cap da 200k in su. I launch entrano dopo 30 minuti, non prima. Il
+            punteggio pesa X e l’accelerazione. Chi ha già fatto +80% oggi va sotto.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -229,6 +228,11 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                     <span className="block truncate text-xs text-zinc-500">
                       {token.name}
                       {token.verified ? " · verified" : ""}
+                      {token.pairAgeHours != null && token.pairAgeHours < 12
+                        ? token.pairAgeHours < 1
+                          ? ` · ${Math.round(token.pairAgeHours * 60)} min`
+                          : ` · ${token.pairAgeHours.toFixed(1)} h`
+                        : ""}
                       {token.check ? ` · ${token.check.label}` : ""}
                     </span>
                   </span>
@@ -286,29 +290,25 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           <CardTitle>Come viene calcolato</CardTitle>
           <CardDescription>
             {data?.note ??
-              "Solo token già listati e verificati, in accelerazione sull’ora."}
+              "Da 200k di market cap. I launch entrano dopo 30 minuti."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">
           <p>
-            <span className="block font-medium text-zinc-200">Jupiter verified</span>
-            Niente launch anonimi. Serve mint in lista verified, cap da 4M e liquidità vera.
+            <span className="block font-medium text-zinc-200">Soglia 200k</span>
+            Sotto i 200k di market cap non entra. Sopra sì, anche se non è ancora un nome da miliardi.
+          </p>
+          <p>
+            <span className="block font-medium text-zinc-200">Launch 30 min</span>
+            I pool con meno di 30 minuti restano fuori. Dopo mezz’ora possono entrare in classifica.
           </p>
           <p>
             <span className="block font-medium text-zinc-200">X ufficiale</span>
-            Follower, post recenti e engagement del profilo vero. Vale circa un terzo del punteggio.
+            Follower, post recenti e engagement. Vale circa un terzo del punteggio.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">Heat a 1 ora</span>
-            Chi sta davvero partendo adesso, non chi ha già fatto +200% ieri.
-          </p>
-          <p>
-            <span className="block font-medium text-zinc-200">Giornata ancora sana</span>
-            Un +10–40% sulle 24h conferma il movimento. Oltre +80% va sotto, tra i tardi.
-          </p>
-          <p>
-            <span className="block font-medium text-zinc-200">RugCheck + X</span>
-            I primi della lista passano mint/freeze/LP e il confronto col profilo X ufficiale.
+            <span className="block font-medium text-zinc-200">RugCheck</span>
+            I primi della lista passano mint/freeze/LP e il confronto col profilo X.
           </p>
         </CardContent>
       </Card>
@@ -372,8 +372,16 @@ function WinnerCard({
           <Stat label="Volume 24h" value={formatUsd(token.volume24h)} />
           <Stat label="Liquidità" value={formatUsd(token.liquidityUsd)} />
           <Stat
-            label="Organico Jupiter"
-            value={token.organicScore != null ? String(Math.round(token.organicScore)) : "—"}
+            label="Età pool"
+            value={
+              token.pairAgeHours == null
+                ? "—"
+                : token.pairAgeHours < 1
+                  ? `${Math.round(token.pairAgeHours * 60)} min`
+                  : token.pairAgeHours < 24
+                    ? `${token.pairAgeHours < 10 ? token.pairAgeHours.toFixed(1) : Math.round(token.pairAgeHours)} h`
+                    : `${Math.round(token.pairAgeHours / 24)} g`
+            }
           />
           <Stat label="Cambio 5m" value={<Change value={token.priceChange5m} />} />
         </div>

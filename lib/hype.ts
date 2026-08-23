@@ -28,11 +28,13 @@ const SKIP_SYMBOLS = new Set([
 
 const SKIP_NAME_RE = /wormhole|xstock|wrapped|bridged|staked |prestock/i;
 
-const MIN_MCAP = 4_000_000;
+const MIN_MCAP = 200_000;
 const MAX_MCAP = 5_000_000_000;
-const MIN_LIQ = 300_000;
-const MIN_ORGANIC = 35;
+const MIN_LIQ = 12_000;
+const MIN_ORGANIC = 10;
+const MIN_LAUNCH_HOURS = 0.5;
 const ALREADY_PUMPED_24H = 80;
+const SKIP_NAMES = new Set(["test", "testing", "asdf", "aaa"]);
 
 const WSOL = "So11111111111111111111111111111111111111112";
 
@@ -230,7 +232,10 @@ function applyDexPair(draft: Draft, pair: Json) {
   if (pairLiq != null) {
     draft.liquidityUsd = Math.max(draft.liquidityUsd ?? 0, pairLiq);
   }
-  draft.pairCreatedAt = num(pair.pairCreatedAt) ?? draft.pairCreatedAt;
+  const created = num(pair.pairCreatedAt);
+  if (created != null) {
+    draft.pairCreatedAt = draft.pairCreatedAt == null ? created : Math.min(draft.pairCreatedAt, created);
+  }
   draft.twitterUrl = twitter ?? draft.twitterUrl;
   draft.telegramUrl = telegram ?? draft.telegramUrl;
   draft.websiteUrl = str(asRecord(websites[0]).url) ?? draft.websiteUrl;
@@ -269,7 +274,7 @@ async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<str
     if (SKIP_NAME_RE.test(name)) continue;
     if (marketCap == null || marketCap < MIN_MCAP || marketCap > MAX_MCAP) continue;
     if ((liquidityUsd ?? 0) < MIN_LIQ) continue;
-    if ((organicScore ?? 0) < MIN_ORGANIC) continue;
+    if (organicScore != null && organicScore < MIN_ORGANIC && marketCap < 4_000_000) continue;
 
     const stats5m = asRecord(item.stats5m);
     const stats1h = asRecord(item.stats1h);
@@ -304,33 +309,119 @@ async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<str
   return used > 0;
 }
 
-async function attachGeckoTerminalRanks(byMint: Map<string, Draft>) {
-  const payload = await fetchJson<Json>(
-    "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?include=base_token&page=1"
-  );
-  if (!payload) return false;
+function ingestGeckoPool(
+  byMint: Map<string, Draft>,
+  bySymbol: Map<string, Draft>,
+  pool: Json,
+  included: Map<string, Json>,
+  rank: number | null
+) {
+  const attributes = asRecord(pool.attributes);
+  const rel = asRecord(asRecord(asRecord(pool.relationships).base_token).data);
+  const tokenAttr = asRecord(asRecord(included.get(str(rel.id) ?? "") ?? {}).attributes);
+  const mint = str(tokenAttr.address);
+  const symbol = str(tokenAttr.symbol) ?? str(attributes.name)?.split("/")[0]?.trim() ?? "";
+  const name = str(tokenAttr.name) ?? symbol;
+  if (!mint || mint === WSOL || SKIP_MINTS.has(mint)) return false;
+  if (SKIP_SYMBOLS.has(normalizeSymbol(symbol)) || SKIP_NAMES.has(foldName(name))) return false;
+  if (SKIP_NAME_RE.test(name)) return false;
 
+  const created = str(attributes.pool_created_at);
+  const createdMs = created ? Date.parse(created) : NaN;
+  const ageHours = Number.isFinite(createdMs) ? (Date.now() - createdMs) / 3_600_000 : null;
+  if (ageHours != null && ageHours < MIN_LAUNCH_HOURS) return false;
+
+  const volume = asRecord(attributes.volume_usd);
+  const change = asRecord(attributes.price_change_percentage);
+  const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
+  draft.name = draft.verified ? draft.name : name;
+  draft.symbol = draft.verified ? draft.symbol : symbol;
+  draft.imageUrl = draft.imageUrl ?? str(tokenAttr.image_url);
+  draft.priceUsd = num(attributes.base_token_price_usd) ?? draft.priceUsd;
+  draft.marketCap = num(attributes.market_cap_usd) ?? num(attributes.fdv_usd) ?? draft.marketCap;
+  draft.volume24h = num(volume.h24) ?? draft.volume24h;
+  draft.volume1h = num(volume.h1) ?? draft.volume1h;
+  draft.volume5m = num(volume.m5) ?? draft.volume5m;
+  draft.priceChange24h = num(change.h24) ?? draft.priceChange24h;
+  draft.priceChange1h = num(change.h1) ?? draft.priceChange1h;
+  draft.priceChange5m = num(change.m5) ?? draft.priceChange5m;
+  if (Number.isFinite(createdMs)) {
+    draft.pairCreatedAt =
+      draft.pairCreatedAt == null ? createdMs : Math.min(draft.pairCreatedAt, createdMs);
+  }
+  if (rank != null) draft.geckoTerminalRank = rank;
+  byMint.set(mint, draft);
+  bySymbol.set(normalizeSymbol(symbol), draft);
+  return true;
+}
+
+function geckoIncluded(payload: Json) {
   const included = new Map<string, Json>();
   for (const row of asArray(payload.included)) {
     const item = asRecord(row);
     const id = str(item.id);
     if (id) included.set(id, item);
   }
+  return included;
+}
 
+async function loadGeckoTerminal(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
+  const payload = await fetchJson<Json>(
+    "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?include=base_token&page=1"
+  );
+  if (!payload) return false;
+  const included = geckoIncluded(payload);
   let rank = 0;
   let used = false;
   for (const row of asArray(payload.data)) {
-    const pool = asRecord(row);
-    const rel = asRecord(asRecord(asRecord(pool.relationships).base_token).data);
-    const tokenAttr = asRecord(asRecord(included.get(str(rel.id) ?? "") ?? {}).attributes);
-    const mint = str(tokenAttr.address);
     rank += 1;
-    const draft = mint ? byMint.get(mint) : undefined;
-    if (draft) {
-      draft.geckoTerminalRank = rank;
-      used = true;
-    }
+    if (ingestGeckoPool(byMint, bySymbol, asRecord(row), included, rank)) used = true;
     if (rank >= 20) break;
+  }
+  return used;
+}
+
+async function loadNewPools(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
+  const payload = await fetchJson<Json>(
+    "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?include=base_token&page=1"
+  );
+  if (!payload) return false;
+  const included = geckoIncluded(payload);
+  let used = false;
+  for (const row of asArray(payload.data)) {
+    const attributes = asRecord(asRecord(row).attributes);
+    const volume = asRecord(attributes.volume_usd);
+    if ((num(volume.h1) ?? 0) < 1500 && (num(volume.m5) ?? 0) < 400) continue;
+    if (ingestGeckoPool(byMint, bySymbol, asRecord(row), included, null)) used = true;
+  }
+  return used;
+}
+
+async function loadDexSearch(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
+  const payload = await fetchJson<Json>("https://api.dexscreener.com/latest/dex/search?q=solana");
+  const pairs = asArray(payload?.pairs);
+  if (!pairs.length) return false;
+  let used = false;
+  for (const row of pairs) {
+    const pair = asRecord(row);
+    if (str(pair.chainId) !== "solana") continue;
+    const base = asRecord(pair.baseToken);
+    const mint = str(base.address);
+    const symbol = str(base.symbol) ?? "";
+    const name = str(base.name) ?? symbol;
+    if (!mint || mint === WSOL || SKIP_MINTS.has(mint)) continue;
+    if (SKIP_SYMBOLS.has(normalizeSymbol(symbol)) || SKIP_NAMES.has(foldName(name))) continue;
+    const created = num(pair.pairCreatedAt);
+    if (created != null && (Date.now() - created) / 3_600_000 < MIN_LAUNCH_HOURS) continue;
+    const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
+    applyDexPair(draft, pair);
+    if (!draft.verified) {
+      draft.name = name;
+      draft.symbol = symbol;
+    }
+    byMint.set(mint, draft);
+    bySymbol.set(normalizeSymbol(draft.symbol), draft);
+    used = true;
   }
   return used;
 }
@@ -432,11 +523,12 @@ function buyPressure(draft: Draft): number | null {
 
 function isUniverse(draft: Draft): boolean {
   if (SKIP_SYMBOLS.has(normalizeSymbol(draft.symbol))) return false;
-  if (SKIP_NAME_RE.test(draft.name)) return false;
-  if (!draft.verified && !draft.listed) return false;
+  if (SKIP_NAMES.has(foldName(draft.name)) || SKIP_NAME_RE.test(draft.name)) return false;
   const mcap = draft.marketCap ?? 0;
   if (mcap < MIN_MCAP || mcap > MAX_MCAP) return false;
   if ((draft.liquidityUsd ?? 0) < MIN_LIQ) return false;
+  const age = pairAgeHours(draft);
+  if (age != null && age < MIN_LAUNCH_HOURS) return false;
   return true;
 }
 
@@ -449,10 +541,14 @@ function isHeating(draft: Draft): boolean {
   const change1h = draft.priceChange1h ?? 0;
   const change24h = draft.priceChange24h ?? 0;
   if (change1h <= -8) return false;
+  const age = pairAgeHours(draft);
+  const launchWindow = age != null && age >= MIN_LAUNCH_HOURS && age <= 18;
+  const activity = draft.buys5m + draft.sells5m;
   return (
     change1h >= 0.45 ||
     (change24h >= 6 && change24h < ALREADY_PUMPED_24H && change1h >= 0) ||
-    ((draft.volume1h ?? 0) > 0 && (draft.volume24h ?? 0) > 0 && (draft.volume1h ?? 0) >= (draft.volume24h ?? 0) / 16)
+    ((draft.volume1h ?? 0) > 0 && (draft.volume24h ?? 0) > 0 && (draft.volume1h ?? 0) >= (draft.volume24h ?? 0) / 16) ||
+    (launchWindow && (activity >= 8 || (draft.volume1h ?? 0) >= 4_000 || (draft.volume5m ?? 0) >= 800))
   );
 }
 
@@ -485,16 +581,29 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     const orgScore = draft.organicScore ?? 50;
     const sizeScore = logScale(draft.marketCap, 3_000_000_000);
     const liveX = x?.xScore ?? (draft.twitterUrl ? 8 : 0);
+    const launchScore =
+      age == null
+        ? 8
+        : age < MIN_LAUNCH_HOURS
+          ? 0
+          : age <= 3
+            ? 100
+            : age <= 12
+              ? 72
+              : age <= 36
+                ? 40
+                : 12;
     hypeScore = Math.round(
       clamp(
-        liveX * 0.34 +
-          heat1h * 0.2 +
-          confirm24 * 0.09 +
+        liveX * 0.32 +
+          heat1h * 0.18 +
+          launchScore * 0.1 +
+          confirm24 * 0.08 +
           volumeScore * 0.1 +
-          orgScore * 0.08 +
-          sizeScore * 0.06 +
-          pressureScore * 0.07 +
-          socialScore * 0.06 -
+          orgScore * 0.06 +
+          sizeScore * 0.05 +
+          pressureScore * 0.06 +
+          socialScore * 0.05 -
           latePenalty -
           dumpPenalty,
         0,
@@ -514,8 +623,17 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     if (change24h >= 6 && change24h < 50) {
       reasons.push(`Giornata già verde (+${change24h.toFixed(1)}%) senza essere esplosa`);
     }
-    if ((draft.marketCap ?? 0) >= 20_000_000) {
-      reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(0)}M: già listato, non è un launch`);
+    if (age != null && age >= MIN_LAUNCH_HOURS && age < 12) {
+      reasons.push(
+        age < 1
+          ? `Launch da ${Math.round(age * 60)} minuti — sopra la soglia dei 30`
+          : `Launch giovane: ${age < 10 ? age.toFixed(1) : Math.round(age)} ore`
+      );
+    }
+    if ((draft.marketCap ?? 0) >= 1_000_000) {
+      reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(1)}M`);
+    } else if ((draft.marketCap ?? 0) >= MIN_MCAP) {
+      reasons.push(`Market cap $${Math.round((draft.marketCap ?? 0) / 1000)}k — sopra i 200k`);
     }
     if (draft.verified) reasons.push("Presente nella lista Jupiter verified");
     if ((draft.organicScore ?? 0) >= 80) {
@@ -586,18 +704,29 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
-  const jupiter = await loadJupiterVerified(byMint, bySymbol);
-  const [geckoTerminal, coinGecko] = await Promise.all([
-    attachGeckoTerminalRanks(byMint),
-    attachCoinGecko(byMint, bySymbol),
+  const [jupiter, geckoTerminal, newPools, dexSearch] = await Promise.all([
+    loadJupiterVerified(byMint, bySymbol),
+    loadGeckoTerminal(byMint, bySymbol),
+    loadNewPools(byMint, bySymbol),
+    loadDexSearch(byMint, bySymbol),
   ]);
 
-  const universe = [...byMint.values()].filter(isUniverse);
-  const enrichTargets = [...universe]
-    .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0))
-    .slice(0, 40)
+  const preUniverse = [...byMint.values()];
+  const enrichTargets = [...preUniverse]
+    .sort((a, b) => {
+      const ageA = pairAgeHours(a) ?? 10_000;
+      const ageB = pairAgeHours(b) ?? 10_000;
+      const launchA = ageA >= MIN_LAUNCH_HOURS && ageA <= 18 ? 1 : 0;
+      const launchB = ageB >= MIN_LAUNCH_HOURS && ageB <= 18 ? 1 : 0;
+      if (launchA !== launchB) return launchB - launchA;
+      return (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0);
+    })
+    .slice(0, 60)
     .map((draft) => draft.mint);
-  const dexScreener = await enrichDexScreener(byMint, enrichTargets);
+  const dexScreener = (await enrichDexScreener(byMint, enrichTargets)) || dexSearch;
+  const coinGecko = await attachCoinGecko(byMint, bySymbol);
+
+  const universe = [...byMint.values()].filter(isUniverse);
 
   let heatingDrafts = universe.filter(isHeating);
   const pumpedDrafts = universe.filter(isAlreadyPumped);
@@ -657,12 +786,12 @@ export async function getHypeBoard(): Promise<HypeResponse> {
     established: checkedPumped,
     sources: {
       coinGecko,
-      geckoTerminal,
+      geckoTerminal: geckoTerminal || newPools,
       dexScreener,
       x: xSignals.size > 0,
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Token Jupiter verified da 4M di market cap in su. Il punteggio pesa soprattutto X (profilo ufficiale + post recenti) e l’accelerazione a 1 ora. Niente launch da un’ora, niente già +80% oggi.",
+    note: "Market cap da 200k in su. I launch entrano dopo 30 minuti. Il punteggio pesa X (profilo ufficiale + post recenti) e l’accelerazione. Chi ha già fatto +80% oggi va sotto.",
   };
 }
