@@ -71,6 +71,7 @@ export type TokenCheck = {
 
 export type HypeResponse = {
   generatedAt: string;
+  nextSearchAt?: string;
   winner: HypeToken | null;
   tokens: HypeToken[];
   topContracts: HypeToken[];

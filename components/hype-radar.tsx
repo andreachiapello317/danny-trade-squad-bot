@@ -10,7 +10,6 @@ import {
   ExternalLink,
   Heart,
   MessageCircle,
-  RefreshCw,
   Repeat2,
 } from "lucide-react";
 
@@ -98,21 +97,21 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
   const [loading, setLoading] = useState(!hasInitial);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/hype", { cache: "no-store" });
       if (!response.ok) throw new Error("fetch failed");
       const json = (await response.json()) as HypeResponse;
       if (!json.winner && !json.tokens.length) {
-        setError("Nessun token in tendenza al momento. Riprova tra un minuto.");
+        setError("Nessun token in tendenza al momento. Aspetta la prossima ricerca, ogni 2 ore.");
       }
       setData(json);
     } catch {
-      setError("Non riesco a leggere i feed live. Controlla la rete e riprova.");
+      setError("Non riesco a leggere i feed. La ricerca riparte da sola ogni 2 ore.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -120,7 +119,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
     if (!hasInitial) {
       void load();
     }
-    const id = window.setInterval(() => void load(), PAGE_REFRESH_MS);
+    const id = window.setInterval(() => void load(true), PAGE_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [hasInitial, load]);
 
@@ -167,10 +166,6 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             l’account ufficiale. Chi ha già fatto +80% oggi va sotto.
           </p>
         </div>
-        <Button variant="outline" onClick={() => void load()} disabled={loading}>
-          <RefreshCw className={loading ? "animate-spin" : ""} />
-          Aggiorna
-        </Button>
       </header>
 
       {topContracts.length ? (
@@ -201,7 +196,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             In accelerazione
           </h2>
           {data?.generatedAt ? (
-            <UpdatedAt iso={data.generatedAt} refreshing={loading} />
+            <UpdatedAt iso={data.generatedAt} nextIso={data.nextSearchAt} />
           ) : null}
         </div>
 
@@ -621,34 +616,22 @@ function Stat({ label, value }: { label: string; value: string | number | ReactE
   );
 }
 
-function UpdatedAt({ iso, refreshing }: { iso: string; refreshing: boolean }) {
-  const [now, setNow] = useState<number | null>(null);
-
-  useEffect(() => {
-    const tick = () => setNow(Date.now());
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  if (now == null) {
-    return <p className="font-mono text-[11px] text-zinc-500">Aggiornamento…</p>;
-  }
-
-  const seconds = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  const clock = new Date(iso).toLocaleTimeString("it-IT", {
+function romeClock(iso: string) {
+  return new Date(iso).toLocaleTimeString("it-IT", {
     timeZone: "Europe/Rome",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
   });
-  const relative =
-    seconds < 8 ? "adesso" : seconds < 60 ? `${seconds}s fa` : `${Math.floor(seconds / 60)} min fa`;
+}
 
+function UpdatedAt({ iso, nextIso }: { iso: string; nextIso?: string }) {
+  const next = nextIso ?? new Date(new Date(iso).getTime() + PAGE_REFRESH_MS).toISOString();
   return (
     <p className="text-right font-mono text-[11px] text-zinc-500">
-      {refreshing ? "Aggiorno…" : `Aggiornato alle ${clock} (Italia)`}
-      {refreshing ? null : <span className="block sm:inline sm:before:content-['·'] sm:before:mx-1">{relative}</span>}
+      Ricerca delle {romeClock(iso)}
+      <span className="block sm:inline sm:before:content-['·'] sm:before:mx-1">
+        prossima alle {romeClock(next)}
+      </span>
     </p>
   );
 }

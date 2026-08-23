@@ -1,4 +1,5 @@
 import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
+import { isBoardFresh, peekStoredBoard, readStoredBoard, stampBoard, writeStoredBoard } from "@/lib/board-store";
 import { checkTokens } from "@/lib/legit";
 import { notifyTopContracts } from "@/lib/notify";
 import { BOARD_CACHE_MS } from "@/lib/timing";
@@ -729,18 +730,36 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
   };
 }
 
-type BoardCache = { at: number; board: HypeResponse };
+let computing: Promise<HypeResponse> | null = null;
 
-let boardCache: BoardCache | null = null;
+export async function peekHypeBoard() {
+  return peekStoredBoard();
+}
 
 export async function getHypeBoard(options?: {
   skipNotify?: boolean;
   fresh?: boolean;
 }): Promise<HypeResponse> {
-  if (!options?.fresh && boardCache && Date.now() - boardCache.at < BOARD_CACHE_MS) {
-    return boardCache.board;
+  const stored = await readStoredBoard();
+  if (!options?.fresh && stored && isBoardFresh(stored)) {
+    return stampBoard(stored.board, stored.at);
+  }
+  if (!options?.fresh && computing) {
+    return computing;
   }
 
+  const run = computeHypeBoard(options, stored);
+  if (!options?.fresh) computing = run.finally(() => {
+    computing = null;
+  });
+  return run;
+}
+
+async function computeHypeBoard(
+  options: { skipNotify?: boolean; fresh?: boolean } | undefined,
+  stored: Awaited<ReturnType<typeof readStoredBoard>>,
+): Promise<HypeResponse> {
+  try {
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
@@ -837,11 +856,13 @@ export async function getHypeBoard(options?: {
     note: "Market cap da 200k, launch dopo 30 minuti. Ricerca, classifica e Telegram ogni 2 ore. Un messaggio solo se i 4 contratti cambiano.",
   };
 
-  boardCache = { at: Date.now(), board };
-
+  const saved = await writeStoredBoard(board);
   if (!options?.skipNotify) {
     void notifyTopContracts(topContracts).catch(() => undefined);
   }
-
-  return board;
+  return stampBoard(saved.board, saved.at);
+  } catch (error) {
+    if (stored) return stampBoard(stored.board, stored.at);
+    throw error;
+  }
 }
