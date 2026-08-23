@@ -84,12 +84,9 @@ export function PhoneAccess() {
           <>
             <p className="flex items-start gap-2 text-sky-100">
               <Check className="mt-0.5 size-4 shrink-0" />
-              Telegram è collegato. Ricerca e messaggio ogni 6 ore. Mandiamo solo
-              se i 10 token sono cambiati. In ogni riga: contratto da copiare, X e grafico.
+              Telegram è collegato, ma adesso è tutto fermo. Nessun messaggio
+              e nessuna ricerca fino a domani.
             </p>
-            <Button variant="outline" disabled={sending} onClick={() => void sendNow()}>
-              {sending ? "Invio…" : "Forza un invio ora"}
-            </Button>
           </>
         ) : (
           <>
