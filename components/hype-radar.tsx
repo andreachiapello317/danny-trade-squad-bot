@@ -163,7 +163,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
             Market cap da 200k in su. I launch entrano dopo 30 minuti. La ricerca
-            gira ogni 15 minuti. X vale il 10% e guarda i post della gente, non
+            gira ogni 2 ore. X vale il 10% e guarda i post della gente, non
             l’account ufficiale. Chi ha già fatto +80% oggi va sotto.
           </p>
         </div>

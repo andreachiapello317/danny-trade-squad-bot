@@ -59,19 +59,45 @@ export function contractsSignature(tokens: HypeToken[]) {
   return tokens.map((token) => token.mint).join("|");
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function xLink(token: HypeToken) {
+  if (token.twitterUrl) return token.twitterUrl;
+  const query = encodeURIComponent(`$${token.symbol} solana OR ${token.name}`);
+  return `https://x.com/search?q=${query}&src=typed_query&f=live`;
+}
+
+function chartLink(token: HypeToken) {
+  return token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`;
+}
+
 export function formatContractsMessage(tokens: HypeToken[]) {
   const when = new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" });
   const rows = tokens.map((token, index) => {
     const flag = token.check?.verdict === "danger" ? "  ATTENZIONE" : "";
-    return `${index + 1}. $${token.symbol}${flag}\n${token.mint}`;
+    const symbol = escapeHtml(`$${token.symbol}${flag}`);
+    const mint = escapeHtml(token.mint);
+    const x = escapeHtml(xLink(token));
+    const chart = escapeHtml(chartLink(token));
+    return [
+      `${index + 1}. ${symbol}`,
+      `<code>${mint}</code>`,
+      `<a href="${x}">X</a>  ·  <a href="${chart}">Grafico</a>`,
+    ].join("\n");
   });
   return [
-    "Radar Solana — 4 contratti da copiare",
-    when,
+    "Radar Solana — 4 contratti",
+    escapeHtml(when),
     "",
     ...rows,
     "",
-    "Non e un consiglio di investimento. Controlla prima di usare i fondi.",
+    "Tocca il contratto per copiarlo. Non e un consiglio di investimento.",
   ].join("\n");
 }
 
@@ -190,6 +216,7 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
   await telegramApi(token, "sendMessage", {
     chat_id: chatId,
     text: body,
+    parse_mode: "HTML",
     disable_web_page_preview: true,
   });
 

@@ -834,7 +834,7 @@ export async function getHypeBoard(options?: {
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Market cap da 200k, launch dopo 30 minuti. Ricerca, classifica e Telegram ogni 15 minuti. Un messaggio solo se i 4 contratti cambiano.",
+    note: "Market cap da 200k, launch dopo 30 minuti. Ricerca, classifica e Telegram ogni 2 ore. Un messaggio solo se i 4 contratti cambiano.",
   };
 
   boardCache = { at: Date.now(), board };

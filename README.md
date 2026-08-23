@@ -19,7 +19,7 @@ Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
 ## Telegram sul telefono
 
-La ricerca, la classifica e Telegram girano insieme ogni **15 minuti**. Arriva **un** messaggio solo se i 4 contratti sono cambiati.
+La ricerca, la classifica e Telegram girano insieme ogni **2 ore**. Arriva **un** messaggio solo se i 4 contratti sono cambiati. Nel messaggio ogni riga ha il mint da copiare, il link X e il grafico DexScreener.
 
 1. Apri Telegram e cerca **BotFather**.
 2. Scrivi `/newbot`, scegli un nome e un username che finisce con `bot`.
