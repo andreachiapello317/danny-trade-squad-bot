@@ -18,13 +18,18 @@ export type HypeToken = {
   marketCap: number | null;
   volume24h: number | null;
   volume1h: number | null;
+  volume5m: number | null;
   priceChange24h: number | null;
   priceChange1h: number | null;
+  priceChange5m: number | null;
   buys24h: number;
   sells24h: number;
   buys5m: number;
   sells5m: number;
+  buyPressure5m: number | null;
   liquidityUsd: number | null;
+  pairAgeHours: number | null;
+  freshBoost: boolean;
   twitterUrl: string | null;
   telegramUrl: string | null;
   websiteUrl: string | null;
@@ -48,6 +53,7 @@ export type HypeResponse = {
   generatedAt: string;
   winner: HypeToken | null;
   tokens: HypeToken[];
+  established: HypeToken[];
   sources: {
     coinGecko: boolean;
     geckoTerminal: boolean;

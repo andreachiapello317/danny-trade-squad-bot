@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Radar Hype Solana",
+  title: "Radar pump imminenti Solana",
   description:
-    "Il token Solana con più hype in questo momento, stimato da trending social e momentum DEX.",
+    "Token Solana ancora piccoli con pressione d'acquisto e hype in accelerazione, prima che il pump sia ovvio.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

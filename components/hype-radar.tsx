@@ -151,14 +151,14 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.28em] text-lime-400 uppercase">
-            Solana · X hype radar
+            Solana · pump imminenti
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Quale token sta facendo più rumore
+            Token che stanno entrando in hype
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Classifica in tempo reale dei memecoin Solana più caldi. Il primo posto pesa
-            i post e i follower su X, poi trending e volume DEX.
+            Non quelli già esplosi. Cerca pool giovani, buy pressure a 5 minuti, volume in
+            accelerazione e boost DexScreener appena pagati. Market cap sotto i 12M.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -186,7 +186,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium tracking-wide text-zinc-300 uppercase">
-            Classifica hype
+            Possibili pump
           </h2>
           {data?.generatedAt ? (
             <UpdatedAt iso={data.generatedAt} refreshing={loading} />
@@ -201,14 +201,14 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl ring-1 ring-white/10">
-            <div className="hidden grid-cols-[2.5rem_1fr_5rem_5rem_6.5rem_6.5rem_5.5rem] gap-3 bg-zinc-900/80 px-4 py-2 text-[11px] tracking-wide text-zinc-500 uppercase sm:grid">
+            <div className="hidden grid-cols-[2.5rem_1fr_5rem_5.5rem_5.5rem_6.5rem_5.5rem] gap-3 bg-zinc-900/80 px-4 py-2 text-[11px] tracking-wide text-zinc-500 uppercase sm:grid">
               <span>#</span>
               <span>Token</span>
-              <span className="text-right">Hype</span>
-              <span className="text-right">X</span>
+              <span className="text-right">Pump</span>
+              <span className="text-right">5m</span>
+              <span className="text-right">1h</span>
               <span className="text-right">Mcap</span>
-              <span className="text-right">Vol 24h</span>
-              <span className="text-right">24h</span>
+              <span className="text-right">Vol 1h</span>
             </div>
             {(data?.tokens ?? []).map((token, index) => (
               <a
@@ -216,7 +216,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                 href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}
                 target="_blank"
                 rel="noreferrer"
-                className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 transition hover:bg-white/5 sm:grid-cols-[2.5rem_1fr_5rem_5rem_6.5rem_6.5rem_5.5rem]"
+                className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 transition hover:bg-white/5 sm:grid-cols-[2.5rem_1fr_5rem_5.5rem_5.5rem_6.5rem_5.5rem]"
               >
                 <span className="font-mono text-xs text-zinc-500">{index + 1}</span>
                 <span className="flex min-w-0 items-center gap-3">
@@ -231,17 +231,17 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                 <span className="text-right font-mono text-sm text-lime-300">
                   {token.hypeScore}
                 </span>
-                <span className="hidden text-right font-mono text-sm text-zinc-400 sm:block">
-                  {token.xScore}
+                <span className="hidden text-right text-sm sm:block">
+                  <Change value={token.priceChange5m} />
+                </span>
+                <span className="hidden text-right text-sm sm:block">
+                  <Change value={token.priceChange1h} />
                 </span>
                 <span className="hidden text-right font-mono text-sm text-zinc-300 sm:block">
                   {formatUsd(token.marketCap)}
                 </span>
                 <span className="hidden text-right font-mono text-sm text-zinc-300 sm:block">
-                  {formatUsd(token.volume24h)}
-                </span>
-                <span className="hidden text-right text-sm sm:block">
-                  <Change value={token.priceChange24h} />
+                  {formatUsd(token.volume1h)}
                 </span>
               </a>
             ))}
@@ -249,30 +249,57 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         )}
       </section>
 
+      {(data.established ?? []).length ? (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium tracking-wide text-zinc-500 uppercase">
+            Già in hype — spesso tardi
+          </h2>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(data.established ?? []).map((token) => (
+              <a
+                key={token.mint}
+                href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-3 rounded-xl px-3 py-2 ring-1 ring-white/10 transition hover:bg-white/5"
+              >
+                <TokenImage token={token} size={28} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-zinc-200">${token.symbol}</span>
+                  <span className="block truncate text-xs text-zinc-500">
+                    {formatUsd(token.marketCap)} · <Change value={token.priceChange24h} />
+                  </span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <Card className="bg-zinc-900/60">
         <CardHeader>
           <CardTitle>Come viene calcolato</CardTitle>
           <CardDescription>
             {data?.note ??
-              "L'hype su X viene stimato da fonti pubbliche perché la ricerca post non è abilitata su questo account."}
+              "Cerca token piccoli in accelerazione, non i ticker già in cima a CoinGecko."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">
           <p>
-            <span className="block font-medium text-zinc-200">40% X</span>
-            Follower, view, like e reply sui post recenti del profilo ufficiale.
+            <span className="block font-medium text-zinc-200">Buy pressure 5m</span>
+            Quanti acquisti vs vendite proprio ora, non il volume di ieri.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">28% trending</span>
-            Posizione nel trending CoinGecko.
+            <span className="block font-medium text-zinc-200">Accelerazione</span>
+            Volume 1h molto sopra la media oraria delle ultime 24h.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">18% momentum DEX</span>
-            Rank dei pool Solana in tendenza su GeckoTerminal.
+            <span className="block font-medium text-zinc-200">Pool giovane</span>
+            Token nati da poche ore, più boost DexScreener appena pagati.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">14% on-chain</span>
-            Volume, transazioni e boost DexScreener.
+            <span className="block font-medium text-zinc-200">Cap piccolo</span>
+            Sotto i 12M, meglio tra 50k e 2M. I already-pumped restano sotto.
           </p>
         </CardContent>
       </Card>
@@ -301,7 +328,7 @@ function WinnerCard({
         <TokenImage token={token} size={72} />
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="bg-lime-400 text-zinc-950 hover:bg-lime-300">Più hype ora</Badge>
+            <Badge className="bg-lime-400 text-zinc-950 hover:bg-lime-300">Candidato pump</Badge>
             {token.coinGeckoRank ? (
               <Badge variant="outline">CoinGecko #{token.coinGeckoRank}</Badge>
             ) : null}
@@ -318,18 +345,34 @@ function WinnerCard({
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Hype score" value={String(token.hypeScore)} />
-          <Stat label="Prezzo" value={formatUsd(token.priceUsd, 4)} />
-          <Stat label="Market cap" value={formatUsd(token.marketCap)} />
-          <Stat label="Volume 24h" value={formatUsd(token.volume24h)} />
+          <Stat label="Pump score" value={String(token.hypeScore)} />
+          <Stat label="Cambio 5m" value={<Change value={token.priceChange5m} />} />
           <Stat label="Cambio 1h" value={<Change value={token.priceChange1h} />} />
-          <Stat label="Cambio 24h" value={<Change value={token.priceChange24h} />} />
-          <Stat label="Buy 24h" value={token.buys24h.toLocaleString("it-IT")} />
-          <Stat label="Liquidità" value={formatUsd(token.liquidityUsd)} />
-          <Stat label="Score X" value={String(token.xScore)} />
           <Stat
-            label="Follower X"
-            value={token.xFollowers != null ? token.xFollowers.toLocaleString("it-IT") : "—"}
+            label="Buy 5m"
+            value={
+              token.buyPressure5m != null
+                ? `${Math.round(token.buyPressure5m * 100)}% buy`
+                : "—"
+            }
+          />
+          <Stat label="Market cap" value={formatUsd(token.marketCap)} />
+          <Stat label="Volume 1h" value={formatUsd(token.volume1h)} />
+          <Stat label="Volume 5m" value={formatUsd(token.volume5m)} />
+          <Stat
+            label="Età pool"
+            value={
+              token.pairAgeHours == null
+                ? "—"
+                : token.pairAgeHours < 1
+                  ? `${Math.round(token.pairAgeHours * 60)} min`
+                  : `${token.pairAgeHours < 10 ? token.pairAgeHours.toFixed(1) : Math.round(token.pairAgeHours)} h`
+            }
+          />
+          <Stat label="Liquidità" value={formatUsd(token.liquidityUsd)} />
+          <Stat
+            label="Boost fresco"
+            value={token.freshBoost ? "Sì" : token.boostAmount ? String(token.boostAmount) : "No"}
           />
         </div>
 

@@ -1,13 +1,8 @@
-# Radar Hype Solana
+# Radar pump imminenti Solana
 
-App web che classifica i token Solana con più attenzione in questo momento.
+Classifica i memecoin Solana **ancora piccoli** che stanno accelerando: pressione d’acquisto a 5 minuti, volume 1h sopra la media, pool giovani e boost DexScreener appena pagati.
 
-Il primo posto combina:
-
-1. **X** — profilo ufficiale e post recenti (follower, view, like, reply)
-2. **Trending CoinGecko**
-3. **Pool Solana in tendenza** su GeckoTerminal
-4. **Volume, transazioni e boost** DexScreener
+Non è la lista dei token già esplosi. Quelli finiscono sotto, in “già in hype”.
 
 Non è consulenza finanziaria. I memecoin sono estremamente volatili.
 
@@ -22,4 +17,4 @@ Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
 ## API
 
-`GET /api/hype` restituisce il vincitore e la classifica, ricalcolati a ogni richiesta dalle API pubbliche.
+`GET /api/hype` restituisce `tokens` (candidati pump) e `established` (già in hype).

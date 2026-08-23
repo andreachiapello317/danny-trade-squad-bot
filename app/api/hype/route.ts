@@ -17,6 +17,7 @@ export async function GET() {
         generatedAt: new Date().toISOString(),
         winner: null,
         tokens: [],
+        established: [],
         sources: { coinGecko: false, geckoTerminal: false, dexScreener: false, x: false },
         note: "Impossibile calcolare l'hype in questo momento.",
         error: true,
