@@ -2,7 +2,7 @@
 
 Classifica i token Solana da **200k di market cap** in su. I launch entrano **dopo 30 minuti**, non prima.
 
-Il punteggio pesa soprattutto X (profilo ufficiale + post recenti) e l’accelerazione. Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
+X vale il 10% e conta i **post della gente** sul ticker, non l’account ufficiale. Il resto è accelerazione e launch (dopo 30 minuti). Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
 
 Ogni candidato in cima passa anche RugCheck (mint, freeze, LP, holder) e il confronto col profilo X ufficiale.
 

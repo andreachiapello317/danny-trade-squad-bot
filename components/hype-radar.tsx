@@ -157,8 +157,9 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
             Cosa sta partendo adesso
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Market cap da 200k in su. I launch entrano dopo 30 minuti, non prima. Il
-            punteggio pesa X e l’accelerazione. Chi ha già fatto +80% oggi va sotto.
+            Market cap da 200k in su. I launch entrano dopo 30 minuti. X vale il 10% e
+            guarda i post della gente, non l’account ufficiale. Chi ha già fatto +80%
+            oggi va sotto.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -303,8 +304,8 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
             I pool con meno di 30 minuti restano fuori. Dopo mezz’ora possono entrare in classifica.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">X ufficiale</span>
-            Follower, post recenti e engagement. Vale circa un terzo del punteggio.
+            <span className="block font-medium text-zinc-200">X della gente</span>
+            Conta chi sta twittando il ticker, non il profilo del progetto. Vale il 10%.
           </p>
           <p>
             <span className="block font-medium text-zinc-200">RugCheck</span>
@@ -390,7 +391,7 @@ function WinnerCard({
 
         {token.xPosts.length ? (
           <div className="space-y-2">
-            <p className="text-[11px] tracking-wide text-zinc-500 uppercase">Post recenti su X</p>
+            <p className="text-[11px] tracking-wide text-zinc-500 uppercase">Post della gente su X</p>
             <div className="space-y-2">
               {token.xPosts.map((post) => (
                 <a
@@ -400,6 +401,9 @@ function WinnerCard({
                   rel="noreferrer"
                   className="block rounded-lg bg-black/30 px-3 py-2 transition hover:bg-black/50"
                 >
+                  {post.author ? (
+                    <p className="mb-1 font-mono text-[11px] text-lime-300">@{post.author}</p>
+                  ) : null}
                   <p className="line-clamp-2 text-sm text-zinc-200">{post.text}</p>
                   {token.check?.xMintInPosts &&
                   token.mint &&

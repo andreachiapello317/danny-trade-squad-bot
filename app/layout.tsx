@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Radar Solana: da 200k, launch dopo 30 min",
   description:
-    "Token Solana da 200k di market cap. I launch entrano dopo 30 minuti. Il punteggio pesa X e l'accelerazione.",
+    "Token Solana da 200k. Launch dopo 30 minuti. X al 10% sui post della gente, non sull'account ufficiale.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

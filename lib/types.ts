@@ -7,6 +7,7 @@ export type XPost = {
   replies: number;
   retweets: number;
   createdAt: string | null;
+  author: string | null;
 };
 
 export type HypeToken = {

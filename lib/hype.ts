@@ -1,6 +1,6 @@
 import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { checkTokens } from "@/lib/legit";
-import { loadXSignal, loadXSignals, twitterHandle } from "@/lib/x-signal";
+import { loadCrowdTalks, loadXSignal, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
   "SOL",
@@ -508,6 +508,8 @@ type XInfo = {
   followers: number | null;
   tweetCount: number | null;
   posts: XPost[];
+  authors: number;
+  crowd: boolean;
 };
 
 function pairAgeHours(draft: Draft): number | null {
@@ -580,7 +582,7 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     const dumpPenalty = change24h <= -40 ? 26 : change24h <= -22 ? 12 : 0;
     const orgScore = draft.organicScore ?? 50;
     const sizeScore = logScale(draft.marketCap, 3_000_000_000);
-    const liveX = x?.xScore ?? (draft.twitterUrl ? 8 : 0);
+    const liveX = x?.crowd ? x.xScore : 0;
     const launchScore =
       age == null
         ? 8
@@ -595,15 +597,14 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
                 : 12;
     hypeScore = Math.round(
       clamp(
-        liveX * 0.32 +
-          heat1h * 0.18 +
-          launchScore * 0.1 +
-          confirm24 * 0.08 +
-          volumeScore * 0.1 +
+        liveX * 0.1 +
+          heat1h * 0.26 +
+          launchScore * 0.16 +
+          confirm24 * 0.1 +
+          volumeScore * 0.16 +
           orgScore * 0.06 +
-          sizeScore * 0.05 +
-          pressureScore * 0.06 +
-          socialScore * 0.05 -
+          sizeScore * 0.06 +
+          pressureScore * 0.1 -
           latePenalty -
           dumpPenalty,
         0,
@@ -611,11 +612,12 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
       )
     );
 
-    if (x && x.xScore >= 20) {
-      const followers = x.followers ? ` · ${(x.followers).toLocaleString("it-IT")} follower` : "";
-      reasons.push(`X @${x.handle} è caldo adesso${followers}`);
-    } else if (draft.twitterUrl && !x) {
-      reasons.push("Profilo X ufficiale trovato, engagement ancora da leggere");
+    if (x?.crowd && (x.authors > 0 || x.posts.length > 0)) {
+      reasons.push(
+        x.authors > 1
+          ? `${x.authors} persone stanno postando $${draft.symbol.replace(/^\$/, "")} su X — non è l’account ufficiale`
+          : `Gente che posta $${draft.symbol.replace(/^\$/, "")} su X, fuori dal profilo ufficiale`
+      );
     }
     if (change1h >= 0.8) {
       reasons.push(`In accelerazione sull’ora: ${change1h >= 0 ? "+" : ""}${change1h.toFixed(1)}%`);
@@ -691,10 +693,10 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     momentumScore: Math.round(momentumScore),
     heatScore: Math.round(heatScore),
     xScore: Math.round(xScore),
-    xHandle: x?.handle ?? twitterHandle(draft.twitterUrl),
-    xFollowers: x?.followers ?? null,
+    xHandle: twitterHandle(draft.twitterUrl),
+    xFollowers: x?.crowd ? x.authors : x?.followers ?? null,
     xTweetCount: x?.tweetCount ?? null,
-    xPosts: x?.posts ?? [],
+    xPosts: x?.crowd ? x.posts : [],
     reasons,
     check: null,
   };
@@ -737,16 +739,20 @@ export async function getHypeBoard(): Promise<HypeResponse> {
     heatingDrafts = [...heatingDrafts, ...extra].slice(0, 10);
   }
 
-  const xSignals = await loadXSignals(
+  const crowdTalks = await loadCrowdTalks(
     [...heatingDrafts]
-      .sort((a, b) => (b.volume1h ?? 0) - (a.volume1h ?? 0))
-      .slice(0, 12)
-      .map((draft) => draft.twitterUrl)
+      .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0) || (a.marketCap ?? 9e18) - (b.marketCap ?? 9e18))
+      .slice(0, 6)
+      .map((draft) => ({
+        symbol: draft.symbol,
+        name: draft.name,
+        twitterUrl: draft.twitterUrl,
+      }))
   );
 
   const attach = (draft: Draft, mode: "heating" | "pumped") => {
-    const handle = twitterHandle(draft.twitterUrl)?.toLowerCase();
-    return scoreDraft(draft, handle ? xSignals.get(handle) : undefined, mode);
+    const crowd = crowdTalks.get(normalizeSymbol(draft.symbol));
+    return scoreDraft(draft, crowd, mode);
   };
 
   const heating = heatingDrafts
@@ -762,8 +768,7 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const checks = await checkTokens(
     await Promise.all(
       [...heating.slice(0, 6), ...pumped.slice(0, 2)].map(async (token) => {
-        const handle = twitterHandle(token.twitterUrl)?.toLowerCase();
-        const x = (handle ? xSignals.get(handle) : null) ?? (await loadXSignal(token.twitterUrl));
+        const x = await loadXSignal(token.twitterUrl);
         return { mint: token.mint, x, pairAgeHours: token.pairAgeHours };
       })
     )
@@ -788,10 +793,10 @@ export async function getHypeBoard(): Promise<HypeResponse> {
       coinGecko,
       geckoTerminal: geckoTerminal || newPools,
       dexScreener,
-      x: xSignals.size > 0,
+      x: [...crowdTalks.values()].some((signal) => signal.posts.length > 0),
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Market cap da 200k in su. I launch entrano dopo 30 minuti. Il punteggio pesa X (profilo ufficiale + post recenti) e l’accelerazione. Chi ha già fatto +80% oggi va sotto.",
+    note: "Market cap da 200k, launch dopo 30 minuti. X vale il 10% e conta i post della gente, non l’account ufficiale del token.",
   };
 }
