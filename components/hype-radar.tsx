@@ -155,10 +155,10 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.28em] text-lime-400 uppercase">
-            Solana · verified · trending
+            Solana · soldi forti · trending
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            I più in trending, solo verified
+            Dove stanno andando i soldi
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
             Seguiamo i soldi forti: trending, volume e whale. Chi ha già pompato
