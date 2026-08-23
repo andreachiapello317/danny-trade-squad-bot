@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Radar Solana: nomi grossi in accelerazione",
   description:
-    "Token Solana già listati e verificati, market cap da 15M in su, che stanno partendo adesso. Niente launch da un'ora.",
+    "Token Solana già listati e verificati, da 4M di market cap in su. Il punteggio pesa X e l'accelerazione a 1 ora.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

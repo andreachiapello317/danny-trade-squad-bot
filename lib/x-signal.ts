@@ -190,7 +190,7 @@ export async function loadXSignals(
 ): Promise<Map<string, XSignal>> {
   const unique = [...new Set(urls.map(twitterHandle).filter((handle): handle is string => Boolean(handle)))];
   const results = await Promise.all(
-    unique.slice(0, 10).map(async (handle) => {
+    unique.slice(0, 12).map(async (handle) => {
       const signal = await loadXSignal(`https://x.com/${handle}`);
       return [handle.toLowerCase(), signal] as const;
     })

@@ -1,6 +1,6 @@
 # Radar Solana — nomi grossi in accelerazione
 
-Classifica i token Solana **già listati e verificati** che stanno partendo adesso: market cap da 15M in su, liquidità reale, presenza nella lista Jupiter verified.
+Classifica i token Solana **già listati e verificati** che stanno partendo adesso: market cap da 4M in su, liquidità reale, presenza nella lista Jupiter verified. Il punteggio pesa soprattutto X (profilo ufficiale + post recenti) e l’accelerazione a 1 ora.
 
 Non è la lista dei launch da un’ora, né dei ticker già +200% oggi. Quelli, se passano i filtri, finiscono sotto in “già pompate oggi”.
 

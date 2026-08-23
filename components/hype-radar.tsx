@@ -157,9 +157,9 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
             Nomi grossi che stanno partendo
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Solo token già su Jupiter verified, market cap da 15M in su, liquidità reale.
-            Cerchiamo l’accelerazione a 1 ora — niente launch da un’ora, niente boost pagati,
-            niente ticker già +80% oggi.
+            Jupiter verified, cap da 4M in su, liquidità reale. Il punteggio pesa X
+            (profilo ufficiale + post recenti) e l’accelerazione a 1 ora. Niente launch
+            da un’ora, niente ticker già +80% oggi.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -292,7 +292,11 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">
           <p>
             <span className="block font-medium text-zinc-200">Jupiter verified</span>
-            Niente launch anonimi. Serve mint in lista verified, cap da 15M e liquidità da 800k.
+            Niente launch anonimi. Serve mint in lista verified, cap da 4M e liquidità vera.
+          </p>
+          <p>
+            <span className="block font-medium text-zinc-200">X ufficiale</span>
+            Follower, post recenti e engagement del profilo vero. Vale circa un terzo del punteggio.
           </p>
           <p>
             <span className="block font-medium text-zinc-200">Heat a 1 ora</span>

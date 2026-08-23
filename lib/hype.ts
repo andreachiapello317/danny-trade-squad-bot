@@ -26,12 +26,12 @@ const SKIP_SYMBOLS = new Set([
   "ZEC",
 ]);
 
-const SKIP_NAME_RE = /wormhole|xstock|wrapped|bridged|staked /i;
+const SKIP_NAME_RE = /wormhole|xstock|wrapped|bridged|staked |prestock/i;
 
-const MIN_MCAP = 15_000_000;
+const MIN_MCAP = 4_000_000;
 const MAX_MCAP = 5_000_000_000;
-const MIN_LIQ = 800_000;
-const MIN_ORGANIC = 45;
+const MIN_LIQ = 300_000;
+const MIN_ORGANIC = 35;
 const ALREADY_PUMPED_24H = 80;
 
 const WSOL = "So11111111111111111111111111111111111111112";
@@ -484,18 +484,17 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     const dumpPenalty = change24h <= -40 ? 26 : change24h <= -22 ? 12 : 0;
     const orgScore = draft.organicScore ?? 50;
     const sizeScore = logScale(draft.marketCap, 3_000_000_000);
-    const xEstablished =
-      x && (x.followers ?? 0) >= 20_000 ? 22 : x && (x.followers ?? 0) >= 5_000 ? 12 : draft.twitterUrl ? 5 : 0;
+    const liveX = x?.xScore ?? (draft.twitterUrl ? 8 : 0);
     hypeScore = Math.round(
       clamp(
-        heat1h * 0.3 +
-          confirm24 * 0.12 +
-          volumeScore * 0.12 +
-          orgScore * 0.1 +
-          sizeScore * 0.1 +
-          pressureScore * 0.08 +
-          socialScore * 0.08 +
-          xEstablished * 0.1 -
+        liveX * 0.34 +
+          heat1h * 0.2 +
+          confirm24 * 0.09 +
+          volumeScore * 0.1 +
+          orgScore * 0.08 +
+          sizeScore * 0.06 +
+          pressureScore * 0.07 +
+          socialScore * 0.06 -
           latePenalty -
           dumpPenalty,
         0,
@@ -503,23 +502,26 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
       )
     );
 
+    if (x && x.xScore >= 20) {
+      const followers = x.followers ? ` · ${(x.followers).toLocaleString("it-IT")} follower` : "";
+      reasons.push(`X @${x.handle} è caldo adesso${followers}`);
+    } else if (draft.twitterUrl && !x) {
+      reasons.push("Profilo X ufficiale trovato, engagement ancora da leggere");
+    }
     if (change1h >= 0.8) {
       reasons.push(`In accelerazione sull’ora: ${change1h >= 0 ? "+" : ""}${change1h.toFixed(1)}%`);
     }
     if (change24h >= 6 && change24h < 50) {
       reasons.push(`Giornata già verde (+${change24h.toFixed(1)}%) senza essere esplosa`);
     }
-    if ((draft.marketCap ?? 0) >= 50_000_000) {
-      reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(0)}M: non è un launch da un’ora`);
+    if ((draft.marketCap ?? 0) >= 20_000_000) {
+      reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(0)}M: già listato, non è un launch`);
     }
     if (draft.verified) reasons.push("Presente nella lista Jupiter verified");
     if ((draft.organicScore ?? 0) >= 80) {
       reasons.push(`Flusso organico alto su Jupiter (${Math.round(draft.organicScore ?? 0)})`);
     }
     if (draft.coinGeckoRank) reasons.push(`#${draft.coinGeckoRank} trending CoinGecko`);
-    if (x && (x.followers ?? 0) >= 10_000) {
-      reasons.push(`X @${x.handle} ha ${(x.followers ?? 0).toLocaleString("it-IT")} follower`);
-    }
     if (pressure != null && pressure >= 0.56) {
       reasons.push(`Pressione d’acquisto 5m: ${Math.round(pressure * 100)}% buy`);
     }
@@ -609,7 +611,7 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const xSignals = await loadXSignals(
     [...heatingDrafts]
       .sort((a, b) => (b.volume1h ?? 0) - (a.volume1h ?? 0))
-      .slice(0, 8)
+      .slice(0, 12)
       .map((draft) => draft.twitterUrl)
   );
 
@@ -661,6 +663,6 @@ export async function getHypeBoard(): Promise<HypeResponse> {
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Solo token Jupiter verified con market cap da 15M in su e liquidità reale. Cerchiamo l’accelerazione a 1 ora, non i launch da un’ora e non quelli già +80% oggi.",
+    note: "Token Jupiter verified da 4M di market cap in su. Il punteggio pesa soprattutto X (profilo ufficiale + post recenti) e l’accelerazione a 1 ora. Niente launch da un’ora, niente già +80% oggi.",
   };
 }
