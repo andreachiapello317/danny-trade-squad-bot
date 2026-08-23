@@ -96,7 +96,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
     initial.winner ? null : "Nessun token in tendenza al momento. Riprova tra un minuto."
   );
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -141,11 +141,12 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         ok = false;
       }
     }
-    setCopied(ok);
-    window.setTimeout(() => setCopied(false), 1800);
+    setCopied(ok ? mint : null);
+    window.setTimeout(() => setCopied(null), 1800);
   }
 
   const winner = data?.winner ?? null;
+  const topContracts = (data.topContracts ?? []).slice(0, 4);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -169,6 +170,10 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         </Button>
       </header>
 
+      {topContracts.length ? (
+        <ContractsCard tokens={topContracts} copied={copied} onCopy={copyMint} />
+      ) : null}
+
       <PhoneAccess />
 
       {error ? (
@@ -185,7 +190,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         </Card>
       ) : null}
 
-      {loading && !winner ? <HeroSkeleton /> : winner ? <WinnerCard token={winner} copied={copied} onCopy={copyMint} /> : null}
+      {loading && !winner ? <HeroSkeleton /> : winner ? <WinnerCard token={winner} copied={copied === winner.mint} onCopy={copyMint} /> : null}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -322,6 +327,60 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         mint prima di uno swap. Fonti: Jupiter verified, CoinGecko, GeckoTerminal, DexScreener, RugCheck e X.
       </p>
     </div>
+  );
+}
+
+function ContractsCard({
+  tokens,
+  copied,
+  onCopy,
+}: {
+  tokens: HypeToken[];
+  copied: string | null;
+  onCopy: (mint: string) => void;
+}) {
+  const allMints = tokens.map((token) => `$${token.symbol} ${token.mint}`).join("\n");
+
+  return (
+    <Card className="ring-lime-400/25">
+      <CardHeader>
+        <CardTitle>4 contratti da copiare</CardTitle>
+        <CardDescription>
+          I più promettenti adesso. Tocca il mint per copiarlo nello swap. Non è un via libera.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {tokens.map((token, index) => (
+          <div
+            key={token.mint}
+            className="flex items-center gap-3 rounded-lg bg-black/30 px-3 py-2"
+          >
+            <span className="w-4 font-mono text-xs text-zinc-500">{index + 1}</span>
+            <TokenImage token={token} size={28} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-zinc-100">${token.symbol}</p>
+              <p className="truncate font-mono text-[11px] text-zinc-500">{token.mint}</p>
+            </div>
+            <button
+              type="button"
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 font-mono")}
+              onClick={() => onCopy(token.mint)}
+            >
+              <Copy />
+              {copied === token.mint ? "Copiato" : shortMint(token.mint)}
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className={cn(buttonVariants({ variant: "outline" }), "w-full font-mono")}
+          onClick={() => onCopy(allMints)}
+        >
+          <Copy />
+          {copied === allMints ? "Tutti copiati" : "Copia i 4 mint"}
+        </button>
+      </CardContent>
+    </Card>
   );
 }
 

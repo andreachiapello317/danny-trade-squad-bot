@@ -17,7 +17,17 @@ npm run dev -- --port 43177 --hostname 127.0.0.1
 
 Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
-## Sul telefono
+## Notifiche sul telefono
+
+Quando i 4 contratti in cima cambiano, il radar può mandarteli sul telefono.
+
+1. Installa [ntfy](https://ntfy.sh) su iPhone o Android.
+2. Iscriviti al topic indicato in pagina (o in `.env.local` come `NTFY_TOPIC`).
+3. Opzionale: Telegram, compilando `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`.
+
+`GET /api/contracts` è il testo dei 4 mint. `POST /api/notify` li reinvia.
+
+## Sul telefono (aprire la pagina)
 
 La UI è già mobile. Per usarla dal telefono sulla stessa Wi‑Fi del computer:
 

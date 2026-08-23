@@ -1,5 +1,6 @@
 import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { checkTokens } from "@/lib/legit";
+import { notifyTopContracts } from "@/lib/notify";
 import { loadCrowdTalks, loadXSignal, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
@@ -558,6 +559,24 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 4) {
+  const out: HypeToken[] = [];
+  const seen = new Set<string>();
+  const push = (token: HypeToken | null | undefined) => {
+    if (!token?.mint || seen.has(token.mint)) return;
+    seen.add(token.mint);
+    out.push(token);
+  };
+  const safer = tokens.filter((token) => token.check?.verdict !== "danger");
+  const risky = tokens.filter((token) => token.check?.verdict === "danger");
+  if (winner && winner.check?.verdict !== "danger") push(winner);
+  for (const token of safer) push(token);
+  if (out.length < count) {
+    for (const token of risky) push(token);
+  }
+  return out.slice(0, count);
+}
+
 function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heating"): HypeToken {
   const socialScore = rankPoints(draft.coinGeckoRank, 15);
   const momentumScore = rankPoints(draft.geckoTerminalRank, 20);
@@ -783,11 +802,14 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const checkedPumped = pumped.map(withCheck);
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
+  const topContracts = pickTopContracts(checkedHeating, winner, 4);
+  await notifyTopContracts(topContracts);
 
   return {
     generatedAt: new Date().toISOString(),
     winner,
     tokens: checkedHeating,
+    topContracts,
     established: checkedPumped,
     sources: {
       coinGecko,

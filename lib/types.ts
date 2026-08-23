@@ -73,6 +73,7 @@ export type HypeResponse = {
   generatedAt: string;
   winner: HypeToken | null;
   tokens: HypeToken[];
+  topContracts: HypeToken[];
   established: HypeToken[];
   sources: {
     coinGecko: boolean;

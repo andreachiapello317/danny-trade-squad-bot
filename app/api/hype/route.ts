@@ -17,6 +17,7 @@ export async function GET() {
         generatedAt: new Date().toISOString(),
         winner: null,
         tokens: [],
+        topContracts: [],
         established: [],
         sources: {
           coinGecko: false,
