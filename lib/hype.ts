@@ -36,6 +36,8 @@ const MAX_MCAP = 5_000_000_000;
 const MIN_LIQ = 12_000;
 const MIN_ORGANIC = 10;
 const MIN_LAUNCH_HOURS = 0.5;
+const ALREADY_PUMPED_24H = 80;
+const STRONG_TREND_RANK = 15;
 const SKIP_NAMES = new Set(["test", "testing", "asdf", "aaa"]);
 
 const WSOL = "So11111111111111111111111111111111111111112";
@@ -247,6 +249,70 @@ function applyDexPair(draft: Draft, pair: Json) {
 
 let jupiterCache: { at: number; rows: Json[] } | null = null;
 
+function applyJupiterToken(
+  byMint: Map<string, Draft>,
+  bySymbol: Map<string, Draft>,
+  item: Json,
+  requireVerified: boolean,
+) {
+  const tags = asArray(item.tags).map((tag) => String(tag).toLowerCase());
+  const verified = item.isVerified === true || tags.includes("verified");
+  if (requireVerified && !verified) return false;
+  const mint = str(item.id);
+  const symbol = str(item.symbol) ?? "";
+  const name = str(item.name) ?? symbol;
+  const marketCap = num(item.mcap);
+  const liquidityUsd = num(item.liquidity);
+  const organicScore = num(item.organicScore);
+  if (!mint || mint === WSOL || SKIP_MINTS.has(mint)) return false;
+  if (SKIP_SYMBOLS.has(normalizeSymbol(symbol))) return false;
+  if (SKIP_NAME_RE.test(name)) return false;
+  if (requireVerified) {
+    if (marketCap == null || marketCap < MIN_MCAP || marketCap > MAX_MCAP) return false;
+    if ((liquidityUsd ?? 0) < MIN_LIQ) return false;
+    if (organicScore != null && organicScore < MIN_ORGANIC && (marketCap ?? 0) < 4_000_000) {
+      return false;
+    }
+  }
+
+  const stats5m = asRecord(item.stats5m);
+  const stats1h = asRecord(item.stats1h);
+  const stats24h = asRecord(item.stats24h);
+  const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
+  draft.name = name || draft.name;
+  draft.symbol = symbol || draft.symbol;
+  draft.imageUrl = str(item.icon) ?? draft.imageUrl;
+  draft.priceUsd = num(item.usdPrice) ?? draft.priceUsd;
+  draft.marketCap = marketCap ?? draft.marketCap;
+  if (liquidityUsd != null) {
+    draft.liquidityUsd = Math.max(draft.liquidityUsd ?? 0, liquidityUsd);
+  }
+  draft.volume5m = (num(stats5m.buyVolume) ?? 0) + (num(stats5m.sellVolume) ?? 0) || draft.volume5m;
+  draft.volume1h = (num(stats1h.buyVolume) ?? 0) + (num(stats1h.sellVolume) ?? 0) || draft.volume1h;
+  draft.volume24h = (num(stats24h.buyVolume) ?? 0) + (num(stats24h.sellVolume) ?? 0) || draft.volume24h;
+  draft.priceChange5m = num(stats5m.priceChange) ?? draft.priceChange5m;
+  draft.priceChange1h = num(stats1h.priceChange) ?? draft.priceChange1h;
+  draft.priceChange24h = num(stats24h.priceChange) ?? draft.priceChange24h;
+  draft.buys5m = num(stats5m.numBuys) ?? draft.buys5m;
+  draft.sells5m = num(stats5m.numSells) ?? draft.sells5m;
+  draft.buys24h = num(stats24h.numBuys) ?? draft.buys24h;
+  draft.sells24h = num(stats24h.numSells) ?? draft.sells24h;
+  const created = str(asRecord(item.firstPool).createdAt);
+  if (created) {
+    const createdMs = Date.parse(created);
+    if (Number.isFinite(createdMs)) {
+      draft.pairCreatedAt =
+        draft.pairCreatedAt == null ? createdMs : Math.min(draft.pairCreatedAt, createdMs);
+    }
+  }
+  draft.listed = true;
+  draft.verified = verified || draft.verified;
+  draft.organicScore = organicScore ?? draft.organicScore;
+  byMint.set(mint, draft);
+  bySymbol.set(normalizeSymbol(draft.symbol), draft);
+  return true;
+}
+
 async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
   let rows: Json[] = [];
   if (jupiterCache && Date.now() - jupiterCache.at < BOARD_CACHE_MS) {
@@ -269,75 +335,31 @@ async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<str
   return used > 0;
 }
 
-function applyJupiterToken(
-  byMint: Map<string, Draft>,
-  bySymbol: Map<string, Draft>,
-  item: Json,
-  requireVerified: boolean,
-) {
-  const tags = asArray(item.tags).map((tag) => String(tag).toLowerCase());
-  const verified = item.isVerified === true || tags.includes("verified");
-  if (requireVerified && !verified) return false;
-  const mint = str(item.id);
-  const symbol = str(item.symbol) ?? "";
-  const name = str(item.name) ?? symbol;
-  const marketCap = num(item.mcap);
-  const liquidityUsd = num(item.liquidity);
-  const organicScore = num(item.organicScore);
-  if (!mint || mint === WSOL || SKIP_MINTS.has(mint)) return false;
-  if (SKIP_SYMBOLS.has(normalizeSymbol(symbol))) return false;
-  if (SKIP_NAME_RE.test(name)) return false;
-  if (marketCap == null || marketCap < MIN_MCAP || marketCap > MAX_MCAP) return false;
-  if ((liquidityUsd ?? 0) < MIN_LIQ) return false;
-  if (requireVerified && organicScore != null && organicScore < MIN_ORGANIC && marketCap < 4_000_000) {
-    return false;
-  }
-
-  const stats5m = asRecord(item.stats5m);
-  const stats1h = asRecord(item.stats1h);
-  const stats24h = asRecord(item.stats24h);
-  const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
-  draft.name = name || draft.name;
-  draft.symbol = symbol || draft.symbol;
-  draft.imageUrl = str(item.icon) ?? draft.imageUrl;
-  draft.priceUsd = num(item.usdPrice) ?? draft.priceUsd;
-  draft.marketCap = marketCap ?? draft.marketCap;
-  draft.liquidityUsd = liquidityUsd ?? draft.liquidityUsd;
-  draft.volume5m = (num(stats5m.buyVolume) ?? 0) + (num(stats5m.sellVolume) ?? 0) || draft.volume5m;
-  draft.volume1h = (num(stats1h.buyVolume) ?? 0) + (num(stats1h.sellVolume) ?? 0) || draft.volume1h;
-  draft.volume24h = (num(stats24h.buyVolume) ?? 0) + (num(stats24h.sellVolume) ?? 0) || draft.volume24h;
-  draft.priceChange5m = num(stats5m.priceChange) ?? draft.priceChange5m;
-  draft.priceChange1h = num(stats1h.priceChange) ?? draft.priceChange1h;
-  draft.priceChange24h = num(stats24h.priceChange) ?? draft.priceChange24h;
-  draft.buys5m = num(stats5m.numBuys) ?? draft.buys5m;
-  draft.sells5m = num(stats5m.numSells) ?? draft.sells5m;
-  draft.buys24h = num(stats24h.numBuys) ?? draft.buys24h;
-  draft.sells24h = num(stats24h.numSells) ?? draft.sells24h;
-  const created = str(asRecord(item.firstPool).createdAt);
-  if (created) draft.pairCreatedAt = Date.parse(created);
-  draft.listed = true;
-  draft.verified = verified || draft.verified;
-  draft.organicScore = organicScore ?? draft.organicScore;
-  byMint.set(mint, draft);
-  bySymbol.set(normalizeSymbol(draft.symbol), draft);
-  return true;
-}
-
 async function hydrateTrendingFromJupiter(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
-  const missing = [...byMint.values()]
+  const trending = [...byMint.values()]
     .filter((draft) => draft.geckoTerminalRank != null)
+    .sort((a, b) => (a.geckoTerminalRank ?? 99) - (b.geckoTerminalRank ?? 99))
     .slice(0, 20);
-  await Promise.all(
-    missing.map(async (draft) => {
-      const payload = await fetchJson<unknown>(
+  if (!trending.length) return false;
+
+  const payloads = await Promise.all(
+    trending.map((draft) =>
+      fetchJson<unknown>(
         `https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(draft.mint)}`,
-      );
-      const row = asArray(payload)
-        .map(asRecord)
-        .find((item) => str(item.id) === draft.mint);
-      if (row) applyJupiterToken(byMint, bySymbol, row, false);
-    }),
+        10_000
+      )
+    )
   );
+
+  let used = false;
+  for (let i = 0; i < trending.length; i++) {
+    const mint = trending[i].mint;
+    const row = asArray(payloads[i])
+      .map(asRecord)
+      .find((item) => str(item.id) === mint);
+    if (row && applyJupiterToken(byMint, bySymbol, row, false)) used = true;
+  }
+  return used;
 }
 
 function ingestGeckoPool(
@@ -378,6 +400,10 @@ function ingestGeckoPool(
   draft.priceChange24h = num(change.h24) ?? draft.priceChange24h;
   draft.priceChange1h = num(change.h1) ?? draft.priceChange1h;
   draft.priceChange5m = num(change.m5) ?? draft.priceChange5m;
+  const reserve = num(attributes.reserve_in_usd);
+  if (reserve != null) {
+    draft.liquidityUsd = Math.max(draft.liquidityUsd ?? 0, reserve);
+  }
   if (Number.isFinite(createdMs)) {
     draft.pairCreatedAt =
       draft.pairCreatedAt == null ? createdMs : Math.min(draft.pairCreatedAt, createdMs);
@@ -414,22 +440,6 @@ async function loadGeckoTerminal(byMint: Map<string, Draft>, bySymbol: Map<strin
   return used;
 }
 
-async function loadNewPools(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
-  const payload = await fetchJson<Json>(
-    "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?include=base_token&page=1"
-  );
-  if (!payload) return false;
-  const included = geckoIncluded(payload);
-  let used = false;
-  for (const row of asArray(payload.data)) {
-    const attributes = asRecord(asRecord(row).attributes);
-    const volume = asRecord(attributes.volume_usd);
-    if ((num(volume.h1) ?? 0) < 1500 && (num(volume.m5) ?? 0) < 400) continue;
-    if (ingestGeckoPool(byMint, bySymbol, asRecord(row), included, null)) used = true;
-  }
-  return used;
-}
-
 async function loadDexSearch(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
   const payload = await fetchJson<Json>("https://api.dexscreener.com/latest/dex/search?q=solana");
   const pairs = asArray(payload?.pairs);
@@ -448,6 +458,7 @@ async function loadDexSearch(byMint: Map<string, Draft>, bySymbol: Map<string, D
     if (created != null && (Date.now() - created) / 3_600_000 < MIN_LAUNCH_HOURS) continue;
     const draft = byMint.get(mint);
     if (!draft) continue;
+    if (!draft.verified && draft.geckoTerminalRank == null) continue;
     applyDexPair(draft, pair);
     used = true;
   }
@@ -557,6 +568,17 @@ function trendingRank(draft: Draft) {
   return Math.min(gecko, coin);
 }
 
+function hasGeckoTerminalTrend(draft: { geckoTerminalRank: number | null }) {
+  return draft.geckoTerminalRank != null && draft.geckoTerminalRank >= 1;
+}
+
+function isStrongLiveTrend(draft: { geckoTerminalRank: number | null; coinGeckoRank: number | null }) {
+  return (
+    (draft.geckoTerminalRank != null && draft.geckoTerminalRank <= STRONG_TREND_RANK) ||
+    (draft.coinGeckoRank != null && draft.coinGeckoRank <= STRONG_TREND_RANK)
+  );
+}
+
 function isTrending(draft: Draft) {
   return (
     draft.geckoTerminalRank != null ||
@@ -567,21 +589,26 @@ function isTrending(draft: Draft) {
 }
 
 function isUniverse(draft: Draft): boolean {
-  const strongTrend = draft.geckoTerminalRank != null && draft.geckoTerminalRank <= 20;
-  if (!draft.verified && !strongTrend) return false;
+  if (!draft.verified && !hasGeckoTerminalTrend(draft)) return false;
   if (SKIP_SYMBOLS.has(normalizeSymbol(draft.symbol))) return false;
   if (SKIP_NAMES.has(foldName(draft.name)) || SKIP_NAME_RE.test(draft.name)) return false;
   const mcap = draft.marketCap ?? 0;
   if (mcap < MIN_MCAP || mcap > MAX_MCAP) return false;
-  if ((draft.liquidityUsd ?? 0) < MIN_LIQ && !strongTrend) return false;
+  if ((draft.liquidityUsd ?? 0) < MIN_LIQ) return false;
   const age = pairAgeHours(draft);
   if (age != null && age < MIN_LAUNCH_HOURS) return false;
   return true;
 }
 
+function isAlreadyPumped(draft: Draft): boolean {
+  if (isStrongLiveTrend(draft)) return false;
+  return (draft.priceChange24h ?? 0) >= ALREADY_PUMPED_24H;
+}
+
 function isHeating(draft: Draft): boolean {
-  if (!isUniverse(draft)) return false;
-  return isTrending(draft) || (draft.volume1h ?? 0) >= 80_000 || (draft.volume24h ?? 0) >= 1_000_000;
+  if (!isUniverse(draft) || isAlreadyPumped(draft)) return false;
+  if ((draft.priceChange1h ?? 0) <= -12) return false;
+  return isTrending(draft);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -593,7 +620,7 @@ export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, 
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
     if (!token?.mint || seen.has(token.mint)) return;
-    if (!token.verified && token.geckoTerminalRank == null) return;
+    if (!token.verified && !hasGeckoTerminalTrend(token)) return;
     if (token.check?.verdict === "danger") return;
     seen.add(token.mint);
     out.push(token);
@@ -607,73 +634,88 @@ export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, 
   return out.slice(0, count);
 }
 
-function scoreDraft(draft: Draft, x?: XInfo): HypeToken {
+function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heating"): HypeToken {
   const socialScore = rankPoints(draft.coinGeckoRank, 15);
   const momentumScore = rankPoints(draft.geckoTerminalRank, 20);
-  const volumeScore = logScale(draft.volume24h ?? draft.volume1h, 40_000_000);
-  const whaleScore = logScale(draft.volume1h, 3_000_000);
+  const volumeScore = logScale(draft.volume1h ?? draft.volume24h, 8_000_000);
   const txnScore = logScale(draft.buys5m + draft.sells5m, 8_000);
   const pressure = buyPressure(draft);
   const pressureScore = pressure == null ? 45 : pressure * 100;
-  const heatScore = volumeScore * 0.45 + whaleScore * 0.35 + txnScore * 0.2;
+  const heatScore = volumeScore * 0.55 + txnScore * 0.25 + pressureScore * 0.2;
   const xScore = x?.xScore ?? 0;
   const age = pairAgeHours(draft);
   const change1h = draft.priceChange1h ?? 0;
   const change24h = draft.priceChange24h ?? 0;
 
   const reasons: string[] = [];
-  const trendScore = Math.max(momentumScore, socialScore);
-  const heat1h = clamp(Math.abs(change1h) * 2.2 + Math.max(change1h, 0), 0, 100);
-  const orgScore = draft.organicScore ?? 40;
-  const liveX = x?.crowd ? x.xScore : 0;
-  const hypeScore = Math.round(
-    clamp(
-      volumeScore * 0.34 +
-        whaleScore * 0.2 +
-        trendScore * 0.24 +
-        heat1h * 0.08 +
-        orgScore * 0.06 +
-        liveX * 0.08,
-      0,
-      100,
-    ),
-  );
+  let hypeScore: number;
 
-  if (draft.geckoTerminalRank) {
-    reasons.push(`#${draft.geckoTerminalRank} trending GeckoTerminal`);
-  }
-  if (draft.coinGeckoRank) reasons.push(`#${draft.coinGeckoRank} trending CoinGecko`);
-  if ((draft.volume24h ?? 0) >= 1_000_000) {
-    reasons.push(`Soldi forti: ${((draft.volume24h ?? 0) / 1_000_000).toFixed(1)}M$ di volume 24h`);
-  } else if ((draft.volume1h ?? 0) >= 80_000) {
-    reasons.push(`Flusso sull’ora: $${Math.round((draft.volume1h ?? 0) / 1000)}k`);
-  }
-  if (change24h >= 40) {
-    reasons.push(`Ha già corso +${change24h.toFixed(0)}% e il volume c’è ancora`);
-  } else if (change1h >= 0.8) {
-    reasons.push(`In accelerazione sull’ora: ${change1h >= 0 ? "+" : ""}${change1h.toFixed(1)}%`);
-  }
-  if (x?.crowd && (x.authors > 0 || x.posts.length > 0)) {
-    reasons.push(
-      x.authors > 1
-        ? `${x.authors} persone stanno postando $${draft.symbol.replace(/^\$/, "")} su X — non è l’account ufficiale`
-        : `Gente che posta $${draft.symbol.replace(/^\$/, "")} su X, fuori dal profilo ufficiale`,
+  if (mode === "heating") {
+    const trendScore = Math.max(momentumScore, socialScore);
+    const heat1h = clamp(change1h * 3.2, 0, 100);
+    const dumpPenalty = change24h <= -40 ? 22 : change24h <= -22 ? 10 : 0;
+    const orgScore = draft.organicScore ?? 40;
+    const liveX = x?.crowd ? x.xScore : 0;
+    hypeScore = Math.round(
+      clamp(
+        trendScore * 0.42 +
+          volumeScore * 0.22 +
+          heat1h * 0.16 +
+          orgScore * 0.1 +
+          liveX * 0.1 -
+          dumpPenalty,
+        0,
+        100
+      )
     );
-  }
-  if ((draft.marketCap ?? 0) >= 1_000_000) {
-    reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(1)}M`);
-  } else if ((draft.marketCap ?? 0) >= MIN_MCAP) {
-    reasons.push(`Market cap $${Math.round((draft.marketCap ?? 0) / 1000)}k — sopra i 200k`);
-  }
-  if (draft.verified) reasons.push("Jupiter verified");
-  if ((draft.organicScore ?? 0) >= 80) {
-    reasons.push(`Flusso organico alto su Jupiter (${Math.round(draft.organicScore ?? 0)})`);
-  }
-  if (pressure != null && pressure >= 0.56) {
-    reasons.push(`Pressione d’acquisto 5m: ${Math.round(pressure * 100)}% buy`);
-  }
-  if (!reasons.length) {
-    reasons.push("Volume e trending in corso");
+
+    if (x?.crowd && (x.authors > 0 || x.posts.length > 0)) {
+      reasons.push(
+        x.authors > 1
+          ? `${x.authors} persone stanno postando $${draft.symbol.replace(/^\$/, "")} su X — non è l’account ufficiale`
+          : `Gente che posta $${draft.symbol.replace(/^\$/, "")} su X, fuori dal profilo ufficiale`
+      );
+    }
+    if (change1h >= 0.8) {
+      reasons.push(`In accelerazione sull’ora: ${change1h >= 0 ? "+" : ""}${change1h.toFixed(1)}%`);
+    }
+    if (change24h >= ALREADY_PUMPED_24H && isStrongLiveTrend(draft)) {
+      reasons.push(
+        `Ha già corso oggi (+${change24h.toFixed(0)}%) ma è ancora tra i più in trending`
+      );
+    } else if (change24h >= 6 && change24h < 50) {
+      reasons.push(`Giornata già verde (+${change24h.toFixed(1)}%) senza essere esplosa`);
+    }
+    if (draft.geckoTerminalRank) {
+      reasons.push(`#${draft.geckoTerminalRank} trending GeckoTerminal`);
+    }
+    if ((draft.marketCap ?? 0) >= 1_000_000) {
+      reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(1)}M`);
+    } else if ((draft.marketCap ?? 0) >= MIN_MCAP) {
+      reasons.push(`Market cap $${Math.round((draft.marketCap ?? 0) / 1000)}k — sopra i 200k`);
+    }
+    if (draft.verified) {
+      reasons.push("Jupiter verified");
+    } else if (hasGeckoTerminalTrend(draft)) {
+      reasons.push("In trending GeckoTerminal, anche se il dump Jupiter non lo aveva");
+    }
+    if ((draft.organicScore ?? 0) >= 80) {
+      reasons.push(`Flusso organico alto su Jupiter (${Math.round(draft.organicScore ?? 0)})`);
+    }
+    if (draft.coinGeckoRank) reasons.push(`#${draft.coinGeckoRank} trending CoinGecko`);
+    if (pressure != null && pressure >= 0.56) {
+      reasons.push(`Pressione d’acquisto 5m: ${Math.round(pressure * 100)}% buy`);
+    }
+    if (!reasons.length) {
+      reasons.push("Token già listato e in lieve accelerazione");
+    }
+  } else {
+    hypeScore = Math.round(
+      clamp(change24h / 4 + volumeScore * 0.25 + socialScore * 0.15 + (draft.organicScore ?? 40) * 0.15, 0, 100)
+    );
+    reasons.push(`Ha già corso: +${change24h.toFixed(0)}% sulle 24 ore`);
+    if (change1h < 0) reasons.push("Sull’ora è già in raffreddamento");
+    if (draft.verified) reasons.push("È listato, ma il pump grosso è già successo");
   }
 
   return {
@@ -754,20 +796,19 @@ async function computeHypeBoard(
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
-  const jupiter = await loadJupiterVerified(byMint, bySymbol);
+  const jupiterDump = await loadJupiterVerified(byMint, bySymbol);
   const geckoTerminal = await loadGeckoTerminal(byMint, bySymbol);
-  await hydrateTrendingFromJupiter(byMint, bySymbol);
+  const jupiterHydrate = await hydrateTrendingFromJupiter(byMint, bySymbol);
   const dexSearch = await loadDexSearch(byMint, bySymbol);
+  const jupiter = jupiterDump || jupiterHydrate;
 
   const preUniverse = [...byMint.values()];
   const enrichTargets = [...preUniverse]
-    .filter((draft) => draft.verified || draft.geckoTerminalRank != null)
+    .filter((draft) => draft.verified || hasGeckoTerminalTrend(draft))
     .sort((a, b) => {
-      const vol = (b.volume24h ?? 0) - (a.volume24h ?? 0);
-      if (Math.abs(vol) > 50_000) return vol;
       const trend = trendingRank(a) - trendingRank(b);
       if (trend !== 0) return trend;
-      return (b.volume1h ?? 0) - (a.volume1h ?? 0);
+      return (b.volume1h ?? b.volume24h ?? 0) - (a.volume1h ?? a.volume24h ?? 0);
     })
     .slice(0, 40)
     .map((draft) => draft.mint);
@@ -777,16 +818,21 @@ async function computeHypeBoard(
   const universe = [...byMint.values()].filter(isUniverse);
 
   let heatingDrafts = universe.filter(isHeating);
-  if (heatingDrafts.length < 10) {
+  const pumpedDrafts = universe.filter((draft) => isAlreadyPumped(draft));
+  if (heatingDrafts.length < 8) {
     const extra = universe
-      .filter((draft) => !heatingDrafts.includes(draft))
-      .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0));
-    heatingDrafts = [...heatingDrafts, ...extra].slice(0, 10);
+      .filter((draft) => !isAlreadyPumped(draft) && !heatingDrafts.includes(draft))
+      .sort((a, b) => {
+        const trend = trendingRank(a) - trendingRank(b);
+        if (trend !== 0) return trend;
+        return (b.volume1h ?? b.volume24h ?? 0) - (a.volume1h ?? a.volume24h ?? 0);
+      });
+    heatingDrafts = [...heatingDrafts, ...extra].slice(0, 8);
   }
 
   const crowdTalks = await loadCrowdTalks(
     [...heatingDrafts]
-      .sort((a, b) => (b.volume1h ?? b.volume24h ?? 0) - (a.volume1h ?? a.volume24h ?? 0))
+      .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0) || (a.marketCap ?? 9e18) - (b.marketCap ?? 9e18))
       .slice(0, 4)
       .map((draft) => ({
         symbol: draft.symbol,
@@ -795,10 +841,20 @@ async function computeHypeBoard(
       }))
   );
 
+  const attach = (draft: Draft, mode: "heating" | "pumped") => {
+    const crowd = crowdTalks.get(normalizeSymbol(draft.symbol));
+    return scoreDraft(draft, crowd, mode);
+  };
+
   const heating = heatingDrafts
-    .map((draft) => scoreDraft(draft, crowdTalks.get(normalizeSymbol(draft.symbol))))
-    .sort((a, b) => b.hypeScore - a.hypeScore || (b.volume24h ?? 0) - (a.volume24h ?? 0))
+    .map((draft) => attach(draft, "heating"))
+    .sort((a, b) => b.hypeScore - a.hypeScore || (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0))
     .slice(0, 12);
+
+  const pumped = pumpedDrafts
+    .map((draft) => attach(draft, "pumped"))
+    .sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0))
+    .slice(0, 6);
 
   const checks = await checkTokens(
     heating.slice(0, 4).map((token) => ({
@@ -813,6 +869,7 @@ async function computeHypeBoard(
   });
 
   const checkedHeating = heating.map(withCheck);
+  const checkedPumped = pumped.map(withCheck);
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
   const topContracts = pickTopContracts(checkedHeating, winner, 4);
@@ -821,7 +878,7 @@ async function computeHypeBoard(
     winner,
     tokens: checkedHeating,
     topContracts,
-    established: [],
+    established: checkedPumped,
     sources: {
       coinGecko,
       geckoTerminal,
@@ -830,7 +887,7 @@ async function computeHypeBoard(
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Seguiamo i soldi: trending + volume. Chi ha già pompato resta in lista. Verified quando c’è, i pezzi forti come i #1 trending non li perdiamo. Ricerca ogni 2 ore.",
+    note: "Solo Jupiter verified, i più in trending. I nomi più forti in trending restano in classifica anche se hanno già corso oggi. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 2 ore.",
   };
 
   const saved = await writeStoredBoard(board);
