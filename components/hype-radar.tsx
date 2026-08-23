@@ -121,13 +121,27 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
   }, [load]);
 
   async function copyMint(mint: string) {
+    let ok = false;
     try {
       await navigator.clipboard.writeText(mint);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
+      ok = true;
     } catch {
-      setCopied(false);
+      try {
+        const field = document.createElement("textarea");
+        field.value = mint;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.left = "-9999px";
+        document.body.appendChild(field);
+        field.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(field);
+      } catch {
+        ok = false;
+      }
     }
+    setCopied(ok);
+    window.setTimeout(() => setCopied(false), 1800);
   }
 
   const winner = data?.winner ?? null;
@@ -372,14 +386,14 @@ function WinnerCard({
         <Separator />
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Button
-            variant="outline"
-            className="justify-start font-mono"
+          <button
+            type="button"
+            className={cn(buttonVariants({ variant: "outline" }), "justify-start font-mono")}
             onClick={() => onCopy(token.mint)}
           >
             <Copy />
             {copied ? "Mint copiato" : shortMint(token.mint)}
-          </Button>
+          </button>
           {token.twitterUrl ? (
             <a
               href={token.twitterUrl}
