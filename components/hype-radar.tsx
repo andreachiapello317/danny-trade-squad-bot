@@ -90,12 +90,11 @@ function TokenImage({ token, size }: { token: HypeToken; size: number }) {
   );
 }
 
-export function HypeRadar({ initial }: { initial: HypeResponse }) {
-  const [data, setData] = useState<HypeResponse>(initial);
-  const [error, setError] = useState<string | null>(
-    initial.winner ? null : "Nessun token in tendenza al momento. Riprova tra un minuto."
-  );
-  const [loading, setLoading] = useState(false);
+export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
+  const hasInitial = Boolean(initial && (initial.winner || initial.tokens.length));
+  const [data, setData] = useState<HypeResponse | null>(hasInitial ? initial! : null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!hasInitial);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -117,9 +116,12 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
   }, []);
 
   useEffect(() => {
+    if (!hasInitial) {
+      void load();
+    }
     const id = window.setInterval(() => void load(), 60_000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [hasInitial, load]);
 
   async function copyMint(mint: string) {
     let ok = false;
@@ -146,7 +148,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
   }
 
   const winner = data?.winner ?? null;
-  const topContracts = (data.topContracts ?? []).slice(0, 4);
+  const topContracts = (data?.topContracts ?? []).slice(0, 4);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -267,13 +269,13 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
         )}
       </section>
 
-      {(data.established ?? []).length ? (
+      {(data?.established ?? []).length ? (
         <section className="space-y-3">
           <h2 className="text-sm font-medium tracking-wide text-zinc-500 uppercase">
             Già pompate oggi — tardi
           </h2>
           <div className="grid gap-2 sm:grid-cols-2">
-            {(data.established ?? []).map((token) => (
+            {(data?.established ?? []).map((token) => (
               <a
                 key={token.mint}
                 href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}

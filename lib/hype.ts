@@ -721,7 +721,19 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
   };
 }
 
-export async function getHypeBoard(options?: { skipNotify?: boolean }): Promise<HypeResponse> {
+type BoardCache = { at: number; board: HypeResponse };
+
+let boardCache: BoardCache | null = null;
+const BOARD_CACHE_MS = 20_000;
+
+export async function getHypeBoard(options?: {
+  skipNotify?: boolean;
+  fresh?: boolean;
+}): Promise<HypeResponse> {
+  if (!options?.fresh && boardCache && Date.now() - boardCache.at < BOARD_CACHE_MS) {
+    return boardCache.board;
+  }
+
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
@@ -803,11 +815,7 @@ export async function getHypeBoard(options?: { skipNotify?: boolean }): Promise<
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
   const topContracts = pickTopContracts(checkedHeating, winner, 4);
-  if (!options?.skipNotify) {
-    void notifyTopContracts(topContracts).catch(() => undefined);
-  }
-
-  return {
+  const board: HypeResponse = {
     generatedAt: new Date().toISOString(),
     winner,
     tokens: checkedHeating,
@@ -823,4 +831,12 @@ export async function getHypeBoard(options?: { skipNotify?: boolean }): Promise<
     },
     note: "Market cap da 200k, launch dopo 30 minuti. X vale il 10% e conta i post della gente, non l’account ufficiale del token.",
   };
+
+  boardCache = { at: Date.now(), board };
+
+  if (!options?.skipNotify) {
+    void notifyTopContracts(topContracts).catch(() => undefined);
+  }
+
+  return board;
 }

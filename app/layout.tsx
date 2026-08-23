@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import "./globals.css";
@@ -19,18 +19,19 @@ export const metadata: Metadata = {
     "Token Solana da 200k. Launch dopo 30 minuti. X al 10% sui post della gente, non sull'account ufficiale.",
   applicationName: "Radar Solana",
   manifest: "/manifest.webmanifest",
-  themeColor: "#09090b",
   appleWebApp: {
     capable: true,
     title: "Radar SOL",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    viewportFit: "cover",
-  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#09090b",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
