@@ -64,8 +64,25 @@ function logScale(value: number | null, max: number): number {
   return Math.min(100, (Math.log10(value + 1) / Math.log10(max + 1)) * 100);
 }
 
+function foldName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function normalizeSymbol(symbol: string): string {
   return symbol.replace(/^\$/, "").trim().toUpperCase();
+}
+
+function namesAlign(tokenName: string, tokenSymbol: string, coinName: string, coinSymbol: string) {
+  if (normalizeSymbol(tokenSymbol) !== normalizeSymbol(coinSymbol)) return false;
+  const token = foldName(tokenName);
+  const coin = foldName(coinName);
+  if (!token || !coin) return false;
+  if (token === coin) return true;
+  const tokenWords = new Set(token.split(" ").filter((word) => word.length >= 4));
+  const coinWords = new Set(coin.split(" ").filter((word) => word.length >= 4));
+  if ([...tokenWords].some((word) => coinWords.has(word))) return true;
+  if (token.length >= 5 && (coin.includes(token) || token.includes(coin))) return true;
+  return false;
 }
 
 type Draft = {
@@ -318,7 +335,9 @@ async function searchMissingCoinGecko(
       const mint = str(asRecord(pair.baseToken).address);
       const symbol = str(asRecord(pair.baseToken).symbol);
       if (!mint || !symbol || SKIP_SYMBOLS.has(normalizeSymbol(symbol))) return;
-      if (normalizeSymbol(symbol) !== normalizeSymbol(coin.symbol)) return;
+      if (!namesAlign(str(asRecord(pair.baseToken).name) ?? symbol, symbol, coin.name, coin.symbol)) {
+        return;
+      }
       const draft = byMint.get(mint) ?? emptyDraft(mint, coin.name, symbol);
       applyDexPair(draft, pair);
       draft.coinGeckoRank = coin.rank;
@@ -341,10 +360,12 @@ async function loadCoinGecko(byMint: Map<string, Draft>, bySymbol: Map<string, D
     if (!symbol || !name) return;
     const rank = index + 1;
     const draft = bySymbol.get(normalizeSymbol(symbol));
-    if (draft) {
+    const marketCapText = str(asRecord(item.data).market_cap);
+    const marketCap = num(marketCapText);
+    if (draft && namesAlign(draft.name, draft.symbol, name, symbol)) {
       draft.coinGeckoRank = rank;
       used = true;
-    } else {
+    } else if (!draft && (marketCap == null || marketCap < 250_000_000)) {
       missing.push({ rank, symbol, name });
     }
   });
