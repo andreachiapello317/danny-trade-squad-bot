@@ -22,7 +22,8 @@ Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 La UI è già mobile. Per usarla dal telefono sulla stessa Wi‑Fi del computer:
 
 ```bash
-npm run dev -- --port 43177 --hostname 0.0.0.0
+npm install
+npm run phone
 ```
 
 Sul telefono apri `http://IP-DEL-COMPUTER:43177` (l’IP lo vedi con `ipconfig` su Windows o `ipconfig getifaddr en0` su Mac).

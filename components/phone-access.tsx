@@ -37,8 +37,8 @@ export function PhoneAccess() {
         <ol className="list-decimal space-y-2 pl-5">
           {local ? (
             <li>
-              Dal computer, avvia il radar sulla rete (`npm run dev -- --port 43177
-              --hostname 0.0.0.0`). Poi sul telefono, stessa Wi‑Fi, apri
+              Dal computer, nella cartella del progetto, lancia `npm run phone` e
+              lascialo acceso. Poi sul telefono, stessa Wi‑Fi, apri
               `http://IP-DEL-PC:43177`.
             </li>
           ) : (
