@@ -1,9 +1,9 @@
-import { HypeRadar } from "@/components/hype-radar";
-import { peekHypeBoard } from "@/lib/hype";
+import { StockRadar } from "@/components/stock-radar";
+import { peekStockBoard } from "@/lib/stocks";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const initial = await peekHypeBoard();
-  return <HypeRadar initial={initial} />;
+  const initial = await peekStockBoard();
+  return <StockRadar initial={initial} />;
 }

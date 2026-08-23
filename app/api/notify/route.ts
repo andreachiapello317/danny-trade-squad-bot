@@ -1,5 +1,5 @@
-import { getHypeBoard } from "@/lib/hype";
-import { connectTelegram, notifyStatus, notifyTopContracts } from "@/lib/notify";
+import { connectTelegram, notifyStatus, notifyTopTickers } from "@/lib/notify";
+import { getStockBoard } from "@/lib/stocks";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return Response.json(connected);
     }
   }
-  const board = await getHypeBoard({ skipNotify: true });
-  const result = await notifyTopContracts(board.topContracts ?? [], true);
-  return Response.json({ ...result, topContracts: board.topContracts ?? [] });
+  const board = await getStockBoard({ skipNotify: true });
+  const result = await notifyTopTickers(board.topTickers ?? [], true);
+  return Response.json({ ...result, topTickers: board.topTickers ?? [] });
 }

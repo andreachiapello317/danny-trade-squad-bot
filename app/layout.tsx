@@ -14,14 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Radar Solana: trending verified",
-  description:
-    "Solo token Solana Jupiter verified, i più in trending. Market cap da 200k, launch dopo 30 minuti.",
-  applicationName: "Radar Solana",
+  title: "Radar NASDAQ: trending listate",
+  description: "Solo azioni comuni listate sul NASDAQ, le più in trending. Ricerca ogni 2 ore.",
+  applicationName: "Radar NASDAQ",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Radar SOL",
+    title: "Radar NASDAQ",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },

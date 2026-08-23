@@ -1,7 +1,7 @@
 {
-  "name": "Radar Solana",
-  "short_name": "Radar SOL",
-  "description": "Token Solana da 200k in su. Launch dopo 30 minuti.",
+  "name": "Radar NASDAQ",
+  "short_name": "NASDAQ",
+  "description": "Azioni NASDAQ listate, le più in trending. Ricerca ogni 2 ore.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",

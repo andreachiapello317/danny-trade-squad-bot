@@ -2,22 +2,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { BOARD_CACHE_MS } from "@/lib/timing";
-import type { HypeResponse } from "@/lib/types";
+import type { StockBoard } from "@/lib/types";
 
 const STORE_PATH = path.join(process.cwd(), ".data", "board.json");
 
-export const BOARD_VERSION = 6;
+export const BOARD_VERSION = 10;
 
 export type StoredBoard = {
   at: number;
   version?: number;
-  board: HypeResponse;
+  board: StockBoard;
 };
 
 let memory: StoredBoard | null = null;
 let diskRead = false;
 
-export function stampBoard(board: HypeResponse, at: number): HypeResponse {
+export function stampBoard(board: StockBoard, at: number): StockBoard {
   return {
     ...board,
     generatedAt: board.generatedAt || new Date(at).toISOString(),
@@ -29,7 +29,7 @@ export function isBoardFresh(stored: StoredBoard) {
   return Date.now() - stored.at < BOARD_CACHE_MS;
 }
 
-export async function peekStoredBoard(): Promise<HypeResponse | null> {
+export async function peekStoredBoard(): Promise<StockBoard | null> {
   const stored = await readStoredBoard();
   if (!stored) return null;
   return stampBoard(stored.board, stored.at);
@@ -60,9 +60,10 @@ export async function readStoredBoard(): Promise<StoredBoard | null> {
   return null;
 }
 
-export async function writeStoredBoard(board: HypeResponse): Promise<StoredBoard> {
+export async function writeStoredBoard(board: StockBoard): Promise<StoredBoard> {
   const stored: StoredBoard = { at: Date.now(), version: BOARD_VERSION, board };
   memory = stored;
+  diskRead = true;
   await mkdir(path.dirname(STORE_PATH), { recursive: true });
   await writeFile(STORE_PATH, JSON.stringify(stored));
   return stored;

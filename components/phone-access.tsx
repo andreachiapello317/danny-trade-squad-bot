@@ -43,7 +43,7 @@ export function PhoneAccess() {
       }
       setStatus({ telegramReady: true, telegramLinked: true });
       setToken("");
-      setMessage("Collegato. La prossima ricerca è tra 2 ore. Un messaggio solo se i 4 cambiano.");
+      setMessage("Collegato. La prossima ricerca è tra 2 ore. Un messaggio solo se i 4 ticker cambiano.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Collegamento non riuscito");
     } finally {
@@ -85,7 +85,7 @@ export function PhoneAccess() {
             <p className="flex items-start gap-2 text-sky-100">
               <Check className="mt-0.5 size-4 shrink-0" />
               Telegram è collegato. Ricerca e messaggio ogni 2 ore. Mandiamo solo
-              se i 4 contratti sono cambiati. In ogni riga: contratto da copiare, X e grafico.
+              se i 4 ticker sono cambiati. In ogni riga: ticker da copiare, X e grafico.
             </p>
             <Button variant="outline" disabled={sending} onClick={() => void sendNow()}>
               {sending ? "Invio…" : "Forza un invio ora"}
@@ -95,7 +95,7 @@ export function PhoneAccess() {
           <>
             <p className="text-muted-foreground">
               Serve un bot Telegram tuo, gratis. Lo crei in un minuto e poi i 4
-              contratti arrivano sul telefono.
+              ticker NASDAQ arrivano sul telefono.
             </p>
             <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
               <li>

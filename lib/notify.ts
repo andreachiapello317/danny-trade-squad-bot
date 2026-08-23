@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { HypeToken } from "@/lib/types";
+import type { Stock } from "@/lib/types";
 import { TELEGRAM_COOLDOWN_MS } from "@/lib/timing";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -25,8 +25,7 @@ function env(name: string) {
 async function loadSettings(): Promise<Settings> {
   try {
     const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Settings & { ntfyTopic?: string };
-    delete parsed.ntfyTopic;
+    const parsed = JSON.parse(raw) as Settings;
     return parsed;
   } catch {
     return {};
@@ -35,13 +34,19 @@ async function loadSettings(): Promise<Settings> {
 
 async function saveSettings(next: Settings) {
   await mkdir(DATA_DIR, { recursive: true });
-  const clean: Settings = {
-    lastSignature: next.lastSignature,
-    lastSentAt: next.lastSentAt,
-    telegramBotToken: next.telegramBotToken,
-    telegramChatId: next.telegramChatId,
-  };
-  await writeFile(STORE_PATH, JSON.stringify(clean, null, 2));
+  await writeFile(
+    STORE_PATH,
+    JSON.stringify(
+      {
+        lastSignature: next.lastSignature,
+        lastSentAt: next.lastSentAt,
+        telegramBotToken: next.telegramBotToken,
+        telegramChatId: next.telegramChatId,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 function telegramCreds(settings: Settings) {
@@ -55,8 +60,8 @@ function remainingCooldownMs(settings: Settings) {
   return Math.max(0, settings.lastSentAt + TELEGRAM_COOLDOWN_MS - Date.now());
 }
 
-export function contractsSignature(tokens: HypeToken[]) {
-  return tokens.map((token) => token.mint).join("|");
+export function tickersSignature(stocks: Stock[]) {
+  return stocks.map((stock) => stock.symbol).join("|");
 }
 
 function escapeHtml(value: string) {
@@ -67,37 +72,24 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-function xLink(token: HypeToken) {
-  if (token.twitterUrl) return token.twitterUrl;
-  const query = encodeURIComponent(`$${token.symbol} solana OR ${token.name}`);
-  return `https://x.com/search?q=${query}&src=typed_query&f=live`;
-}
-
-function chartLink(token: HypeToken) {
-  return token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`;
-}
-
-export function formatContractsMessage(tokens: HypeToken[]) {
+export function formatTickersMessage(stocks: Stock[]) {
   const when = new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" });
-  const rows = tokens.map((token, index) => {
-    const flag = token.check?.verdict === "danger" ? "  ATTENZIONE" : "";
-    const symbol = escapeHtml(`$${token.symbol}${flag}`);
-    const mint = escapeHtml(token.mint);
-    const x = escapeHtml(xLink(token));
-    const chart = escapeHtml(chartLink(token));
+  const rows = stocks.map((stock, index) => {
+    const change =
+      stock.changePct == null ? "" : `  ${stock.changePct >= 0 ? "+" : ""}${stock.changePct.toFixed(1)}%`;
     return [
-      `${index + 1}. ${symbol}`,
-      `<code>${mint}</code>`,
-      `<a href="${x}">X</a>  ·  <a href="${chart}">Grafico</a>`,
+      `${index + 1}. ${escapeHtml(`$${stock.symbol}`)}${escapeHtml(change)}`,
+      `<code>${escapeHtml(stock.symbol)}</code>`,
+      `<a href="${escapeHtml(stock.xUrl)}">X</a>  ·  <a href="${escapeHtml(stock.chartUrl)}">Grafico</a>`,
     ].join("\n");
   });
   return [
-    "Radar Solana — 4 contratti",
+    "Radar NASDAQ — 4 ticker",
     escapeHtml(when),
     "",
     ...rows,
     "",
-    "Tocca il contratto per copiarlo. Non e un consiglio di investimento.",
+    "Tocca il ticker per copiarlo. Non e un consiglio di investimento.",
   ].join("\n");
 }
 
@@ -189,13 +181,13 @@ export async function connectTelegram(token: string): Promise<ConnectTelegramRes
 let inflight: Promise<{ sent: boolean; reason: string; signature?: string; error?: string }> | null =
   null;
 
-async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
-  if (tokens.length === 0) {
+async function notifyOnce(stocks: Stock[], force: boolean) {
+  if (stocks.length === 0) {
     return { sent: false, reason: "empty" as const };
   }
 
   const settings = await loadSettings();
-  const signature = contractsSignature(tokens);
+  const signature = tickersSignature(stocks);
   const { token, chatId } = telegramCreds(settings);
 
   if (!token || !chatId) {
@@ -212,10 +204,9 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
     }
   }
 
-  const body = formatContractsMessage(tokens);
   await telegramApi(token, "sendMessage", {
     chat_id: chatId,
-    text: body,
+    text: formatTickersMessage(stocks),
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
@@ -228,15 +219,13 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
   return { sent: true as const, signature, reason: "sent" as const };
 }
 
-export async function notifyTopContracts(tokens: HypeToken[], force = false) {
-  if (inflight && !force) {
-    return inflight;
-  }
+export async function notifyTopTickers(stocks: Stock[], force = false) {
+  if (inflight && !force) return inflight;
   const run = (async () => {
     try {
-      return await notifyTopContractsOnce(tokens, force);
+      return await notifyOnce(stocks, force);
     } catch (error) {
-      console.error("notifyTopContracts failed", error);
+      console.error("notifyTopTickers failed", error);
       return {
         sent: false,
         reason: "error" as const,
@@ -248,10 +237,4 @@ export async function notifyTopContracts(tokens: HypeToken[], force = false) {
   })();
   inflight = run;
   return run;
-}
-
-export async function markNotifyQuiet() {
-  const settings = await loadSettings();
-  settings.lastSentAt = Date.now();
-  await saveSettings(settings);
 }
