@@ -92,7 +92,7 @@ export function formatContractsMessage(tokens: HypeToken[]) {
     ].join("\n");
   });
   return [
-    "Radar Solana — 4 contratti",
+    "Radar Solana — 10 token",
     escapeHtml(when),
     "",
     ...rows,

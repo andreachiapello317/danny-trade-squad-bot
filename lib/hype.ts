@@ -615,7 +615,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 4) {
+export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 10) {
   const out: HypeToken[] = [];
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
@@ -872,7 +872,7 @@ async function computeHypeBoard(
   const checkedPumped = pumped.map(withCheck);
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
-  const topContracts = pickTopContracts(checkedHeating, winner, 4);
+  const topContracts = pickTopContracts(checkedHeating, winner, 10);
   const board: HypeResponse = {
     generatedAt: new Date().toISOString(),
     winner,
@@ -887,7 +887,7 @@ async function computeHypeBoard(
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Solo Jupiter verified, i più in trending. I nomi più forti in trending restano in classifica anche se hanno già corso oggi. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 2 ore.",
+    note: "Solo Jupiter verified, i più in trending. I nomi più forti in trending restano in classifica anche se hanno già corso oggi. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 6 ore.",
   };
 
   const saved = await writeStoredBoard(board);

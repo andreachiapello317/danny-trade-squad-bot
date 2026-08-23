@@ -105,11 +105,11 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
       if (!response.ok) throw new Error("fetch failed");
       const json = (await response.json()) as HypeResponse;
       if (!json.winner && !json.tokens.length) {
-        setError("Nessun token in tendenza al momento. Aspetta la prossima ricerca, ogni 2 ore.");
+        setError("Nessun token in tendenza al momento. Aspetta la prossima ricerca, ogni 6 ore.");
       }
       setData(json);
     } catch {
-      setError("Non riesco a leggere i feed. La ricerca riparte da sola ogni 2 ore.");
+      setError("Non riesco a leggere i feed. La ricerca riparte da sola ogni 6 ore.");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -148,7 +148,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
   }
 
   const winner = data?.winner ?? null;
-  const topContracts = (data?.topContracts ?? []).slice(0, 4);
+  const topContracts = (data?.topContracts ?? []).slice(0, 10);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -164,7 +164,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             Solo token Jupiter verified. In cima chi è davvero in trending su
             GeckoTerminal e CoinGecko, con volume. I nomi più forti restano in
             classifica anche se hanno già corso oggi. Market cap da 200k, launch
-            dopo 30 minuti. La ricerca gira ogni 2 ore.
+            dopo 30 minuti. La ricerca gira ogni 6 ore.
           </p>
         </div>
       </header>
@@ -343,9 +343,9 @@ function ContractsCard({
   return (
     <Card className="ring-lime-400/25">
       <CardHeader>
-        <CardTitle>4 contratti da copiare</CardTitle>
+        <CardTitle>10 token da copiare</CardTitle>
         <CardDescription>
-          I 4 verified più in trending. I più forti restano anche se hanno già corso oggi. Tocca il mint per copiarlo. Non è un via libera.
+          I 10 verified più in trending. I più forti restano anche se hanno già corso oggi. Tocca il mint per copiarlo. Non è un via libera.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -376,7 +376,7 @@ function ContractsCard({
           onClick={() => onCopy(allMints)}
         >
           <Copy />
-          {copied === allMints ? "Tutti copiati" : "Copia i 4 mint"}
+          {copied === allMints ? "Tutti copiati" : "Copia i 10 mint"}
         </button>
       </CardContent>
     </Card>
