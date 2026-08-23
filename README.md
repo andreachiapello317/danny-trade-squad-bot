@@ -2,7 +2,7 @@
 
 Classifica i token Solana **Jupiter verified** più in trending (GeckoTerminal e CoinGecko), da **200k di market cap**. I launch entrano **dopo 30 minuti**.
 
-X vale il 10% e conta i **post della gente** sul ticker. Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
+X vale il 10% e conta i **post della gente** sul ticker. Chi ha già pompato **resta in lista**: seguiamo volume e whale, non tagliamo un pump a metà.
 
 RugCheck guarda solo mint, freeze e rugged sui 4 in cima. Non gira a ogni refresh.
 
@@ -47,4 +47,4 @@ Poi:
 
 ## API
 
-`GET /api/hype` restituisce `tokens` (in accelerazione) e `established` (già pompate oggi).
+`GET /api/hype` restituisce `tokens` (trending + soldi forti) e `topContracts`.

@@ -161,9 +161,10 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             I più in trending, solo verified
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Solo token Jupiter verified. In cima chi è davvero in trending su
-            GeckoTerminal e CoinGecko, con volume. Market cap da 200k, launch dopo
-            30 minuti. La ricerca gira ogni 2 ore.
+            Seguiamo i soldi forti: trending, volume e whale. Chi ha già pompato
+            resta in lista, può pompare ancora. Verified quando c’è; i #1 trending
+            non li perdiamo. Market cap da 200k, launch dopo 30 minuti. Ricerca
+            ogni 2 ore.
           </p>
         </div>
       </header>
@@ -265,32 +266,6 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
         )}
       </section>
 
-      {(data?.established ?? []).length ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium tracking-wide text-zinc-500 uppercase">
-            Già pompate oggi — tardi
-          </h2>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(data?.established ?? []).map((token) => (
-              <a
-                key={token.mint}
-                href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-3 rounded-xl px-3 py-2 ring-1 ring-white/10 transition hover:bg-white/5"
-              >
-                <TokenImage token={token} size={28} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-zinc-200">${token.symbol}</span>
-                  <span className="block truncate text-xs text-zinc-500">
-                    {formatUsd(token.marketCap)} · <Change value={token.priceChange24h} />
-                  </span>
-                </span>
-              </a>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <Card className="bg-zinc-900/60">
         <CardHeader>
@@ -314,8 +289,8 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             Conta chi sta twittando il ticker, non il profilo del progetto. Vale il 10%.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">RugCheck</span>
-            I primi della lista passano mint/freeze/LP e il confronto col profilo X.
+            <span className="block font-medium text-zinc-200">Soldi forti</span>
+            Volume e whale pesano più del “è già corso”. Un pump può continuare.
           </p>
         </CardContent>
       </Card>
