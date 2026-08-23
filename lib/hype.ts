@@ -249,7 +249,7 @@ let jupiterCache: { at: number; rows: Json[] } | null = null;
 
 async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<string, Draft>) {
   let rows: Json[] = [];
-  if (jupiterCache && Date.now() - jupiterCache.at < 60_000) {
+  if (jupiterCache && Date.now() - jupiterCache.at < BOARD_CACHE_MS) {
     rows = jupiterCache.rows;
   } else {
     const payload = await fetchJson<unknown>(
@@ -834,7 +834,7 @@ export async function getHypeBoard(options?: {
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Market cap da 200k, launch dopo 30 minuti. Classifica ogni 5 minuti. Telegram: un messaggio ogni 15 minuti, solo se i 4 contratti cambiano.",
+    note: "Market cap da 200k, launch dopo 30 minuti. Ricerca, classifica e Telegram ogni 15 minuti. Un messaggio solo se i 4 contratti cambiano.",
   };
 
   boardCache = { at: Date.now(), board };

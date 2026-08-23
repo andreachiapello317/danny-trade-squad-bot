@@ -19,7 +19,7 @@ Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
 ## Telegram sul telefono
 
-Quando i 4 contratti in cima cambiano, arriva **un** messaggio Telegram. Al massimo ogni **15 minuti**. La classifica in pagina si aggiorna ogni **5 minuti**.
+La ricerca, la classifica e Telegram girano insieme ogni **15 minuti**. Arriva **un** messaggio solo se i 4 contratti sono cambiati.
 
 1. Apri Telegram e cerca **BotFather**.
 2. Scrivi `/newbot`, scegli un nome e un username che finisce con `bot`.

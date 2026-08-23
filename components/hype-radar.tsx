@@ -162,9 +162,9 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
             Cosa sta partendo adesso
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Market cap da 200k in su. I launch entrano dopo 30 minuti. X vale il 10% e
-            guarda i post della gente, non l’account ufficiale. Chi ha già fatto +80%
-            oggi va sotto.
+            Market cap da 200k in su. I launch entrano dopo 30 minuti. La ricerca
+            gira ogni 15 minuti. X vale il 10% e guarda i post della gente, non
+            l’account ufficiale. Chi ha già fatto +80% oggi va sotto.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>

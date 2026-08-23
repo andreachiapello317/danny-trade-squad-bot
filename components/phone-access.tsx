@@ -43,7 +43,7 @@ export function PhoneAccess() {
       }
       setStatus({ telegramReady: true, telegramLinked: true });
       setToken("");
-      setMessage("Collegato. Non mando nulla ora: il prossimo messaggio parte solo se i 4 cambiano, dopo 15 minuti.");
+      setMessage("Collegato. La prossima ricerca è tra 15 minuti. Un messaggio solo se i 4 cambiano.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Collegamento non riuscito");
     } finally {
@@ -84,7 +84,7 @@ export function PhoneAccess() {
           <>
             <p className="flex items-start gap-2 text-sky-100">
               <Check className="mt-0.5 size-4 shrink-0" />
-              Telegram è collegato. Un solo messaggio, al massimo ogni 15 minuti, e
+              Telegram è collegato. Ricerca e messaggio ogni 15 minuti. Mandiamo
               solo se i 4 contratti sono cambiati.
             </p>
             <Button variant="outline" disabled={sending} onClick={() => void sendNow()}>
