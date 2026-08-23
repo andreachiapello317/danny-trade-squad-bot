@@ -17,6 +17,20 @@ export const metadata: Metadata = {
   title: "Radar Solana: da 200k, launch dopo 30 min",
   description:
     "Token Solana da 200k. Launch dopo 30 minuti. X al 10% sui post della gente, non sull'account ufficiale.",
+  applicationName: "Radar Solana",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#09090b",
+  appleWebApp: {
+    capable: true,
+    title: "Radar SOL",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

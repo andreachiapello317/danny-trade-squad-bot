@@ -16,6 +16,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { PhoneAccess } from "@/components/phone-access";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -167,6 +168,8 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           Aggiorna
         </Button>
       </header>
+
+      <PhoneAccess />
 
       {error ? (
         <Card className="border-red-500/30 bg-red-950/20">
