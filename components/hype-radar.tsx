@@ -189,9 +189,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
             Classifica hype
           </h2>
           {data?.generatedAt ? (
-            <p className="font-mono text-[11px] text-zinc-500">
-              {new Date(data.generatedAt).toLocaleTimeString("it-IT")}
-            </p>
+            <UpdatedAt iso={data.generatedAt} refreshing={loading} />
           ) : null}
         </div>
 
@@ -444,6 +442,38 @@ function Stat({ label, value }: { label: string; value: string | number | ReactE
       <p className="text-[11px] tracking-wide text-zinc-500 uppercase">{label}</p>
       <p className="mt-1 font-mono text-sm text-zinc-100">{value}</p>
     </div>
+  );
+}
+
+function UpdatedAt({ iso, refreshing }: { iso: string; refreshing: boolean }) {
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  if (now == null) {
+    return <p className="font-mono text-[11px] text-zinc-500">Aggiornamento…</p>;
+  }
+
+  const seconds = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  const clock = new Date(iso).toLocaleTimeString("it-IT", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const relative =
+    seconds < 8 ? "adesso" : seconds < 60 ? `${seconds}s fa` : `${Math.floor(seconds / 60)} min fa`;
+
+  return (
+    <p className="text-right font-mono text-[11px] text-zinc-500">
+      {refreshing ? "Aggiorno…" : `Aggiornato alle ${clock} (Italia)`}
+      {refreshing ? null : <span className="block sm:inline sm:before:content-['·'] sm:before:mx-1">{relative}</span>}
+    </p>
   );
 }
 
