@@ -1,3 +1,6 @@
+/** Fermo: nessuna ricerca e nessun Telegram finché non lo riaccendiamo. */
+export const SEARCH_PAUSED = true;
+
 /** Un ciclo solo: ricerca, classifica e Telegram ogni 6 ore. */
 export const SEARCH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 

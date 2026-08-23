@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { HypeToken } from "@/lib/types";
-import { TELEGRAM_COOLDOWN_MS } from "@/lib/timing";
+import { SEARCH_PAUSED, TELEGRAM_COOLDOWN_MS } from "@/lib/timing";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const STORE_PATH = path.join(DATA_DIR, "notify.json");
@@ -229,6 +229,9 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
 }
 
 export async function notifyTopContracts(tokens: HypeToken[], force = false) {
+  if (SEARCH_PAUSED) {
+    return { sent: false, reason: "paused" as const };
+  }
   if (inflight && !force) {
     return inflight;
   }

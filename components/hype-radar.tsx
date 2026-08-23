@@ -119,8 +119,6 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
     if (!hasInitial) {
       void load();
     }
-    const id = window.setInterval(() => void load(true), PAGE_REFRESH_MS);
-    return () => window.clearInterval(id);
   }, [hasInitial, load]);
 
   async function copyMint(mint: string) {

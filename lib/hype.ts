@@ -2,7 +2,7 @@ import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { isBoardFresh, peekStoredBoard, readStoredBoard, stampBoard, writeStoredBoard } from "@/lib/board-store";
 import { checkTokens } from "@/lib/legit";
 import { notifyTopContracts } from "@/lib/notify";
-import { BOARD_CACHE_MS } from "@/lib/timing";
+import { BOARD_CACHE_MS, SEARCH_PAUSED } from "@/lib/timing";
 import { loadCrowdTalks, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
@@ -769,11 +769,39 @@ export async function peekHypeBoard() {
   return peekStoredBoard();
 }
 
+function pausedBoard(stored: Awaited<ReturnType<typeof readStoredBoard>>): HypeResponse {
+  if (stored) {
+    return {
+      ...stampBoard(stored.board, stored.at),
+      note: "Fermo. Nessuna ricerca fino a domani.",
+    };
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    winner: null,
+    tokens: [],
+    topContracts: [],
+    established: [],
+    sources: {
+      coinGecko: false,
+      geckoTerminal: false,
+      dexScreener: false,
+      x: false,
+      rugcheck: false,
+      jupiter: false,
+    },
+    note: "Fermo. Nessuna ricerca fino a domani.",
+  };
+}
+
 export async function getHypeBoard(options?: {
   skipNotify?: boolean;
   fresh?: boolean;
 }): Promise<HypeResponse> {
   const stored = await readStoredBoard();
+  if (SEARCH_PAUSED) {
+    return pausedBoard(stored);
+  }
   if (!options?.fresh && stored && isBoardFresh(stored)) {
     return stampBoard(stored.board, stored.at);
   }
