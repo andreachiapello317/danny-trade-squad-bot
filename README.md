@@ -17,13 +17,16 @@ npm run dev -- --port 43177 --hostname 127.0.0.1
 
 Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
-## Notifiche sul telefono
+## Telegram sul telefono
 
-Quando i 4 contratti in cima cambiano, il radar può mandarteli sul telefono.
+Quando i 4 contratti in cima cambiano, il radar te li manda su Telegram.
 
-1. Installa [ntfy](https://ntfy.sh) su iPhone o Android.
-2. Iscriviti al topic indicato in pagina (o in `.env.local` come `NTFY_TOPIC`).
-3. Opzionale: Telegram, compilando `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`.
+1. Apri Telegram e cerca **BotFather**.
+2. Scrivi `/newbot`, scegli un nome e un username che finisce con `bot`.
+3. Copia il token, apri il bot appena creato e premi **Start**.
+4. Incolla il token nella card “Telegram sul telefono” e premi **Collega**.
+
+In alternativa puoi mettere `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` in `.env.local`.
 
 `GET /api/contracts` è il testo dei 4 mint. `POST /api/notify` li reinvia.
 

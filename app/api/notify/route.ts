@@ -1,20 +1,26 @@
 import { getHypeBoard } from "@/lib/hype";
-import { notifyConfigured, notifyTopContracts } from "@/lib/notify";
+import { connectTelegram, notifyStatus, notifyTopContracts } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function GET() {
-  return Response.json({
-    configured: notifyConfigured(),
-    ntfy: Boolean(process.env.NTFY_TOPIC?.trim()),
-    telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_CHAT_ID?.trim()),
-    topic: process.env.NTFY_TOPIC?.trim() || null,
-  });
+  return Response.json(await notifyStatus());
 }
 
-export async function POST() {
-  const board = await getHypeBoard();
+export async function POST(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const body = (await request.json()) as { token?: string };
+    if (body.token) {
+      const connected = await connectTelegram(body.token);
+      if (!connected.ok) return Response.json(connected, { status: 400 });
+      const board = await getHypeBoard({ skipNotify: true });
+      const sent = await notifyTopContracts(board.topContracts ?? [], true);
+      return Response.json({ ...connected, ...sent, topContracts: board.topContracts ?? [] });
+    }
+  }
+  const board = await getHypeBoard({ skipNotify: true });
   const result = await notifyTopContracts(board.topContracts ?? [], true);
   return Response.json({ ...result, topContracts: board.topContracts ?? [] });
 }

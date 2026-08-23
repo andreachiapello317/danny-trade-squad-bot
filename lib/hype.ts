@@ -721,7 +721,7 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
   };
 }
 
-export async function getHypeBoard(): Promise<HypeResponse> {
+export async function getHypeBoard(options?: { skipNotify?: boolean }): Promise<HypeResponse> {
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
@@ -803,7 +803,9 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
   const topContracts = pickTopContracts(checkedHeating, winner, 4);
-  await notifyTopContracts(topContracts);
+  if (!options?.skipNotify) {
+    void notifyTopContracts(topContracts).catch(() => undefined);
+  }
 
   return {
     generatedAt: new Date().toISOString(),
