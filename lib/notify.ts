@@ -2,13 +2,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { HypeToken } from "@/lib/types";
+import { TELEGRAM_COOLDOWN_MS } from "@/lib/timing";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const STORE_PATH = path.join(DATA_DIR, "notify.json");
 
 type Settings = {
   lastSignature?: string;
-  ntfyTopic?: string;
+  lastSentAt?: number;
   telegramBotToken?: string;
   telegramChatId?: string;
 };
@@ -17,15 +18,6 @@ export type ConnectTelegramResult =
   | { ok: true; telegramReady: true; telegramLinked: true; chatId: string }
   | { ok: false; error: string };
 
-function asciiHeader(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[^\x20-\x7E]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-}
-
 function env(name: string) {
   return process.env[name]?.trim() || "";
 }
@@ -33,7 +25,9 @@ function env(name: string) {
 async function loadSettings(): Promise<Settings> {
   try {
     const raw = await readFile(STORE_PATH, "utf8");
-    return JSON.parse(raw) as Settings;
+    const parsed = JSON.parse(raw) as Settings & { ntfyTopic?: string };
+    delete parsed.ntfyTopic;
+    return parsed;
   } catch {
     return {};
   }
@@ -41,7 +35,13 @@ async function loadSettings(): Promise<Settings> {
 
 async function saveSettings(next: Settings) {
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(STORE_PATH, JSON.stringify(next, null, 2));
+  const clean: Settings = {
+    lastSignature: next.lastSignature,
+    lastSentAt: next.lastSentAt,
+    telegramBotToken: next.telegramBotToken,
+    telegramChatId: next.telegramChatId,
+  };
+  await writeFile(STORE_PATH, JSON.stringify(clean, null, 2));
 }
 
 function telegramCreds(settings: Settings) {
@@ -50,8 +50,9 @@ function telegramCreds(settings: Settings) {
   return { token, chatId };
 }
 
-function ntfyTopic(settings: Settings) {
-  return settings.ntfyTopic || env("NTFY_TOPIC");
+function remainingCooldownMs(settings: Settings) {
+  if (!settings.lastSentAt) return 0;
+  return Math.max(0, settings.lastSentAt + TELEGRAM_COOLDOWN_MS - Date.now());
 }
 
 export function contractsSignature(tokens: HypeToken[]) {
@@ -72,23 +73,6 @@ export function formatContractsMessage(tokens: HypeToken[]) {
     "",
     "Non e un consiglio di investimento. Controlla prima di usare i fondi.",
   ].join("\n");
-}
-
-async function sendNtfy(topic: string, body: string) {
-  const server = (env("NTFY_SERVER") || "https://ntfy.sh").replace(/\/$/, "");
-  const res = await fetch(`${server}/${encodeURIComponent(topic)}`, {
-    method: "POST",
-    headers: {
-      Title: asciiHeader(`Radar Solana: 4 contratti`),
-      Priority: "default",
-      Tags: "moneybag",
-      "Content-Type": "text/plain; charset=utf-8",
-    },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`ntfy ${res.status}`);
-  }
 }
 
 async function telegramApi(token: string, method: string, body?: unknown) {
@@ -117,13 +101,13 @@ function cleanBotToken(raw: string) {
 
 export async function notifyStatus() {
   const settings = await loadSettings();
-  const topic = ntfyTopic(settings);
   const { token, chatId } = telegramCreds(settings);
+  const cooldownMs = remainingCooldownMs(settings);
   return {
-    ntfyReady: Boolean(topic),
     telegramReady: Boolean(token && chatId),
     telegramLinked: Boolean(token && chatId),
-    ntfyTopic: topic || null,
+    cooldownMinutes: Math.round(TELEGRAM_COOLDOWN_MS / 60_000),
+    nextSendInSeconds: Math.ceil(cooldownMs / 1000),
   };
 }
 
@@ -176,49 +160,71 @@ export async function connectTelegram(token: string): Promise<ConnectTelegramRes
   }
 }
 
-export async function notifyTopContracts(tokens: HypeToken[], force = false) {
-  try {
-    if (tokens.length === 0) {
-      return { sent: false, reason: "empty" as const };
-    }
+let inflight: Promise<{ sent: boolean; reason: string; signature?: string; error?: string }> | null =
+  null;
 
-    const settings = await loadSettings();
-    const signature = contractsSignature(tokens);
-    if (!force && settings.lastSignature === signature) {
+async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
+  if (tokens.length === 0) {
+    return { sent: false, reason: "empty" as const };
+  }
+
+  const settings = await loadSettings();
+  const signature = contractsSignature(tokens);
+  const { token, chatId } = telegramCreds(settings);
+
+  if (!token || !chatId) {
+    return { sent: false, reason: "unconfigured" as const };
+  }
+
+  if (!force) {
+    if (settings.lastSignature === signature) {
       return { sent: false, reason: "unchanged" as const };
     }
-
-    const topic = ntfyTopic(settings);
-    const { token, chatId } = telegramCreds(settings);
-
-    if (!topic && !(token && chatId)) {
-      return { sent: false, reason: "unconfigured" as const };
+    const wait = remainingCooldownMs(settings);
+    if (wait > 0) {
+      return { sent: false, reason: "cooldown" as const };
     }
-
-    const body = formatContractsMessage(tokens);
-    if (topic) {
-      await sendNtfy(topic, body);
-    }
-    if (token && chatId) {
-      await telegramApi(token, "sendMessage", {
-        chat_id: chatId,
-        text: body,
-        disable_web_page_preview: true,
-      });
-    }
-
-    settings.lastSignature = signature;
-    if (topic) settings.ntfyTopic = topic;
-    if (token) settings.telegramBotToken = token;
-    if (chatId) settings.telegramChatId = chatId;
-    await saveSettings(settings);
-    return { sent: true as const, signature };
-  } catch (error) {
-    console.error("notifyTopContracts failed", error);
-    return {
-      sent: false,
-      reason: "error" as const,
-      error: error instanceof Error ? error.message : "notify failed",
-    };
   }
+
+  const body = formatContractsMessage(tokens);
+  await telegramApi(token, "sendMessage", {
+    chat_id: chatId,
+    text: body,
+    disable_web_page_preview: true,
+  });
+
+  settings.lastSignature = signature;
+  settings.lastSentAt = Date.now();
+  settings.telegramBotToken = token;
+  settings.telegramChatId = chatId;
+  await saveSettings(settings);
+  return { sent: true as const, signature, reason: "sent" as const };
+}
+
+export async function notifyTopContracts(tokens: HypeToken[], force = false) {
+  if (inflight && !force) {
+    return inflight;
+  }
+  const run = (async () => {
+    try {
+      return await notifyTopContractsOnce(tokens, force);
+    } catch (error) {
+      console.error("notifyTopContracts failed", error);
+      return {
+        sent: false,
+        reason: "error" as const,
+        error: error instanceof Error ? error.message : "notify failed",
+      };
+    } finally {
+      inflight = null;
+    }
+  })();
+  inflight = run;
+  return run;
+}
+
+export async function markNotifyQuiet() {
+  const settings = await loadSettings();
+  settings.lastSentAt = Date.now();
+  await saveSettings(settings);
 }

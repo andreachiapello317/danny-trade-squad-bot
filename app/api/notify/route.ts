@@ -15,9 +15,7 @@ export async function POST(request: Request) {
     if (body.token) {
       const connected = await connectTelegram(body.token);
       if (!connected.ok) return Response.json(connected, { status: 400 });
-      const board = await getHypeBoard({ skipNotify: true });
-      const sent = await notifyTopContracts(board.topContracts ?? [], true);
-      return Response.json({ ...connected, ...sent, topContracts: board.topContracts ?? [] });
+      return Response.json(connected);
     }
   }
   const board = await getHypeBoard({ skipNotify: true });

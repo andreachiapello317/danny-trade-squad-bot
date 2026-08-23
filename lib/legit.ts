@@ -1,5 +1,6 @@
 import type { TokenCheck, XPost } from "@/lib/types";
 import type { XSignal } from "@/lib/x-signal";
+import { CHECK_CACHE_MS } from "@/lib/timing";
 
 type Json = Record<string, unknown>;
 
@@ -20,7 +21,6 @@ function str(value: unknown): string | null {
 }
 
 const cache = new Map<string, { at: number; value: TokenCheck }>();
-const TTL_MS = 90_000;
 
 function mentionsMint(mint: string, texts: Array<string | null | undefined>) {
   const full = mint.toLowerCase();
@@ -59,7 +59,7 @@ export async function checkToken(
 ): Promise<TokenCheck> {
   const cacheKey = `${mint}:${x?.handle ?? "nox"}:v2`;
   const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
+  if (cached && Date.now() - cached.at < CHECK_CACHE_MS) return cached.value;
 
   const report = await fetchRugReport(mint);
   const notes: string[] = [];
@@ -140,20 +140,12 @@ export async function checkToken(
 
   let verdict: TokenCheck["verdict"] = "pass";
   let label = "Check base ok";
-  if (rugged || !mintRevoked || !freezeRevoked || dangerRisks.length) {
+  if (rugged || !mintRevoked || !freezeRevoked) {
     verdict = "danger";
     label = "Rischio alto";
-  } else if (
-    (rugScore ?? 0) >= 25 ||
-    warnRisks.length > 0 ||
-    (topHolderPct ?? 0) >= 25 ||
-    (xMintInPosts === false && (pairAgeHours ?? 0) < 72) ||
-    (xAccountAgeHours != null && xAccountAgeHours < 12)
-  ) {
+  } else if ((rugScore ?? 0) >= 40 || (topHolderPct ?? 0) >= 35) {
     verdict = "caution";
     label = "Attenzione";
-  } else if (xMintInPosts) {
-    label = "Check ok + mint su X";
   }
 
   const result: TokenCheck = {
@@ -177,7 +169,7 @@ export async function checkToken(
 export async function checkTokens(
   items: Array<{ mint: string; x?: XSignal | null; pairAgeHours?: number | null }>
 ): Promise<Map<string, TokenCheck>> {
-  const unique = items.slice(0, 8);
+  const unique = items.slice(0, 4);
   const rows = await Promise.all(
     unique.map(async (item) => [item.mint, await checkToken(item.mint, item.x, item.pairAgeHours)] as const)
   );

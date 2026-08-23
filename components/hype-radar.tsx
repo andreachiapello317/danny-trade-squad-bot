@@ -28,6 +28,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { HypeResponse, HypeToken } from "@/lib/types";
+import { PAGE_REFRESH_MS } from "@/lib/timing";
 
 function formatUsd(value: number | null, digits = 2) {
   if (value == null) return "—";
@@ -119,7 +120,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
     if (!hasInitial) {
       void load();
     }
-    const id = window.setInterval(() => void load(), 60_000);
+    const id = window.setInterval(() => void load(), PAGE_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [hasInitial, load]);
 

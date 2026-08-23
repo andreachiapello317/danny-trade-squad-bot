@@ -1,4 +1,5 @@
 import type { XPost } from "@/lib/types";
+import { CHECK_CACHE_MS } from "@/lib/timing";
 
 export type XSignal = {
   handle: string;
@@ -19,7 +20,7 @@ type Json = Record<string, unknown>;
 
 const officialCache = new Map<string, { at: number; value: XSignal }>();
 const crowdCache = new Map<string, { at: number; value: XSignal }>();
-const TTL_MS = 90_000;
+const TTL_MS = CHECK_CACHE_MS;
 
 function asRecord(value: unknown): Json {
   return value && typeof value === "object" ? (value as Json) : {};
@@ -249,7 +250,7 @@ export async function loadCrowdTalk(
 export async function loadCrowdTalks(
   tokens: Array<{ symbol: string; name: string; twitterUrl: string | null }>
 ): Promise<Map<string, XSignal>> {
-  const unique = tokens.slice(0, 6);
+  const unique = tokens.slice(0, 4);
   const rows = await Promise.all(
     unique.map(async (token) => {
       const signal = await loadCrowdTalk(token.symbol, token.name, twitterHandle(token.twitterUrl));

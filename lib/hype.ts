@@ -1,7 +1,8 @@
 import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { checkTokens } from "@/lib/legit";
 import { notifyTopContracts } from "@/lib/notify";
-import { loadCrowdTalks, loadXSignal, twitterHandle } from "@/lib/x-signal";
+import { BOARD_CACHE_MS } from "@/lib/timing";
+import { loadCrowdTalks, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
   "SOL",
@@ -559,21 +560,28 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+let stickyTopMints: string[] = [];
+
 export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 4) {
+  const byMint = new Map(tokens.map((token) => [token.mint, token]));
   const out: HypeToken[] = [];
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
-    if (!token?.mint || seen.has(token.mint)) return;
+    if (!token?.mint || seen.has(token.mint) || token.check?.verdict === "danger") return;
     seen.add(token.mint);
     out.push(token);
   };
-  const safer = tokens.filter((token) => token.check?.verdict !== "danger");
-  const risky = tokens.filter((token) => token.check?.verdict === "danger");
-  if (winner && winner.check?.verdict !== "danger") push(winner);
-  for (const token of safer) push(token);
-  if (out.length < count) {
-    for (const token of risky) push(token);
+
+  for (const mint of stickyTopMints) {
+    push(byMint.get(mint));
   }
+  push(winner);
+  for (const token of tokens) {
+    if (out.length >= count) break;
+    push(token);
+  }
+
+  stickyTopMints = out.slice(0, count).map((token) => token.mint);
   return out.slice(0, count);
 }
 
@@ -724,7 +732,6 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
 type BoardCache = { at: number; board: HypeResponse };
 
 let boardCache: BoardCache | null = null;
-const BOARD_CACHE_MS = 20_000;
 
 export async function getHypeBoard(options?: {
   skipNotify?: boolean;
@@ -773,7 +780,7 @@ export async function getHypeBoard(options?: {
   const crowdTalks = await loadCrowdTalks(
     [...heatingDrafts]
       .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0) || (a.marketCap ?? 9e18) - (b.marketCap ?? 9e18))
-      .slice(0, 6)
+      .slice(0, 4)
       .map((draft) => ({
         symbol: draft.symbol,
         name: draft.name,
@@ -797,12 +804,10 @@ export async function getHypeBoard(options?: {
     .slice(0, 6);
 
   const checks = await checkTokens(
-    await Promise.all(
-      [...heating.slice(0, 6), ...pumped.slice(0, 2)].map(async (token) => {
-        const x = await loadXSignal(token.twitterUrl);
-        return { mint: token.mint, x, pairAgeHours: token.pairAgeHours };
-      })
-    )
+    heating.slice(0, 4).map((token) => ({
+      mint: token.mint,
+      pairAgeHours: token.pairAgeHours,
+    }))
   );
 
   const withCheck = (token: HypeToken): HypeToken => ({
@@ -829,7 +834,7 @@ export async function getHypeBoard(options?: {
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Market cap da 200k, launch dopo 30 minuti. X vale il 10% e conta i post della gente, non l’account ufficiale del token.",
+    note: "Market cap da 200k, launch dopo 30 minuti. Classifica ogni 5 minuti. Telegram: un messaggio ogni 15 minuti, solo se i 4 contratti cambiano.",
   };
 
   boardCache = { at: Date.now(), board };

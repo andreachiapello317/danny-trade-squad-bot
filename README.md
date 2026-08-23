@@ -4,7 +4,7 @@ Classifica i token Solana da **200k di market cap** in su. I launch entrano **do
 
 X vale il 10% e conta i **post della gente** sul ticker, non l’account ufficiale. Il resto è accelerazione e launch (dopo 30 minuti). Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
 
-Ogni candidato in cima passa anche RugCheck (mint, freeze, LP, holder) e il confronto col profilo X ufficiale.
+RugCheck guarda solo mint, freeze e rugged sui 4 in cima. Non gira a ogni refresh.
 
 Non è consulenza finanziaria.
 
@@ -19,7 +19,7 @@ Apri [http://127.0.0.1:43177](http://127.0.0.1:43177).
 
 ## Telegram sul telefono
 
-Quando i 4 contratti in cima cambiano, il radar te li manda su Telegram.
+Quando i 4 contratti in cima cambiano, arriva **un** messaggio Telegram. Al massimo ogni **15 minuti**. La classifica in pagina si aggiorna ogni **5 minuti**.
 
 1. Apri Telegram e cerca **BotFather**.
 2. Scrivi `/newbot`, scegli un nome e un username che finisce con `bot`.
@@ -28,7 +28,7 @@ Quando i 4 contratti in cima cambiano, il radar te li manda su Telegram.
 
 In alternativa puoi mettere `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` in `.env.local`.
 
-`GET /api/contracts` è il testo dei 4 mint. `POST /api/notify` li reinvia.
+`GET /api/contracts` è il testo dei 4 mint. `POST /api/notify` forza un invio (ignora il cooldown).
 
 ## Sul telefono (aprire la pagina)
 
