@@ -57,7 +57,7 @@ export async function checkToken(
   x?: XSignal | null,
   pairAgeHours?: number | null
 ): Promise<TokenCheck> {
-  const cacheKey = `${mint}:${x?.handle ?? "nox"}`;
+  const cacheKey = `${mint}:${x?.handle ?? "nox"}:v2`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
 
@@ -95,6 +95,8 @@ export async function checkToken(
   const risks = asArray(report.risks).map(asRecord);
   const dangerRisks = risks.filter((risk) => {
     const level = str(risk.level)?.toLowerCase();
+    const label = `${str(risk.name) ?? ""} ${str(risk.description) ?? ""}`.toLowerCase();
+    if (label.includes("lp vault unlocked")) return false;
     return level === "danger" || level === "critical" || (num(risk.score) ?? 0) >= 5000;
   });
   const warnRisks = risks.filter((risk) => str(risk.level)?.toLowerCase() === "warn");

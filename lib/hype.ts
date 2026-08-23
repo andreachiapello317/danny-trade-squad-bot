@@ -23,6 +23,7 @@ const SKIP_SYMBOLS = new Set([
   "BNSOL",
   "INF",
   "STSOL",
+  "ZEC",
 ]);
 
 const SKIP_NAME_RE = /wormhole|xstock|wrapped|bridged|staked /i;
@@ -642,12 +643,14 @@ export async function getHypeBoard(): Promise<HypeResponse> {
     check: checks.get(token.mint) ?? token.check,
   });
 
-  const checkedHeating = heating.map(withCheck).filter((token) => token.check?.verdict !== "danger");
+  const checkedHeating = heating.map(withCheck);
   const checkedPumped = pumped.map(withCheck);
+  const winner =
+    checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
 
   return {
     generatedAt: new Date().toISOString(),
-    winner: checkedHeating[0] ?? null,
+    winner,
     tokens: checkedHeating,
     established: checkedPumped,
     sources: {
