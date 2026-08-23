@@ -35,6 +35,10 @@ const ALREADY_PUMPED_24H = 80;
 
 const WSOL = "So11111111111111111111111111111111111111112";
 
+const SKIP_MINTS = new Set([
+  "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g", // wrapped Hyperliquid HYPE
+]);
+
 type Json = Record<string, unknown>;
 
 async function fetchJson<T>(url: string, timeoutMs = 9000): Promise<T | null> {
@@ -221,7 +225,10 @@ function applyDexPair(draft: Draft, pair: Json) {
   draft.sells24h = num(h24.sells) ?? draft.sells24h;
   draft.buys5m = num(m5.buys) ?? draft.buys5m;
   draft.sells5m = num(m5.sells) ?? draft.sells5m;
-  draft.liquidityUsd = num(asRecord(pair.liquidity).usd) ?? draft.liquidityUsd;
+  const pairLiq = num(asRecord(pair.liquidity).usd);
+  if (pairLiq != null) {
+    draft.liquidityUsd = Math.max(draft.liquidityUsd ?? 0, pairLiq);
+  }
   draft.pairCreatedAt = num(pair.pairCreatedAt) ?? draft.pairCreatedAt;
   draft.twitterUrl = twitter ?? draft.twitterUrl;
   draft.telegramUrl = telegram ?? draft.telegramUrl;
@@ -256,7 +263,7 @@ async function loadJupiterVerified(byMint: Map<string, Draft>, bySymbol: Map<str
     const marketCap = num(item.mcap);
     const liquidityUsd = num(item.liquidity);
     const organicScore = num(item.organicScore);
-    if (!mint || mint === WSOL) continue;
+    if (!mint || mint === WSOL || SKIP_MINTS.has(mint)) continue;
     if (SKIP_SYMBOLS.has(normalizeSymbol(symbol))) continue;
     if (SKIP_NAME_RE.test(name)) continue;
     if (marketCap == null || marketCap < MIN_MCAP || marketCap > MAX_MCAP) continue;
@@ -583,14 +590,20 @@ export async function getHypeBoard(): Promise<HypeResponse> {
   ]);
 
   const universe = [...byMint.values()].filter(isUniverse);
-  const heatingDrafts = universe.filter(isHeating);
-  const pumpedDrafts = universe.filter(isAlreadyPumped);
-
-  const enrichTargets = [...heatingDrafts, ...pumpedDrafts]
+  const enrichTargets = [...universe]
     .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0))
-    .slice(0, 36)
+    .slice(0, 40)
     .map((draft) => draft.mint);
   const dexScreener = await enrichDexScreener(byMint, enrichTargets);
+
+  let heatingDrafts = universe.filter(isHeating);
+  const pumpedDrafts = universe.filter(isAlreadyPumped);
+  if (heatingDrafts.length < 10) {
+    const extra = universe
+      .filter((draft) => !isAlreadyPumped(draft) && !heatingDrafts.includes(draft))
+      .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0));
+    heatingDrafts = [...heatingDrafts, ...extra].slice(0, 10);
+  }
 
   const xSignals = await loadXSignals(
     [...heatingDrafts]

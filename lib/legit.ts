@@ -122,8 +122,10 @@ export async function checkToken(
 
   if (xMintInPosts) {
     notes.push(`Su X @${x?.handle} il mint compare nei post o nella bio.`);
-  } else if (x && x.posts.length) {
+  } else if (x && x.posts.length && (pairAgeHours ?? 0) < 72) {
     notes.push(`Su X @${x.handle} i post recenti non citano questo mint. Potrebbe essere un account copiato.`);
+  } else if (x && x.posts.length) {
+    notes.push(`Profilo X @${x.handle} trovato; i post recenti non ripetono il mint (normale sui token già noti).`);
   } else if (!x) {
     notes.push("Nessun profilo X ufficiale da confrontare col mint.");
   }
@@ -143,7 +145,7 @@ export async function checkToken(
     (rugScore ?? 0) >= 25 ||
     warnRisks.length > 0 ||
     (topHolderPct ?? 0) >= 25 ||
-    xMintInPosts === false ||
+    (xMintInPosts === false && (pairAgeHours ?? 0) < 72) ||
     (xAccountAgeHours != null && xAccountAgeHours < 12)
   ) {
     verdict = "caution";
