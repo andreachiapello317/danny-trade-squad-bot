@@ -1,6 +1,7 @@
 import { getHypeBoard } from "@/lib/hype";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export async function GET() {
   try {
@@ -16,7 +17,7 @@ export async function GET() {
         generatedAt: new Date().toISOString(),
         winner: null,
         tokens: [],
-        sources: { coinGecko: false, geckoTerminal: false, dexScreener: false },
+        sources: { coinGecko: false, geckoTerminal: false, dexScreener: false, x: false },
         note: "Impossibile calcolare l'hype in questo momento.",
         error: true,
       },

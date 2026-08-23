@@ -6,8 +6,12 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Copy,
+  Eye,
   ExternalLink,
+  Heart,
+  MessageCircle,
   RefreshCw,
+  Repeat2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -140,8 +144,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
             Classifica in tempo reale dei memecoin Solana più caldi. Il primo posto pesa
-            l&apos;attenzione social (trending CoinGecko, il proxy più vicino all&apos;hype su
-            X) e il momentum DEX.
+            i post e i follower su X, poi trending e volume DEX.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -186,10 +189,11 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl ring-1 ring-white/10">
-            <div className="hidden grid-cols-[2.5rem_1fr_6rem_7rem_7rem_5.5rem] gap-3 bg-zinc-900/80 px-4 py-2 text-[11px] tracking-wide text-zinc-500 uppercase sm:grid">
+            <div className="hidden grid-cols-[2.5rem_1fr_5rem_5rem_6.5rem_6.5rem_5.5rem] gap-3 bg-zinc-900/80 px-4 py-2 text-[11px] tracking-wide text-zinc-500 uppercase sm:grid">
               <span>#</span>
               <span>Token</span>
               <span className="text-right">Hype</span>
+              <span className="text-right">X</span>
               <span className="text-right">Mcap</span>
               <span className="text-right">Vol 24h</span>
               <span className="text-right">24h</span>
@@ -200,7 +204,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                 href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}
                 target="_blank"
                 rel="noreferrer"
-                className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 transition hover:bg-white/5 sm:grid-cols-[2.5rem_1fr_6rem_7rem_7rem_5.5rem]"
+                className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 transition hover:bg-white/5 sm:grid-cols-[2.5rem_1fr_5rem_5rem_6.5rem_6.5rem_5.5rem]"
               >
                 <span className="font-mono text-xs text-zinc-500">{index + 1}</span>
                 <span className="flex min-w-0 items-center gap-3">
@@ -214,6 +218,9 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
                 </span>
                 <span className="text-right font-mono text-sm text-lime-300">
                   {token.hypeScore}
+                </span>
+                <span className="hidden text-right font-mono text-sm text-zinc-400 sm:block">
+                  {token.xScore}
                 </span>
                 <span className="hidden text-right font-mono text-sm text-zinc-300 sm:block">
                   {formatUsd(token.marketCap)}
@@ -238,18 +245,22 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
               "L'hype su X viene stimato da fonti pubbliche perché la ricerca post non è abilitata su questo account."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-3">
+        <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">
           <p>
-            <span className="block font-medium text-zinc-200">48% social</span>
-            Posizione nel trending CoinGecko, il segnale più vicino a “tutti ne parlano”.
+            <span className="block font-medium text-zinc-200">40% X</span>
+            Follower, view, like e reply sui post recenti del profilo ufficiale.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">24% momentum DEX</span>
+            <span className="block font-medium text-zinc-200">28% trending</span>
+            Posizione nel trending CoinGecko.
+          </p>
+          <p>
+            <span className="block font-medium text-zinc-200">18% momentum DEX</span>
             Rank dei pool Solana in tendenza su GeckoTerminal.
           </p>
           <p>
-            <span className="block font-medium text-zinc-200">28% calore on-chain</span>
-            Volume, transazioni e pressione d&apos;acquisto a 5 minuti, più boost DexScreener.
+            <span className="block font-medium text-zinc-200">14% on-chain</span>
+            Volume, transazioni e boost DexScreener.
           </p>
         </CardContent>
       </Card>
@@ -257,7 +268,7 @@ export function HypeRadar({ initial }: { initial: HypeResponse }) {
       <p className="pb-8 text-xs leading-5 text-zinc-500">
         Non è consulenza finanziaria. I memecoin Solana sono estremamente volatili e spesso
         durano ore. Verifica sempre il mint prima di un swap. Fonti: CoinGecko, GeckoTerminal,
-        DexScreener.
+        DexScreener e X.
       </p>
     </div>
   );
@@ -285,6 +296,7 @@ function WinnerCard({
             {token.geckoTerminalRank ? (
               <Badge variant="outline">DEX #{token.geckoTerminalRank}</Badge>
             ) : null}
+            {token.xHandle ? <Badge variant="outline">X @{token.xHandle}</Badge> : null}
           </div>
           <CardTitle className="font-mono text-3xl tracking-tight sm:text-4xl">
             ${token.symbol}
@@ -302,7 +314,49 @@ function WinnerCard({
           <Stat label="Cambio 24h" value={<Change value={token.priceChange24h} />} />
           <Stat label="Buy 24h" value={token.buys24h.toLocaleString("it-IT")} />
           <Stat label="Liquidità" value={formatUsd(token.liquidityUsd)} />
+          <Stat label="Score X" value={String(token.xScore)} />
+          <Stat
+            label="Follower X"
+            value={token.xFollowers != null ? token.xFollowers.toLocaleString("it-IT") : "—"}
+          />
         </div>
+
+        {token.xPosts.length ? (
+          <div className="space-y-2">
+            <p className="text-[11px] tracking-wide text-zinc-500 uppercase">Post recenti su X</p>
+            <div className="space-y-2">
+              {token.xPosts.map((post) => (
+                <a
+                  key={post.id}
+                  href={post.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-lg bg-black/30 px-3 py-2 transition hover:bg-black/50"
+                >
+                  <p className="line-clamp-2 text-sm text-zinc-200">{post.text}</p>
+                  <p className="mt-1.5 flex flex-wrap gap-3 font-mono text-[11px] text-zinc-500">
+                    <span className="inline-flex items-center gap-1">
+                      <Heart className="size-3" />
+                      {post.likes}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Repeat2 className="size-3" />
+                      {post.retweets}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <MessageCircle className="size-3" />
+                      {post.replies}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Eye className="size-3" />
+                      {post.views.toLocaleString("it-IT")}
+                    </span>
+                  </p>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {token.reasons.length ? (
           <ul className="space-y-1.5 text-sm text-zinc-300">

@@ -1,4 +1,5 @@
-import type { HypeResponse, HypeToken } from "@/lib/types";
+import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
+import { loadXSignals, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
   "SOL",
@@ -378,7 +379,16 @@ async function loadCoinGecko(byMint: Map<string, Draft>, bySymbol: Map<string, D
   return used;
 }
 
-function scoreDraft(draft: Draft): HypeToken {
+function scoreDraft(
+  draft: Draft,
+  x?: {
+    xScore: number;
+    handle: string;
+    followers: number | null;
+    tweetCount: number | null;
+    posts: XPost[];
+  }
+): HypeToken {
   const socialScore = rankPoints(draft.coinGeckoRank, 15);
   const momentumScore = rankPoints(draft.geckoTerminalRank, 20);
   const volumeScore = logScale(draft.volume24h, 80_000_000);
@@ -389,13 +399,28 @@ function scoreDraft(draft: Draft): HypeToken {
       : 40;
   const heatScore = volumeScore * 0.55 + txnScore * 0.25 + pressure * 0.2;
   const boostScore = Math.min(100, draft.boostAmount / 10);
+  const xScore = x?.xScore ?? 0;
   const hypeScore = Math.round(
-    socialScore * 0.48 + momentumScore * 0.24 + heatScore * 0.22 + boostScore * 0.06
+    xScore * 0.4 +
+      socialScore * 0.28 +
+      momentumScore * 0.18 +
+      heatScore * 0.1 +
+      boostScore * 0.04
   );
 
   const reasons: string[] = [];
+  if (x && x.xScore >= 20) {
+    const followers =
+      x.followers != null ? `${x.followers.toLocaleString("it-IT")} follower` : "profilo X attivo";
+    const views = x.posts.reduce((sum, post) => sum + post.views, 0);
+    reasons.push(
+      views > 0
+        ? `X @${x.handle}: ${followers}, ${views.toLocaleString("it-IT")} view sui post recenti`
+        : `X @${x.handle}: ${followers}`
+    );
+  }
   if (draft.coinGeckoRank === 1) {
-    reasons.push("Primo nel trending globale CoinGecko (proxy dell'attenzione social/search, vicino all'hype su X)");
+    reasons.push("Primo nel trending globale CoinGecko");
   } else if (draft.coinGeckoRank) {
     reasons.push(`#${draft.coinGeckoRank} nel trending CoinGecko`);
   }
@@ -420,6 +445,11 @@ function scoreDraft(draft: Draft): HypeToken {
     socialScore: Math.round(socialScore),
     momentumScore: Math.round(momentumScore),
     heatScore: Math.round(heatScore),
+    xScore: Math.round(xScore),
+    xHandle: x?.handle ?? twitterHandle(draft.twitterUrl),
+    xFollowers: x?.followers ?? null,
+    xTweetCount: x?.tweetCount ?? null,
+    xPosts: x?.posts ?? [],
     reasons,
   };
 }
@@ -439,9 +469,19 @@ export async function getHypeBoard(): Promise<HypeResponse> {
     await enrichDexScreener(byMint);
   }
 
-  const tokens = [...byMint.values()]
-    .map(scoreDraft)
-    .sort((a, b) => b.hypeScore - a.hypeScore || (b.volume24h ?? 0) - (a.volume24h ?? 0))
+  const ranked = [...byMint.values()]
+    .map((draft) => scoreDraft(draft))
+    .sort((a, b) => b.hypeScore - a.hypeScore || (b.volume24h ?? 0) - (a.volume24h ?? 0));
+
+  const xSignals = await loadXSignals(ranked.slice(0, 8).map((token) => token.twitterUrl));
+  const tokens = ranked
+    .map((token) => {
+      const handle = twitterHandle(token.twitterUrl)?.toLowerCase();
+      const x = handle ? xSignals.get(handle) : undefined;
+      const draft = byMint.get(token.mint);
+      return draft ? scoreDraft(draft, x) : token;
+    })
+    .sort((a, b) => b.hypeScore - a.hypeScore || b.xScore - a.xScore)
     .slice(0, 12);
 
   return {
@@ -452,7 +492,8 @@ export async function getHypeBoard(): Promise<HypeResponse> {
       coinGecko,
       geckoTerminal,
       dexScreener: dexScreener || boosts,
+      x: xSignals.size > 0,
     },
-    note: "La ricerca post su X non è disponibile su questo account. Il punteggio usa CoinGecko Trending come proxy di attenzione social, più momentum DEX su Solana.",
+    note: "Il punteggio pesa i profili X ufficiali e i post recenti (follower, like, view), più trending CoinGecko e momentum DEX.",
   };
 }

@@ -4,11 +4,10 @@ App web che classifica i token Solana con più attenzione in questo momento.
 
 Il primo posto combina:
 
-1. **Trending CoinGecko** (proxy dell’hype social / search, il segnale più vicino a X)
-2. **Pool Solana in tendenza** su GeckoTerminal
-3. **Volume, transazioni e boost** DexScreener
-
-La ricerca diretta dei post su X non è inclusa: l’account X collegato non è ancora abilitato alla console developer.
+1. **X** — profilo ufficiale e post recenti (follower, view, like, reply)
+2. **Trending CoinGecko**
+3. **Pool Solana in tendenza** su GeckoTerminal
+4. **Volume, transazioni e boost** DexScreener
 
 Non è consulenza finanziaria. I memecoin sono estremamente volatili.
 

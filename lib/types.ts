@@ -1,3 +1,14 @@
+export type XPost = {
+  id: string;
+  url: string;
+  text: string;
+  likes: number;
+  views: number;
+  replies: number;
+  retweets: number;
+  createdAt: string | null;
+};
+
 export type HypeToken = {
   mint: string;
   name: string;
@@ -25,6 +36,11 @@ export type HypeToken = {
   socialScore: number;
   momentumScore: number;
   heatScore: number;
+  xScore: number;
+  xHandle: string | null;
+  xFollowers: number | null;
+  xTweetCount: number | null;
+  xPosts: XPost[];
   reasons: string[];
 };
 
@@ -36,6 +52,7 @@ export type HypeResponse = {
     coinGecko: boolean;
     geckoTerminal: boolean;
     dexScreener: boolean;
+    x: boolean;
   };
   note: string;
 };
