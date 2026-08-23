@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Radar Solana: da 200k, launch dopo 30 min",
+  title: "Radar Solana: trending verified",
   description:
-    "Token Solana da 200k. Launch dopo 30 minuti. X al 10% sui post della gente, non sull'account ufficiale.",
+    "Solo token Solana Jupiter verified, i più in trending. Market cap da 200k, launch dopo 30 minuti.",
   applicationName: "Radar Solana",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

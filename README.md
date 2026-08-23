@@ -1,8 +1,8 @@
-# Radar Solana — cosa sta partendo
+# Radar Solana — trending verified
 
-Classifica i token Solana da **200k di market cap** in su. I launch entrano **dopo 30 minuti**, non prima.
+Classifica i token Solana **Jupiter verified** più in trending (GeckoTerminal e CoinGecko), da **200k di market cap**. I launch entrano **dopo 30 minuti**.
 
-X vale il 10% e conta i **post della gente** sul ticker, non l’account ufficiale. Il resto è accelerazione e launch (dopo 30 minuti). Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
+X vale il 10% e conta i **post della gente** sul ticker. Chi ha già fatto +80% oggi finisce sotto, in “già pompate oggi”.
 
 RugCheck guarda solo mint, freeze e rugged sui 4 in cima. Non gira a ogni refresh.
 

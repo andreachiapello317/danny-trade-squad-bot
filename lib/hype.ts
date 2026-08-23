@@ -334,11 +334,11 @@ function ingestGeckoPool(
   const ageHours = Number.isFinite(createdMs) ? (Date.now() - createdMs) / 3_600_000 : null;
   if (ageHours != null && ageHours < MIN_LAUNCH_HOURS) return false;
 
+  const draft = byMint.get(mint);
+  if (!draft?.verified) return false;
+
   const volume = asRecord(attributes.volume_usd);
   const change = asRecord(attributes.price_change_percentage);
-  const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
-  draft.name = draft.verified ? draft.name : name;
-  draft.symbol = draft.verified ? draft.symbol : symbol;
   draft.imageUrl = draft.imageUrl ?? str(tokenAttr.image_url);
   draft.priceUsd = num(attributes.base_token_price_usd) ?? draft.priceUsd;
   draft.marketCap = num(attributes.market_cap_usd) ?? num(attributes.fdv_usd) ?? draft.marketCap;
@@ -416,14 +416,9 @@ async function loadDexSearch(byMint: Map<string, Draft>, bySymbol: Map<string, D
     if (SKIP_SYMBOLS.has(normalizeSymbol(symbol)) || SKIP_NAMES.has(foldName(name))) continue;
     const created = num(pair.pairCreatedAt);
     if (created != null && (Date.now() - created) / 3_600_000 < MIN_LAUNCH_HOURS) continue;
-    const draft = byMint.get(mint) ?? emptyDraft(mint, name, symbol);
+    const draft = byMint.get(mint);
+    if (!draft?.verified) continue;
     applyDexPair(draft, pair);
-    if (!draft.verified) {
-      draft.name = name;
-      draft.symbol = symbol;
-    }
-    byMint.set(mint, draft);
-    bySymbol.set(normalizeSymbol(draft.symbol), draft);
     used = true;
   }
   return used;
@@ -526,7 +521,23 @@ function buyPressure(draft: Draft): number | null {
   return draft.buys5m / total;
 }
 
+function trendingRank(draft: Draft) {
+  const gecko = draft.geckoTerminalRank ?? 99;
+  const coin = draft.coinGeckoRank ?? 99;
+  return Math.min(gecko, coin);
+}
+
+function isTrending(draft: Draft) {
+  return (
+    draft.geckoTerminalRank != null ||
+    draft.coinGeckoRank != null ||
+    (draft.volume1h ?? 0) >= 25_000 ||
+    ((draft.volume24h ?? 0) >= 250_000 && (draft.priceChange1h ?? 0) >= 1.5)
+  );
+}
+
 function isUniverse(draft: Draft): boolean {
+  if (!draft.verified) return false;
   if (SKIP_SYMBOLS.has(normalizeSymbol(draft.symbol))) return false;
   if (SKIP_NAMES.has(foldName(draft.name)) || SKIP_NAME_RE.test(draft.name)) return false;
   const mcap = draft.marketCap ?? 0;
@@ -543,46 +554,29 @@ function isAlreadyPumped(draft: Draft): boolean {
 
 function isHeating(draft: Draft): boolean {
   if (!isUniverse(draft) || isAlreadyPumped(draft)) return false;
-  const change1h = draft.priceChange1h ?? 0;
-  const change24h = draft.priceChange24h ?? 0;
-  if (change1h <= -8) return false;
-  const age = pairAgeHours(draft);
-  const launchWindow = age != null && age >= MIN_LAUNCH_HOURS && age <= 18;
-  const activity = draft.buys5m + draft.sells5m;
-  return (
-    change1h >= 0.45 ||
-    (change24h >= 6 && change24h < ALREADY_PUMPED_24H && change1h >= 0) ||
-    ((draft.volume1h ?? 0) > 0 && (draft.volume24h ?? 0) > 0 && (draft.volume1h ?? 0) >= (draft.volume24h ?? 0) / 16) ||
-    (launchWindow && (activity >= 8 || (draft.volume1h ?? 0) >= 4_000 || (draft.volume5m ?? 0) >= 800))
-  );
+  if ((draft.priceChange1h ?? 0) <= -12) return false;
+  return isTrending(draft);
 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-let stickyTopMints: string[] = [];
-
 export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 4) {
-  const byMint = new Map(tokens.map((token) => [token.mint, token]));
   const out: HypeToken[] = [];
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
-    if (!token?.mint || seen.has(token.mint) || token.check?.verdict === "danger") return;
+    if (!token?.mint || seen.has(token.mint) || !token.verified) return;
+    if (token.check?.verdict === "danger") return;
     seen.add(token.mint);
     out.push(token);
   };
 
-  for (const mint of stickyTopMints) {
-    push(byMint.get(mint));
-  }
   push(winner);
   for (const token of tokens) {
     if (out.length >= count) break;
     push(token);
   }
-
-  stickyTopMints = out.slice(0, count).map((token) => token.mint);
   return out.slice(0, count);
 }
 
@@ -603,37 +597,18 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
   let hypeScore: number;
 
   if (mode === "heating") {
-    const heat1h = clamp(change1h * 11, 0, 100);
-    const confirm24 =
-      change24h >= 6 && change24h <= 45 ? clamp(change24h * 1.35, 0, 60) : change24h > 0 && change24h < 6 ? change24h * 3 : 0;
-    const latePenalty = change24h >= 70 ? 36 : change24h >= 50 ? 16 : 0;
-    const dumpPenalty = change24h <= -40 ? 26 : change24h <= -22 ? 12 : 0;
-    const orgScore = draft.organicScore ?? 50;
-    const sizeScore = logScale(draft.marketCap, 3_000_000_000);
+    const trendScore = Math.max(momentumScore, socialScore);
+    const heat1h = clamp(change1h * 3.2, 0, 100);
+    const dumpPenalty = change24h <= -40 ? 22 : change24h <= -22 ? 10 : 0;
+    const orgScore = draft.organicScore ?? 40;
     const liveX = x?.crowd ? x.xScore : 0;
-    const launchScore =
-      age == null
-        ? 8
-        : age < MIN_LAUNCH_HOURS
-          ? 0
-          : age <= 3
-            ? 100
-            : age <= 12
-              ? 72
-              : age <= 36
-                ? 40
-                : 12;
     hypeScore = Math.round(
       clamp(
-        liveX * 0.1 +
-          heat1h * 0.26 +
-          launchScore * 0.16 +
-          confirm24 * 0.1 +
-          volumeScore * 0.16 +
-          orgScore * 0.06 +
-          sizeScore * 0.06 +
-          pressureScore * 0.1 -
-          latePenalty -
+        trendScore * 0.42 +
+          volumeScore * 0.22 +
+          heat1h * 0.16 +
+          orgScore * 0.1 +
+          liveX * 0.1 -
           dumpPenalty,
         0,
         100
@@ -653,19 +628,15 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     if (change24h >= 6 && change24h < 50) {
       reasons.push(`Giornata già verde (+${change24h.toFixed(1)}%) senza essere esplosa`);
     }
-    if (age != null && age >= MIN_LAUNCH_HOURS && age < 12) {
-      reasons.push(
-        age < 1
-          ? `Launch da ${Math.round(age * 60)} minuti — sopra la soglia dei 30`
-          : `Launch giovane: ${age < 10 ? age.toFixed(1) : Math.round(age)} ore`
-      );
+    if (draft.geckoTerminalRank) {
+      reasons.push(`#${draft.geckoTerminalRank} trending GeckoTerminal`);
     }
     if ((draft.marketCap ?? 0) >= 1_000_000) {
       reasons.push(`Market cap ${((draft.marketCap ?? 0) / 1_000_000).toFixed(1)}M`);
     } else if ((draft.marketCap ?? 0) >= MIN_MCAP) {
       reasons.push(`Market cap $${Math.round((draft.marketCap ?? 0) / 1000)}k — sopra i 200k`);
     }
-    if (draft.verified) reasons.push("Presente nella lista Jupiter verified");
+    reasons.push("Jupiter verified");
     if ((draft.organicScore ?? 0) >= 80) {
       reasons.push(`Flusso organico alto su Jupiter (${Math.round(draft.organicScore ?? 0)})`);
     }
@@ -763,24 +734,21 @@ async function computeHypeBoard(
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
-  const [jupiter, geckoTerminal, newPools, dexSearch] = await Promise.all([
-    loadJupiterVerified(byMint, bySymbol),
+  const jupiter = await loadJupiterVerified(byMint, bySymbol);
+  const [geckoTerminal, dexSearch] = await Promise.all([
     loadGeckoTerminal(byMint, bySymbol),
-    loadNewPools(byMint, bySymbol),
     loadDexSearch(byMint, bySymbol),
   ]);
 
   const preUniverse = [...byMint.values()];
   const enrichTargets = [...preUniverse]
+    .filter((draft) => draft.verified)
     .sort((a, b) => {
-      const ageA = pairAgeHours(a) ?? 10_000;
-      const ageB = pairAgeHours(b) ?? 10_000;
-      const launchA = ageA >= MIN_LAUNCH_HOURS && ageA <= 18 ? 1 : 0;
-      const launchB = ageB >= MIN_LAUNCH_HOURS && ageB <= 18 ? 1 : 0;
-      if (launchA !== launchB) return launchB - launchA;
-      return (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0);
+      const trend = trendingRank(a) - trendingRank(b);
+      if (trend !== 0) return trend;
+      return (b.volume1h ?? b.volume24h ?? 0) - (a.volume1h ?? a.volume24h ?? 0);
     })
-    .slice(0, 60)
+    .slice(0, 40)
     .map((draft) => draft.mint);
   const dexScreener = (await enrichDexScreener(byMint, enrichTargets)) || dexSearch;
   const coinGecko = await attachCoinGecko(byMint, bySymbol);
@@ -788,12 +756,16 @@ async function computeHypeBoard(
   const universe = [...byMint.values()].filter(isUniverse);
 
   let heatingDrafts = universe.filter(isHeating);
-  const pumpedDrafts = universe.filter(isAlreadyPumped);
-  if (heatingDrafts.length < 10) {
+  const pumpedDrafts = universe.filter((draft) => draft.verified && isAlreadyPumped(draft));
+  if (heatingDrafts.length < 8) {
     const extra = universe
       .filter((draft) => !isAlreadyPumped(draft) && !heatingDrafts.includes(draft))
-      .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0));
-    heatingDrafts = [...heatingDrafts, ...extra].slice(0, 10);
+      .sort((a, b) => {
+        const trend = trendingRank(a) - trendingRank(b);
+        if (trend !== 0) return trend;
+        return (b.volume1h ?? b.volume24h ?? 0) - (a.volume1h ?? a.volume24h ?? 0);
+      });
+    heatingDrafts = [...heatingDrafts, ...extra].slice(0, 8);
   }
 
   const crowdTalks = await loadCrowdTalks(
@@ -847,13 +819,13 @@ async function computeHypeBoard(
     established: checkedPumped,
     sources: {
       coinGecko,
-      geckoTerminal: geckoTerminal || newPools,
+      geckoTerminal,
       dexScreener,
       x: [...crowdTalks.values()].some((signal) => signal.posts.length > 0),
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Market cap da 200k, launch dopo 30 minuti. Ricerca, classifica e Telegram ogni 2 ore. Un messaggio solo se i 4 contratti cambiano.",
+    note: "Solo Jupiter verified, i più in trending. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 2 ore.",
   };
 
   const saved = await writeStoredBoard(board);

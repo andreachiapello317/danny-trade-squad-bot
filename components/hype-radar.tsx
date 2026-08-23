@@ -155,15 +155,15 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.28em] text-lime-400 uppercase">
-            Solana · da 200k · launch 30 min
+            Solana · verified · trending
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Cosa sta partendo adesso
+            I più in trending, solo verified
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
-            Market cap da 200k in su. I launch entrano dopo 30 minuti. La ricerca
-            gira ogni 2 ore. X vale il 10% e guarda i post della gente, non
-            l’account ufficiale. Chi ha già fatto +80% oggi va sotto.
+            Solo token Jupiter verified. In cima chi è davvero in trending su
+            GeckoTerminal e CoinGecko, con volume. Market cap da 200k, launch dopo
+            30 minuti. La ricerca gira ogni 2 ore.
           </p>
         </div>
       </header>
@@ -193,7 +193,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium tracking-wide text-zinc-300 uppercase">
-            In accelerazione
+            Trending verified
           </h2>
           {data?.generatedAt ? (
             <UpdatedAt iso={data.generatedAt} nextIso={data.nextSearchAt} />
@@ -344,7 +344,7 @@ function ContractsCard({
       <CardHeader>
         <CardTitle>4 contratti da copiare</CardTitle>
         <CardDescription>
-          I più promettenti adesso. Tocca il mint per copiarlo nello swap. Non è un via libera.
+          I 4 verified più in trending. Tocca il mint per copiarlo. Non è un via libera.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

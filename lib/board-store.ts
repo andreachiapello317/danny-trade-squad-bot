@@ -6,8 +6,11 @@ import type { HypeResponse } from "@/lib/types";
 
 const STORE_PATH = path.join(process.cwd(), ".data", "board.json");
 
+export const BOARD_VERSION = 3;
+
 export type StoredBoard = {
   at: number;
+  version?: number;
   board: HypeResponse;
 };
 
@@ -39,7 +42,7 @@ export async function readStoredBoard(): Promise<StoredBoard | null> {
   try {
     const raw = await readFile(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw) as StoredBoard;
-    if (parsed?.board && typeof parsed.at === "number") {
+    if (parsed?.board && typeof parsed.at === "number" && parsed.version === BOARD_VERSION) {
       memory = parsed;
       return parsed;
     }
@@ -50,7 +53,7 @@ export async function readStoredBoard(): Promise<StoredBoard | null> {
 }
 
 export async function writeStoredBoard(board: HypeResponse): Promise<StoredBoard> {
-  const stored: StoredBoard = { at: Date.now(), board };
+  const stored: StoredBoard = { at: Date.now(), version: BOARD_VERSION, board };
   memory = stored;
   await mkdir(path.dirname(STORE_PATH), { recursive: true });
   await writeFile(STORE_PATH, JSON.stringify(stored));
