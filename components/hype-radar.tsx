@@ -161,9 +161,9 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-zinc-400">
             Solo token Jupiter verified. In cima chi è davvero in trending su
-            GeckoTerminal e CoinGecko, con volume. I nomi più forti restano in
-            classifica anche se hanno già corso oggi. Market cap da 200k, launch
-            dopo 30 minuti. La ricerca gira ogni 6 ore.
+            GeckoTerminal e CoinGecko, con volume. I nomi veri restano anche se
+            hanno già corso: i copycat e i pump.fun da migliaia di % no. Market
+            cap da 200k, launch dopo 30 minuti. La ricerca gira ogni 6 ore.
           </p>
         </div>
       </header>
@@ -297,7 +297,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
           <CardTitle>Come viene calcolato</CardTitle>
           <CardDescription>
             {data?.note ??
-              "Solo Jupiter verified, i più in trending. I nomi più forti restano anche se hanno già corso oggi."}
+              "Solo Jupiter verified, i più in trending. I nomi veri restano anche se hanno già corso. Copycat e pump.fun da migliaia di % restano fuori dai 4."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 lg:grid-cols-4">

@@ -1,4 +1,5 @@
 import type { HypeToken, XPost } from "@/lib/types";
+import { isNoisePost } from "@/lib/x-noise";
 
 const KNOWN_STORIES: Array<{
   symbols?: string[];
@@ -45,6 +46,7 @@ function crowdAuthors(token: HypeToken): string[] {
   const seen = new Set<string>();
   const authors: string[] = [];
   for (const post of token.xPosts) {
+    if (isNoisePost(post.text)) continue;
     const handle = post.author?.replace(/^@/, "").trim();
     if (!handle || !/^[A-Za-z0-9_]{1,15}$/.test(handle)) continue;
     const key = handle.toLowerCase();
@@ -56,8 +58,12 @@ function crowdAuthors(token: HypeToken): string[] {
   return authors;
 }
 
-function knownStory(token: HypeToken): string | null {
-  const key = symbolKey(token);
+export function hasKnownStory(token: { symbol: string; name: string }) {
+  return Boolean(knownStory(token));
+}
+
+function knownStory(token: { symbol: string; name: string }): string | null {
+  const key = token.symbol.replace(/^\$/, "").toUpperCase();
   const name = token.name ?? "";
   for (const row of KNOWN_STORIES) {
     if (row.symbols?.includes(key)) return row.story;
@@ -69,6 +75,7 @@ function knownStory(token: HypeToken): string | null {
 function liveStoryFromPosts(token: HypeToken, posts: XPost[]): string | null {
   if (knownStory(token)) return null;
   const blob = posts
+    .filter((post) => !isNoisePost(post.text))
     .map((post) => post.text)
     .join(" ")
     .toLowerCase();

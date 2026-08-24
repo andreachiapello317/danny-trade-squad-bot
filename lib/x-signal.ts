@@ -1,5 +1,6 @@
 import type { XPost } from "@/lib/types";
 import { CHECK_CACHE_MS } from "@/lib/timing";
+import { isNoisePost } from "@/lib/x-noise";
 
 export type XSignal = {
   handle: string;
@@ -144,7 +145,9 @@ function mentionsToken(text: string, symbol: string, name: string) {
 function scoreCrowd(posts: XPost[], official: string | null): Omit<XSignal, "xScore" | "engagement"> & { engagement: number } {
   const people = posts.filter((post) => {
     const author = post.author?.toLowerCase();
-    return !official || !author || author !== official;
+    if (official && author && author === official) return false;
+    if (isNoisePost(post.text)) return false;
+    return true;
   });
   const authors = new Set(people.map((post) => post.author?.toLowerCase()).filter(Boolean));
   const views = people.reduce((sum, post) => sum + post.views, 0);

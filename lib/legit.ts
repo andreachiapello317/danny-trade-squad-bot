@@ -169,7 +169,7 @@ export async function checkToken(
 export async function checkTokens(
   items: Array<{ mint: string; x?: XSignal | null; pairAgeHours?: number | null }>
 ): Promise<Map<string, TokenCheck>> {
-  const unique = items.slice(0, 4);
+  const unique = items.slice(0, 10);
   const rows = await Promise.all(
     unique.map(async (item) => [item.mint, await checkToken(item.mint, item.x, item.pairAgeHours)] as const)
   );

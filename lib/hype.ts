@@ -2,6 +2,16 @@ import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { isBoardFresh, peekStoredBoard, readStoredBoard, stampBoard, writeStoredBoard } from "@/lib/board-store";
 import { checkTokens } from "@/lib/legit";
 import { notifyTopContracts } from "@/lib/notify";
+import {
+  applyStoryPenalties,
+  authenticity,
+  compareForTop,
+  eligibleForTop,
+  findCopycatMints,
+  isPumpFunMint,
+  isScamTier,
+  type Rankable,
+} from "@/lib/story-rank";
 import { BOARD_CACHE_MS, SEARCH_PAUSED, TOP_CONTRACTS_COUNT } from "@/lib/timing";
 import { loadCrowdTalks, twitterHandle } from "@/lib/x-signal";
 
@@ -579,6 +589,34 @@ function isStrongLiveTrend(draft: { geckoTerminalRank: number | null; coinGeckoR
   );
 }
 
+function asRankable(draft: Draft): Rankable {
+  return {
+    mint: draft.mint,
+    name: draft.name,
+    symbol: draft.symbol,
+    verified: draft.verified,
+    organicScore: draft.organicScore,
+    marketCap: draft.marketCap,
+    geckoTerminalRank: draft.geckoTerminalRank,
+    coinGeckoRank: draft.coinGeckoRank,
+    priceChange24h: draft.priceChange24h,
+    volume5m: draft.volume5m,
+    pairCreatedAt: draft.pairCreatedAt,
+    pairAgeHours: pairAgeHours(draft),
+  };
+}
+
+/** Cyberleek-class names keep their seat. Copycats and pump.fun rugs do not. */
+function earnsKeepWhilePumped(draft: Draft, copycats: Set<string>) {
+  if (!isStrongLiveTrend(draft)) return false;
+  const rankable = asRankable(draft);
+  if (isScamTier(rankable) || copycats.has(draft.mint)) return false;
+  if (isPumpFunMint(draft.mint) && !draft.verified && (draft.priceChange24h ?? 0) >= ALREADY_PUMPED_24H) {
+    return false;
+  }
+  return true;
+}
+
 function isTrending(draft: Draft) {
   return (
     draft.geckoTerminalRank != null ||
@@ -600,13 +638,13 @@ function isUniverse(draft: Draft): boolean {
   return true;
 }
 
-function isAlreadyPumped(draft: Draft): boolean {
-  if (isStrongLiveTrend(draft)) return false;
+function isAlreadyPumped(draft: Draft, copycats: Set<string>): boolean {
+  if (earnsKeepWhilePumped(draft, copycats)) return false;
   return (draft.priceChange24h ?? 0) >= ALREADY_PUMPED_24H;
 }
 
-function isHeating(draft: Draft): boolean {
-  if (!isUniverse(draft) || isAlreadyPumped(draft)) return false;
+function isHeating(draft: Draft, copycats: Set<string>): boolean {
+  if (!isUniverse(draft) || isAlreadyPumped(draft, copycats)) return false;
   if ((draft.priceChange1h ?? 0) <= -12) return false;
   return isTrending(draft);
 }
@@ -615,19 +653,26 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = TOP_CONTRACTS_COUNT) {
+export function pickTopContracts(
+  tokens: HypeToken[],
+  winner: HypeToken | null,
+  count = TOP_CONTRACTS_COUNT,
+  copycats?: Set<string>,
+) {
+  const clones = copycats ?? findCopycatMints(tokens);
   const out: HypeToken[] = [];
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
     if (!token?.mint || seen.has(token.mint)) return;
     if (!token.verified && !hasGeckoTerminalTrend(token)) return;
-    if (token.check?.verdict === "danger") return;
+    if (!eligibleForTop(token, clones)) return;
     seen.add(token.mint);
     out.push(token);
   };
 
+  const ordered = [...tokens].sort((a, b) => compareForTop(a, b, clones));
   push(winner);
-  for (const token of tokens) {
+  for (const token of ordered) {
     if (out.length >= count) break;
     push(token);
   }
@@ -656,13 +701,15 @@ function scoreDraft(draft: Draft, x?: XInfo, mode: "heating" | "pumped" = "heati
     const dumpPenalty = change24h <= -40 ? 22 : change24h <= -22 ? 10 : 0;
     const orgScore = draft.organicScore ?? 40;
     const liveX = x?.crowd ? x.xScore : 0;
+    const verifiedBonus = draft.verified ? 10 : 0;
     hypeScore = Math.round(
       clamp(
-        trendScore * 0.42 +
-          volumeScore * 0.22 +
-          heat1h * 0.16 +
+        trendScore * 0.38 +
+          volumeScore * 0.2 +
+          heat1h * 0.14 +
           orgScore * 0.1 +
-          liveX * 0.1 -
+          liveX * 0.08 +
+          verifiedBonus * 0.1 -
           dumpPenalty,
         0,
         100
@@ -845,12 +892,13 @@ async function computeHypeBoard(
   const coinGecko = await attachCoinGecko(byMint, bySymbol);
 
   const universe = [...byMint.values()].filter(isUniverse);
+  const copycats = findCopycatMints(universe.map(asRankable));
 
-  let heatingDrafts = universe.filter(isHeating);
-  const pumpedDrafts = universe.filter((draft) => isAlreadyPumped(draft));
+  let heatingDrafts = universe.filter((draft) => isHeating(draft, copycats));
+  const pumpedDrafts = universe.filter((draft) => isAlreadyPumped(draft, copycats));
   if (heatingDrafts.length < 8) {
     const extra = universe
-      .filter((draft) => !isAlreadyPumped(draft) && !heatingDrafts.includes(draft))
+      .filter((draft) => !isAlreadyPumped(draft, copycats) && !heatingDrafts.includes(draft))
       .sort((a, b) => {
         const trend = trendingRank(a) - trendingRank(b);
         if (trend !== 0) return trend;
@@ -859,15 +907,15 @@ async function computeHypeBoard(
     heatingDrafts = [...heatingDrafts, ...extra].slice(0, 8);
   }
 
+  const preferred = [...heatingDrafts]
+    .sort((a, b) => authenticity(asRankable(b)) - authenticity(asRankable(a)))
+    .filter((draft) => !copycats.has(draft.mint) && !isScamTier(asRankable(draft)));
   const crowdTalks = await loadCrowdTalks(
-    [...heatingDrafts]
-      .sort((a, b) => (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0) || (a.marketCap ?? 9e18) - (b.marketCap ?? 9e18))
-      .slice(0, 4)
-      .map((draft) => ({
-        symbol: draft.symbol,
-        name: draft.name,
-        twitterUrl: draft.twitterUrl,
-      }))
+    (preferred.length ? preferred : heatingDrafts).slice(0, 4).map((draft) => ({
+      symbol: draft.symbol,
+      name: draft.name,
+      twitterUrl: draft.twitterUrl,
+    }))
   );
 
   const attach = (draft: Draft, mode: "heating" | "pumped") => {
@@ -875,9 +923,11 @@ async function computeHypeBoard(
     return scoreDraft(draft, crowd, mode);
   };
 
-  const heating = heatingDrafts
-    .map((draft) => attach(draft, "heating"))
-    .sort((a, b) => b.hypeScore - a.hypeScore || (b.priceChange1h ?? 0) - (a.priceChange1h ?? 0))
+  const heating = applyStoryPenalties(
+    heatingDrafts.map((draft) => attach(draft, "heating")),
+    copycats
+  )
+    .sort((a, b) => compareForTop(a, b, copycats))
     .slice(0, 12);
 
   const pumped = pumpedDrafts
@@ -885,8 +935,11 @@ async function computeHypeBoard(
     .sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0))
     .slice(0, 6);
 
+  const checkQueue = [...heating.filter((token) => eligibleForTop(token, copycats)), ...heating].filter(
+    (token, index, list) => list.findIndex((row) => row.mint === token.mint) === index
+  );
   const checks = await checkTokens(
-    heating.slice(0, 4).map((token) => ({
+    checkQueue.slice(0, 10).map((token) => ({
       mint: token.mint,
       pairAgeHours: token.pairAgeHours,
     }))
@@ -897,11 +950,12 @@ async function computeHypeBoard(
     check: checks.get(token.mint) ?? token.check,
   });
 
-  const checkedHeating = heating.map(withCheck);
+  const checkedHeating = heating
+    .map(withCheck)
+    .sort((a, b) => compareForTop(a, b, copycats));
   const checkedPumped = pumped.map(withCheck);
-  const winner =
-    checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
-  const topContracts = pickTopContracts(checkedHeating, winner, TOP_CONTRACTS_COUNT);
+  const winner = checkedHeating.find((token) => eligibleForTop(token, copycats)) ?? null;
+  const topContracts = pickTopContracts(checkedHeating, winner, TOP_CONTRACTS_COUNT, copycats);
   const board: HypeResponse = {
     generatedAt: new Date().toISOString(),
     winner,
@@ -916,7 +970,7 @@ async function computeHypeBoard(
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Solo Jupiter verified, i più in trending. I nomi più forti in trending restano in classifica anche se hanno già corso oggi. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 6 ore.",
+    note: "Solo Jupiter verified, i più in trending. I nomi veri restano anche se hanno già corso. Copycat e pump.fun da migliaia di % restano fuori dai 4. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 6 ore.",
   };
 
   const saved = await writeStoredBoard(board);
