@@ -365,7 +365,7 @@ function ContractsCard({
                   </span>
                 </p>
                 <p className="truncate font-mono text-[11px] text-zinc-500">{token.mint}</p>
-                <p className="mt-1 text-xs leading-5 text-zinc-400">{pumpWhy(token)}</p>
+                <p className="mt-1 text-xs leading-5 text-pretty text-zinc-400">{pumpWhy(token)}</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 pl-7 sm:pl-0">

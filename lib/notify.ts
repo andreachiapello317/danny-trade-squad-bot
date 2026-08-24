@@ -100,9 +100,9 @@ export function formatContractsMessage(tokens: HypeToken[]) {
     "Radar Solana — 4 token",
     escapeHtml(when),
     "",
-    ...rows,
+    ...rows.flatMap((row, index) => (index === 0 ? [row] : ["", row])),
     "",
-    "Tocca il contratto per copiarlo. Non e un consiglio di investimento.",
+    "Tocca il contratto per copiarlo. Non è un consiglio di investimento.",
   ].join("\n");
 }
 
