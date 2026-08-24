@@ -23,6 +23,10 @@ const MEME_SUFFIXES = [
 const EXTREME_24H_PCT = 1000;
 const LOW_ORGANIC = 80;
 const CLOSE_SCORE = 8;
+const REAL_FLOW_MCAP = 200_000;
+const REAL_FLOW_MIN_AGE_HOURS = 0.5;
+const REAL_FLOW_VOLUME_1H = 50_000;
+const REAL_FLOW_VOLUME_24H = 500_000;
 
 export type Rankable = {
   mint: string;
@@ -34,6 +38,8 @@ export type Rankable = {
   geckoTerminalRank: number | null;
   coinGeckoRank: number | null;
   priceChange24h: number | null;
+  volume24h?: number | null;
+  volume1h?: number | null;
   volume5m?: number | null;
   pairAgeHours?: number | null;
   pairCreatedAt?: number | null;
@@ -140,10 +146,20 @@ export function hasRealXStory(token: Rankable) {
   return (token.xScore ?? 0) >= 40;
 }
 
-/** pump.fun mint + thousands of % + low organic / no real X story. */
+/** GeckoTerminal trending + volume + mcap + age: soldi veri, anche su pump.fun. */
+export function hasRealMoneyFlow(token: Rankable) {
+  const age = ageHours(token);
+  if (age != null && age < REAL_FLOW_MIN_AGE_HOURS) return false;
+  if ((token.marketCap ?? 0) < REAL_FLOW_MCAP) return false;
+  if (token.geckoTerminalRank == null || token.geckoTerminalRank < 1) return false;
+  return (token.volume1h ?? 0) >= REAL_FLOW_VOLUME_1H || (token.volume24h ?? 0) >= REAL_FLOW_VOLUME_24H;
+}
+
+/** Thin pump.fun rugs. Strong-flow pumps stay eligible even at thousands of %. */
 export function isScamTier(token: Rankable) {
   if (!isPumpFunMint(token.mint)) return false;
   if ((token.priceChange24h ?? 0) < EXTREME_24H_PCT) return false;
+  if (hasRealMoneyFlow(token)) return false;
   return (token.organicScore ?? 0) < LOW_ORGANIC || !hasRealXStory(token);
 }
 
@@ -189,7 +205,7 @@ export function applyStoryPenalties<T extends HypeToken>(tokens: T[], copycats: 
     }
     if (isScamTier(token)) {
       penalty += 40;
-      reasons.push("Pump.fun con pump da migliaia di % e poca storia vera: scam-tier, non soldi forti");
+      reasons.push("Pump.fun da migliaia di % senza trending/volume veri: rug sottile, non soldi forti");
     }
     return {
       ...token,

@@ -8,7 +8,6 @@ import {
   compareForTop,
   eligibleForTop,
   findCopycatMints,
-  isPumpFunMint,
   isScamTier,
   type Rankable,
 } from "@/lib/story-rank";
@@ -600,20 +599,19 @@ function asRankable(draft: Draft): Rankable {
     geckoTerminalRank: draft.geckoTerminalRank,
     coinGeckoRank: draft.coinGeckoRank,
     priceChange24h: draft.priceChange24h,
+    volume24h: draft.volume24h,
+    volume1h: draft.volume1h,
     volume5m: draft.volume5m,
     pairCreatedAt: draft.pairCreatedAt,
     pairAgeHours: pairAgeHours(draft),
   };
 }
 
-/** Cyberleek-class names keep their seat. Copycats and pump.fun rugs do not. */
+/** Strong live names keep their seat while pumping, pump.fun included if the flow is real. */
 function earnsKeepWhilePumped(draft: Draft, copycats: Set<string>) {
   if (!isStrongLiveTrend(draft)) return false;
   const rankable = asRankable(draft);
   if (isScamTier(rankable) || copycats.has(draft.mint)) return false;
-  if (isPumpFunMint(draft.mint) && !draft.verified && (draft.priceChange24h ?? 0) >= ALREADY_PUMPED_24H) {
-    return false;
-  }
   return true;
 }
 
@@ -970,7 +968,7 @@ async function computeHypeBoard(
       rugcheck: checks.size > 0,
       jupiter,
     },
-    note: "Solo Jupiter verified, i più in trending. I nomi veri restano anche se hanno già corso. Copycat e pump.fun da migliaia di % restano fuori dai 4. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 6 ore.",
+    note: "Solo Jupiter verified, i più in trending. I nomi veri restano anche se hanno già corso — pump.fun con flusso vero (trending, volume, mcap) compresi. Fuori i copycat e RugCheck danger. Market cap da 200k, launch dopo 30 minuti. Ricerca ogni 6 ore.",
   };
 
   const saved = await writeStoredBoard(board);

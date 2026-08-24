@@ -6,7 +6,7 @@ import type { HypeResponse } from "@/lib/types";
 
 const STORE_PATH = path.join(process.cwd(), ".data", "board.json");
 
-export const BOARD_VERSION = 7;
+export const BOARD_VERSION = 8;
 
 export type StoredBoard = {
   at: number;
