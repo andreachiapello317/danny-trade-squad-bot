@@ -77,11 +77,8 @@ function liveStoryFromPosts(token: HypeToken, posts: XPost[]): string | null {
   if (/\bgta\b|grand theft auto/.test(blob)) {
     return `${name} sta girando sul leak GTA: un momento culturale, non un progetto da scheda tecnica.`;
   }
-  if (/\bpengu|pudgy|penguin/.test(blob)) {
-    return `${name} torna in chiacchiera con i Pudgy Penguins: un nome già noto, non un lancio sconosciuto.`;
-  }
-  if (/pump\.fun|pumpfun/.test(blob) && symbolKey(token) !== "PUMP") {
-    return `${name} vive nella chiacchiera di pump.fun: gente che posta il ticker, senza una storia più grande.`;
+  if (/\bpudgy|penguin/.test(blob) && !/\bpengu/.test(symbolKey(token).toLowerCase())) {
+    return `${name} torna in chiacchiera con i pinguini: un nome già noto, non un lancio sconosciuto.`;
   }
   return null;
 }
@@ -134,7 +131,10 @@ function alreadyRan(token: HypeToken): string | null {
   return null;
 }
 
-function noStoryLine(token: HypeToken) {
+function noStoryLine(token: HypeToken, hasCrowd: boolean) {
+  if (hasCrowd) {
+    return "Manca una storia chiara oltre al chiasso su X, il segnale è solo flusso.";
+  }
   return `Manca una storia chiara su ${ticker(token)}, il segnale è solo flusso.`;
 }
 
@@ -147,16 +147,16 @@ export function tokenPitch(token: HypeToken): string {
   if (narrative) sentences.push(narrative);
   const crowd = crowdLine(token, authors);
   if (crowd) sentences.push(crowd);
-  if (!narrative && !crowd) sentences.push(noStoryLine(token));
+  if (!narrative) sentences.push(noStoryLine(token, authors.length > 0));
 
   const official = officialContext(token, authors.length > 0);
   if (official && sentences.length < 4) sentences.push(official);
 
-  const heat = heatColor(token);
-  if (heat && sentences.length < 4) sentences.push(heat);
-
   const ran = alreadyRan(token);
   if (ran && sentences.length < 4) sentences.push(ran);
+
+  const heat = heatColor(token);
+  if (heat && sentences.length < 4) sentences.push(heat);
 
   return sentences.slice(0, 4).join(" ");
 }
