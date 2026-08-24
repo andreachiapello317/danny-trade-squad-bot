@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { pumpWhy } from "@/lib/pump-why";
+import { SEARCH_PAUSED, TELEGRAM_COOLDOWN_MS, TOP_CONTRACTS_COUNT } from "@/lib/timing";
 import type { HypeToken } from "@/lib/types";
-import { SEARCH_PAUSED, TELEGRAM_COOLDOWN_MS } from "@/lib/timing";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const STORE_PATH = path.join(DATA_DIR, "notify.json");
@@ -79,20 +80,24 @@ function chartLink(token: HypeToken) {
 
 export function formatContractsMessage(tokens: HypeToken[]) {
   const when = new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" });
-  const rows = tokens.map((token, index) => {
+  const rows = tokens.slice(0, TOP_CONTRACTS_COUNT).map((token, index) => {
     const flag = token.check?.verdict === "danger" ? "  ATTENZIONE" : "";
     const symbol = escapeHtml(`$${token.symbol}${flag}`);
     const mint = escapeHtml(token.mint);
     const x = escapeHtml(xLink(token));
     const chart = escapeHtml(chartLink(token));
+    const score = Math.round(token.hypeScore);
+    const why = escapeHtml(pumpWhy(token));
     return [
       `${index + 1}. ${symbol}`,
       `<code>${mint}</code>`,
       `<a href="${x}">X</a>  ·  <a href="${chart}">Grafico</a>`,
+      `Pump <b>${score}/100</b>`,
+      `Perché comprarlo: ${why}`,
     ].join("\n");
   });
   return [
-    "Radar Solana — 10 token",
+    "Radar Solana — 4 token",
     escapeHtml(when),
     "",
     ...rows,
@@ -190,12 +195,13 @@ let inflight: Promise<{ sent: boolean; reason: string; signature?: string; error
   null;
 
 async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
-  if (tokens.length === 0) {
+  const top = tokens.slice(0, TOP_CONTRACTS_COUNT);
+  if (top.length === 0) {
     return { sent: false, reason: "empty" as const };
   }
 
   const settings = await loadSettings();
-  const signature = contractsSignature(tokens);
+  const signature = contractsSignature(top);
   const { token, chatId } = telegramCreds(settings);
 
   if (!token || !chatId) {
@@ -212,7 +218,7 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
     }
   }
 
-  const body = formatContractsMessage(tokens);
+  const body = formatContractsMessage(top);
   await telegramApi(token, "sendMessage", {
     chat_id: chatId,
     text: body,
@@ -229,7 +235,7 @@ async function notifyTopContractsOnce(tokens: HypeToken[], force: boolean) {
 }
 
 export async function notifyTopContracts(tokens: HypeToken[], force = false) {
-  if (SEARCH_PAUSED) {
+  if (SEARCH_PAUSED && !force) {
     return { sent: false, reason: "paused" as const };
   }
   if (inflight && !force) {

@@ -43,7 +43,7 @@ export function PhoneAccess() {
       }
       setStatus({ telegramReady: true, telegramLinked: true });
       setToken("");
-      setMessage("Collegato. La prossima ricerca è tra 6 ore. Un messaggio solo se i 10 token cambiano.");
+      setMessage("Collegato. La prossima ricerca è tra 6 ore. Un messaggio solo se i 4 token cambiano.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Collegamento non riuscito");
     } finally {
@@ -91,7 +91,7 @@ export function PhoneAccess() {
         ) : (
           <>
             <p className="text-muted-foreground">
-              Serve un bot Telegram tuo, gratis. Lo crei in un minuto e poi i 10
+              Serve un bot Telegram tuo, gratis. Lo crei in un minuto e poi i 4
               token arrivano sul telefono.
             </p>
             <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">

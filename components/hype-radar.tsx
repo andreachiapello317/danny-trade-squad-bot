@@ -13,10 +13,9 @@ import {
   Repeat2,
 } from "lucide-react";
 
+import { PhoneAccess } from "@/components/phone-access";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { PhoneAccess } from "@/components/phone-access";
-import { cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -26,8 +25,10 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { pumpWhy } from "@/lib/pump-why";
+import { PAGE_REFRESH_MS, TOP_CONTRACTS_COUNT } from "@/lib/timing";
 import type { HypeResponse, HypeToken } from "@/lib/types";
-import { PAGE_REFRESH_MS } from "@/lib/timing";
+import { cn } from "@/lib/utils";
 
 function formatUsd(value: number | null, digits = 2) {
   if (value == null) return "—";
@@ -146,7 +147,7 @@ export function HypeRadar({ initial }: { initial?: HypeResponse | null }) {
   }
 
   const winner = data?.winner ?? null;
-  const topContracts = (data?.topContracts ?? []).slice(0, 10);
+  const topContracts = (data?.topContracts ?? []).slice(0, TOP_CONTRACTS_COUNT);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -341,31 +342,60 @@ function ContractsCard({
   return (
     <Card className="ring-lime-400/25">
       <CardHeader>
-        <CardTitle>10 token da copiare</CardTitle>
+        <CardTitle>4 token da copiare</CardTitle>
         <CardDescription>
-          I 10 verified più in trending. I più forti restano anche se hanno già corso oggi. Tocca il mint per copiarlo. Non è un via libera.
+          I 4 migliori: soldi forti, trending, whale. Pump e perché, senza garanzia.
+          Tocca il mint per copiarlo. Non è un via libera.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {tokens.map((token, index) => (
           <div
             key={token.mint}
-            className="flex items-center gap-3 rounded-lg bg-black/30 px-3 py-2"
+            className="flex flex-col gap-2 rounded-lg bg-black/30 px-3 py-2 sm:flex-row sm:items-start"
           >
-            <span className="w-4 font-mono text-xs text-zinc-500">{index + 1}</span>
-            <TokenImage token={token} size={28} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-zinc-100">${token.symbol}</p>
-              <p className="truncate font-mono text-[11px] text-zinc-500">{token.mint}</p>
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <span className="w-4 pt-1 font-mono text-xs text-zinc-500">{index + 1}</span>
+              <TokenImage token={token} size={28} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-zinc-100">
+                  ${token.symbol}
+                  <span className="ml-2 font-mono text-xs text-lime-300">
+                    Pump {Math.round(token.hypeScore)}/100
+                  </span>
+                </p>
+                <p className="truncate font-mono text-[11px] text-zinc-500">{token.mint}</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-400">{pumpWhy(token)}</p>
+              </div>
             </div>
-            <button
-              type="button"
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 font-mono")}
-              onClick={() => onCopy(token.mint)}
-            >
-              <Copy />
-              {copied === token.mint ? "Copiato" : shortMint(token.mint)}
-            </button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2 pl-7 sm:pl-0">
+              <button
+                type="button"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "font-mono")}
+                onClick={() => onCopy(token.mint)}
+              >
+                <Copy />
+                {copied === token.mint ? "Copiato" : shortMint(token.mint)}
+              </button>
+              <a
+                href={token.twitterUrl ?? xSearchUrl(token)}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                X
+                <ExternalLink />
+              </a>
+              <a
+                href={token.dexScreenerUrl ?? `https://dexscreener.com/solana/${token.mint}`}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                Grafico
+                <ExternalLink />
+              </a>
+            </div>
           </div>
         ))}
         <button
@@ -374,7 +404,7 @@ function ContractsCard({
           onClick={() => onCopy(allMints)}
         >
           <Copy />
-          {copied === allMints ? "Tutti copiati" : "Copia i 10 mint"}
+          {copied === allMints ? "Tutti copiati" : "Copia i 4 mint"}
         </button>
       </CardContent>
     </Card>

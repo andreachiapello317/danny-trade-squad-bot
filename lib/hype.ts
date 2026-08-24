@@ -2,7 +2,7 @@ import type { HypeResponse, HypeToken, XPost } from "@/lib/types";
 import { isBoardFresh, peekStoredBoard, readStoredBoard, stampBoard, writeStoredBoard } from "@/lib/board-store";
 import { checkTokens } from "@/lib/legit";
 import { notifyTopContracts } from "@/lib/notify";
-import { BOARD_CACHE_MS, SEARCH_PAUSED } from "@/lib/timing";
+import { BOARD_CACHE_MS, SEARCH_PAUSED, TOP_CONTRACTS_COUNT } from "@/lib/timing";
 import { loadCrowdTalks, twitterHandle } from "@/lib/x-signal";
 
 const SKIP_SYMBOLS = new Set([
@@ -615,7 +615,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = 10) {
+export function pickTopContracts(tokens: HypeToken[], winner: HypeToken | null, count = TOP_CONTRACTS_COUNT) {
   const out: HypeToken[] = [];
   const seen = new Set<string>();
   const push = (token: HypeToken | null | undefined) => {
@@ -900,7 +900,7 @@ async function computeHypeBoard(
   const checkedPumped = pumped.map(withCheck);
   const winner =
     checkedHeating.find((token) => token.check?.verdict !== "danger") ?? checkedHeating[0] ?? null;
-  const topContracts = pickTopContracts(checkedHeating, winner, 10);
+  const topContracts = pickTopContracts(checkedHeating, winner, TOP_CONTRACTS_COUNT);
   const board: HypeResponse = {
     generatedAt: new Date().toISOString(),
     winner,
