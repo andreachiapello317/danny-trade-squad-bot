@@ -1,11 +1,14 @@
 import { getHypeBoard } from "@/lib/hype";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 180;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const board = await getHypeBoard();
+    const fresh =
+      new URL(request.url).searchParams.get("fresh") === "1" ||
+      new URL(request.url).searchParams.get("fresh") === "true";
+    const board = await getHypeBoard({ fresh, skipNotify: fresh });
     return Response.json(board, {
       headers: {
         "cache-control": "no-store, max-age=0",

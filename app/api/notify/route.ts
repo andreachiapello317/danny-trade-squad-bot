@@ -2,7 +2,7 @@ import { getHypeBoard } from "@/lib/hype";
 import { connectTelegram, notifyStatus, notifyTopContracts } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 180;
 
 export async function GET() {
   return Response.json(await notifyStatus());

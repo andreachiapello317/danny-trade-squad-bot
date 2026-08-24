@@ -799,7 +799,7 @@ export async function getHypeBoard(options?: {
   fresh?: boolean;
 }): Promise<HypeResponse> {
   const stored = await readStoredBoard();
-  if (SEARCH_PAUSED) {
+  if (SEARCH_PAUSED && !options?.fresh) {
     return pausedBoard(stored);
   }
   if (!options?.fresh && stored && isBoardFresh(stored)) {
@@ -821,6 +821,7 @@ async function computeHypeBoard(
   stored: Awaited<ReturnType<typeof readStoredBoard>>,
 ): Promise<HypeResponse> {
   try {
+  if (options?.fresh) jupiterCache = null;
   const byMint = new Map<string, Draft>();
   const bySymbol = new Map<string, Draft>();
 
