@@ -18,7 +18,15 @@ export function RatingBadge({ rating, className }: { rating: Rating; className?:
   );
 }
 
-export function VoteMark({ vote, rating }: { vote: number; rating: Rating }) {
+export function VoteMark({
+  vote,
+  rating,
+  size = "lg",
+}: {
+  vote: number;
+  rating: Rating;
+  size?: "lg" | "sm";
+}) {
   const color =
     rating === "Strong Buy" || rating === "Buy"
       ? "text-lime-300"
@@ -28,7 +36,13 @@ export function VoteMark({ vote, rating }: { vote: number; rating: Rating }) {
           ? "text-orange-300"
           : "text-red-300";
   return (
-    <span className={cn("font-mono text-3xl font-semibold tabular-nums leading-none", color)}>
+    <span
+      className={cn(
+        "font-mono font-semibold tabular-nums leading-none",
+        size === "lg" ? "text-4xl" : "text-xl",
+        color
+      )}
+    >
       {vote}
     </span>
   );

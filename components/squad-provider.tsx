@@ -59,9 +59,15 @@ function applyState(
   }
 }
 
-export function SquadProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<PublicSquad | null>(null);
-  const [loading, setLoading] = useState(true);
+export function SquadProvider({
+  children,
+  initial,
+}: {
+  children: React.ReactNode;
+  initial?: PublicSquad | null;
+}) {
+  const [data, setData] = useState<PublicSquad | null>(initial ?? null);
+  const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {

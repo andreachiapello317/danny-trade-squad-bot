@@ -101,7 +101,7 @@ export function CartBoard() {
               <li key={row.ticker} className="rounded-lg bg-zinc-900 px-3 py-2 ring-1 ring-white/10">
                 <div className="flex items-center justify-between">
                   <span className="font-mono font-semibold">{row.ticker}</span>
-                  <VoteMark vote={row.vote} rating={row.rating} />
+                  <VoteMark vote={row.vote} rating={row.rating} size="sm" />
                 </div>
                 <RatingBadge rating={row.rating} className="mt-1" />
               </li>

@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { DeskShell } from "@/components/desk-shell";
 import { SquadProvider } from "@/components/squad-provider";
+import { toPublicSquad } from "@/lib/public-squad";
+import { getSquad } from "@/lib/store";
 
 import "./globals.css";
 
@@ -37,14 +39,23 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export const dynamic = "force-dynamic";
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  let initial = null;
+  try {
+    initial = toPublicSquad(await getSquad());
+  } catch {
+    initial = null;
+  }
+
   return (
     <html
       lang="it"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-zinc-950 font-sans text-zinc-100">
-        <SquadProvider>
+        <SquadProvider initial={initial}>
           <DeskShell>{children}</DeskShell>
         </SquadProvider>
       </body>
