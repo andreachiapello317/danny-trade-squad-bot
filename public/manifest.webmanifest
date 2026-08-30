@@ -1,7 +1,7 @@
 {
-  "name": "Radar Solana",
-  "short_name": "Radar SOL",
-  "description": "Token Solana da 200k in su. Launch dopo 30 minuti.",
+  "name": "BotSquad",
+  "short_name": "BotSquad",
+  "description": "Carrello da 10 sui setup di Danny. Solo il Sender scrive su Telegram.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",

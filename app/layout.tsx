@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { DeskShell } from "@/components/desk-shell";
+import { SquadProvider } from "@/components/squad-provider";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,14 +17,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Radar Solana: trending verified",
+  title: "BotSquad — desk Danny",
   description:
-    "Solo token Solana Jupiter verified, i più in trending. I nomi più forti restano in classifica anche se hanno già corso oggi.",
-  applicationName: "Radar Solana",
+    "Squadra che legge i grafici della newsletter di Danny Chang, vota i setup di buy e manda il carrello da 10 solo al CEO. Su Telegram scrive solo il Sender.",
+  applicationName: "BotSquad",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Radar SOL",
+    title: "BotSquad",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },
@@ -40,7 +43,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="it"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-zinc-950 font-sans text-zinc-100">{children}</body>
+      <body className="min-h-full bg-zinc-950 font-sans text-zinc-100">
+        <SquadProvider>
+          <DeskShell>{children}</DeskShell>
+        </SquadProvider>
+      </body>
     </html>
   );
 }
