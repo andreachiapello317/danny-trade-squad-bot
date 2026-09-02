@@ -51,8 +51,10 @@ Il canone di voto è in `lib/score.ts` e sulla sedia CEO. I test: `npx vitest ru
 
 ## Morto vs Inversione (Analyst)
 
-**Morto** (skip Telegram) solo se la morte è chiara: non è un grafico; close sotto il **bordo basso** dell’hole; gialla monthly + whale in calo; ribbon rossa che si stringe **e** bearish W/M; whale in calo **e** retail in salita (avanzato); whale <35% **e** in calo (avanzato); rossa stantia + ribbon che si stringe + whale in calo.
+**Morto** (skip Telegram) solo se la morte è chiara: non è un grafico; close sotto il **bordo basso** dell’hole; gialla monthly + whale in calo; ribbon rossa che si stringe **e** bearish W/M; whale in calo **e** retail in salita (già avanzato); whale <35% **e** in calo solo se trend in giù avanzato (non uno snapshot); rossa stantia + ribbon che si stringe + whale in calo.
 
-**Non è Morto** — resta Inversione o Sporco, **voto 1–10, va a Telegram**: ribbon appena girata rossa / candela rossa recente con CHIP ancora tetto; blu spessa ancora visibile sopra + nuovo inizio rosso; whale basso / retail alto / “not ready” da soli; close nel nodo pieno **sotto** un hole vuoto sopra (non è “close sotto hole low”); due verdi con P1 blu-sopra; P2 misto; P4/P5 non decidono.
+**Non è Morto** — resta Inversione o Sporco, **voto 1–10, va a Telegram**: ribbon appena girata rossa / candela rossa recente con CHIP ancora tetto; blu spesso ancora visibile + un rosso che parte; whale basso / retail alto / “not ready / no-go” da soli; close nel nodo pieno **sotto** un hole vuoto sopra (non è “close sotto hole low”); due verdi con P1 blu-sopra e P3 retail; P2 mescolato; P4/P5 non decidono.
 
-Prompt Grok da incollare: `prompts/analyst-grok.md`. Il giro successivo vota da solo sul grafico e sulle regole. Non coachare il bot su un ticker.
+Hole = volatilità, non direzione. Se c’è hole, Telegram stampa i due bordi (low–high) e dov’è il close (sopra / in mezzo / sotto). Il testo al Sender è discorsivo: niente insalata di +2/+3.
+
+Prompt Grok da incollare (tutto il file): `prompts/analyst-grok.md`. Classifica da solo sulla foto e sulle regole. Nessun ticker ha un voto o un secchio già deciso.

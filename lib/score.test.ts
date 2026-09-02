@@ -448,6 +448,19 @@ describe("secchio Morto / Inversione", () => {
     expect(score.goesToTelegram).toBe(true);
   });
 
+  it("whale <35 in calo + retail alto not-ready non è Morto", () => {
+    const { score } = scored({
+      whalePct: 12,
+      whaleDeclining: true,
+      retailDominant: true,
+      retailRising: false,
+      ribbon: "absent",
+      candle: "absent",
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
   it("MACD <0 e RSI ~50 non decidono Morto", () => {
     const { score } = scored({
       ribbon: "just_flipped_red",

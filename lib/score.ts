@@ -232,10 +232,16 @@ export function classifyBucket(s: Sighting): Bucket {
   if (s.ribbon === "red_thinning" && bearishHigherTf(s)) return "Morto";
 
   const earlyFlip = isEarlyRedStart(s);
-  const whaleAbsentFalling =
-    s.whalePct != null && s.whalePct < 35 && s.whaleDeclining;
+  // whale in calo + retail che sale, già avanzato
   const whaleFallingRetailRising = s.whaleDeclining && s.retailRising;
-  if ((whaleAbsentFalling || whaleFallingRetailRising) && !earlyFlip) {
+  // whale <35 e in calo solo se trend in giù avanzato.
+  // retail alto / not-ready da solo (anche con whale basso) ≠ Morto.
+  const whaleLowFallingAdvanced =
+    s.whalePct != null &&
+    s.whalePct < 35 &&
+    s.whaleDeclining &&
+    !s.retailDominant;
+  if ((whaleFallingRetailRising || whaleLowFallingAdvanced) && !earlyFlip) {
     return "Morto";
   }
 
