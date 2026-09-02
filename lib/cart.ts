@@ -3,12 +3,14 @@ import { ratingRank } from "@/lib/score";
 
 function toRow(a: Analysis, ceoMark: CartRow["ceoMark"] = "pending"): CartRow | null {
   if (!a.sighting.hasFivePanelChart || !a.sighting.chartImage) return null;
+  if (a.score.bucket === "Morto") return null;
   return {
     analysisId: a.id,
     ticker: a.sighting.ticker,
     name: a.sighting.name,
     rating: a.score.rating,
     vote: a.score.vote,
+    bucket: a.score.bucket,
     explanation: a.score.explanation,
     zone: a.score.zone,
     chartImage: a.sighting.chartImage,
@@ -101,7 +103,8 @@ export function formatCartForCeo(cart: Cart) {
         : row.ceoMark === "non_valida"
           ? "Non valida"
           : "In attesa";
-    return `${i + 1}. ${row.ticker} — ${row.rating} ${row.vote} — ${row.explanation}${zone} — ${mark}`;
+    const bucket = row.bucket ? ` [${row.bucket}]` : "";
+    return `${i + 1}. ${row.ticker} — ${row.rating} ${row.vote}${bucket} — ${row.explanation}${zone} — ${mark}`;
   });
   const reds = cart.reds
     .map((r) => `${r.ticker} rossa ${r.vote}`)
@@ -119,10 +122,13 @@ export function formatCartForCeo(cart: Cart) {
 }
 
 export function formatCartForTelegram(cart: Cart) {
-  const rows = cart.rows.filter((r) => r.ceoMark === "valida");
+  const rows = cart.rows.filter(
+    (r) => r.ceoMark === "valida" && r.bucket !== "Morto"
+  );
   const lines = rows.map((row, i) => {
     const zone = row.zone ? ` zona ${row.zone.low}-${row.zone.high}` : "";
-    return `${i + 1}. ${row.ticker} — ${row.rating} ${row.vote}\n${row.explanation}${zone}`;
+    const bucket = row.bucket ? ` [${row.bucket}]` : "";
+    return `${i + 1}. ${row.ticker} — ${row.rating} ${row.vote}${bucket}\n${row.explanation}${zone}`;
   });
   const reds = cart.reds
     .filter((r) => {

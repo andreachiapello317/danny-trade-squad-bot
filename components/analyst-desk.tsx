@@ -208,6 +208,11 @@ export function AnalystDesk() {
               checked={sighting.dailyLooksGood}
               onChange={(v) => patch({ dailyLooksGood: v })}
             />
+            <CheckRow
+              label="Non è un grafico (logo/cover/thumb/testo/tabella → Morto)"
+              checked={sighting.notAChart}
+              onChange={(v) => patch({ notAChart: v })}
+            />
           </section>
 
           <section className="space-y-2">
@@ -219,6 +224,7 @@ export function AnalystDesk() {
                 { value: "absent", label: "Assente" },
                 { value: "red_widening", label: "Rossa che si allarga" },
                 { value: "red_thinning", label: "Rossa che si assottiglia" },
+                { value: "just_flipped_red", label: "Appena girata rossa" },
                 { value: "thick_blue_above", label: "Blu spessa sopra" },
               ]}
             />
@@ -279,6 +285,7 @@ export function AnalystDesk() {
                 { value: "close_above_high", label: "Close sopra bordo alto" },
                 { value: "early_with_blue", label: "Hole + blu discendente" },
                 { value: "close_in_middle", label: "Close in mezzo" },
+                { value: "packed_under_overhead", label: "Nodo pieno sotto hole vuoto sopra" },
                 { value: "close_below_low", label: "Close sotto bordo basso" },
               ]}
             />
@@ -321,6 +328,11 @@ export function AnalystDesk() {
               label="Retail dominante"
               checked={sighting.retailDominant}
               onChange={(v) => patch({ retailDominant: v })}
+            />
+            <CheckRow
+              label="Retail in salita (con whale in calo = Morto avanzato)"
+              checked={sighting.retailRising}
+              onChange={(v) => patch({ retailRising: v })}
             />
           </section>
 
@@ -410,6 +422,10 @@ export function AnalystDesk() {
               <VoteMark vote={live.vote} rating={live.rating} />
               <RatingBadge rating={live.rating} />
             </div>
+            <p className="pt-1 font-mono text-[11px] tracking-wide text-lime-200/90">
+              {live.bucket}
+              {live.goesToTelegram ? " · Telegram sì" : " · skip Telegram"}
+            </p>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm leading-relaxed text-zinc-200">{live.explanation}</p>

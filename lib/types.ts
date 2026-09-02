@@ -1,10 +1,13 @@
 export type Rating = "Strong Buy" | "Buy" | "Hold" | "Sell" | "Sell Now";
 
+export type Bucket = "Morto" | "Inversione" | "Setup" | "Sporco";
+
 export type RibbonSight =
   | "absent"
   | "red_widening"
   | "red_thinning"
-  | "thick_blue_above";
+  | "thick_blue_above"
+  | "just_flipped_red";
 
 export type CandleSight =
   | "absent"
@@ -24,6 +27,7 @@ export type HoleSight =
   | "close_above_high"
   | "early_with_blue"
   | "close_in_middle"
+  | "packed_under_overhead"
   | "close_below_low";
 
 export type Panel2Sight =
@@ -50,6 +54,7 @@ export type Sighting = {
   hasFivePanelChart: boolean;
   chartImage: string | null;
   dailyLooksGood: boolean;
+  notAChart: boolean;
   ribbon: RibbonSight;
   ribbonExtension: boolean;
   candle: CandleSight;
@@ -61,6 +66,7 @@ export type Sighting = {
   whaleRising: boolean;
   whaleDeclining: boolean;
   retailDominant: boolean;
+  retailRising: boolean;
   macdBearCrossBelowZero: boolean;
   rsiBelow50StackedWrong: boolean;
   atSupport: boolean;
@@ -87,6 +93,8 @@ export type ScoreResult = {
   rating: Rating;
   parts: ScorePart[];
   caps: { limit: number; reason: string }[];
+  bucket: Bucket;
+  goesToTelegram: boolean;
   sellBranch: boolean;
   sellNow: boolean;
   notBuy: boolean;
@@ -112,6 +120,7 @@ export type CartRow = {
   name: string;
   rating: Rating;
   vote: number;
+  bucket: Bucket;
   explanation: string;
   zone: { low: string; high: string } | null;
   chartImage: string | null;

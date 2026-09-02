@@ -10,9 +10,11 @@ export function fivePanelSvg(s: Sighting) {
       ? { fill: "#ef4444", w: 18 }
       : s.ribbon === "red_thinning"
         ? { fill: "#f87171", w: 8 }
-        : s.ribbon === "thick_blue_above"
-          ? { fill: "#3b82f6", w: 20 }
-          : { fill: "#3f3f46", w: 10 };
+        : s.ribbon === "just_flipped_red"
+          ? { fill: "#fb7185", w: 12 }
+          : s.ribbon === "thick_blue_above"
+            ? { fill: "#3b82f6", w: 20 }
+            : { fill: "#3f3f46", w: 10 };
   const candle =
     s.candle === "fresh_red_wm" || s.hole === "close_above_high"
       ? "#ef4444"
@@ -32,7 +34,13 @@ export function fivePanelSvg(s: Sighting) {
         ? "#22c55e"
         : "#3f3f46";
   const holeY =
-    s.hole === "close_above_high" ? 30 : s.hole === "close_below_low" ? 78 : 54;
+    s.hole === "close_above_high"
+      ? 30
+      : s.hole === "close_below_low"
+        ? 78
+        : s.hole === "packed_under_overhead"
+          ? 62
+          : 54;
   const chipLabel = s.chip === "absent" ? "n/d" : s.chip.replace(/_/g, " ");
   const ticker = esc(s.ticker || "—");
   const name = esc(s.name || "");

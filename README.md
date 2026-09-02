@@ -48,3 +48,13 @@ Senza bot gli invii restano **mock** nell’outbox: il desk funziona lo stesso.
 - Ogni 2 ore: il Sender guarda se il CEO ha scritto (`POST /api/sender/flush`)
 
 Il canone di voto è in `lib/score.ts` e sulla sedia CEO. I test: `npx vitest run`.
+
+## Morto vs Inversione (Analyst)
+
+**Morto** (skip Telegram) solo se la morte è chiara: non è un grafico; close sotto il **bordo basso** dell’hole; gialla monthly + whale in calo; ribbon rossa che si stringe **e** bearish W/M; whale in calo **e** retail in salita (avanzato); whale <35% **e** in calo (avanzato); rossa stantia + ribbon che si stringe + whale in calo.
+
+**Non è Morto** — resta Inversione o Sporco, **voto 1–10, va a Telegram**: ribbon appena girata rossa / candela rossa recente con CHIP ancora tetto; blu spessa ancora visibile sopra + nuovo inizio rosso; whale basso / retail alto / “not ready” da soli; close nel nodo pieno **sotto** un hole vuoto sopra (non è “close sotto hole low”); due verdi con P1 blu-sopra; P2 misto; P4/P5 non decidono.
+
+Esempio: **$QCOM** daily close 166.61, ribbon appena rossa, CHIP 202/204 ancora tetto, whale ~12% non in calo avanzato, hole vuoto ~168–192 e close nel packed ~160–168 → **Inversione**, Sell ~3, zona no, Telegram sì.
+
+Prompt Grok da incollare: `prompts/analyst-grok.md`.

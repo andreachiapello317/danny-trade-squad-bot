@@ -1,4 +1,5 @@
 import type {
+  Bucket,
   CandleSight,
   Rating,
   ScorePart,
@@ -105,9 +106,10 @@ function sellResult(
   vote: number,
   rating: Rating,
   reason: string,
-  sellNow: boolean
+  sellNow: boolean,
+  extras: { bucket: Bucket; goesToTelegram: boolean }
 ): ScoreResult {
-  const zone = zoneOf(s);
+  const zone = extras.bucket === "Inversione" ? null : zoneOf(s);
   const parts: ScorePart[] = [{ key: "ramo_sell", label: reason, points: 0 }];
   return {
     sum: vote,
@@ -115,16 +117,22 @@ function sellResult(
     rating,
     parts,
     caps: [],
-    sellBranch: true,
+    bucket: extras.bucket,
+    goesToTelegram: extras.goesToTelegram,
+    sellBranch: extras.bucket === "Morto" || sellNow,
     sellNow,
     notBuy: true,
     notFullBuy: true,
     inCartAsBuy: false,
     zone,
     explanation: `${vote} = ${reason}${formatZone(zone)}`,
-    warnings: sellNow
-      ? ["Ramo sell: non si somma, uscita."]
-      : ["Ramo sell: non si somma, non è un buy."],
+    warnings: extras.bucket === "Morto"
+      ? ["Morto: niente Telegram."]
+      : sellNow
+        ? ["Ramo sell: non si somma, uscita."]
+        : extras.bucket === "Inversione"
+          ? ["Inversione: voto basso, va a Telegram. Zona: no."]
+          : ["Ramo sell: non si somma, non è un buy."],
   };
 }
 
@@ -138,6 +146,7 @@ export function emptySighting(partial: Partial<Sighting> = {}): Sighting {
     hasFivePanelChart: false,
     chartImage: null,
     dailyLooksGood: false,
+    notAChart: false,
     ribbon: "absent",
     ribbonExtension: false,
     candle: "absent",
@@ -149,6 +158,7 @@ export function emptySighting(partial: Partial<Sighting> = {}): Sighting {
     whaleRising: false,
     whaleDeclining: false,
     retailDominant: false,
+    retailRising: false,
     macdBearCrossBelowZero: false,
     rsiBelow50StackedWrong: false,
     atSupport: false,
@@ -165,33 +175,149 @@ export function emptySighting(partial: Partial<Sighting> = {}): Sighting {
   };
 }
 
-export function scoreSighting(s: Sighting): ScoreResult {
-  if (monthlyBroken(s)) {
-    return sellResult(
-      s,
-      2,
-      "Sell Now",
-      "gialla monthly + whale in calo (daily bello, monthly rotto)",
-      true
-    );
+function isEarlyRedStart(s: Sighting) {
+  const justRibbon = s.ribbon === "just_flipped_red";
+  const freshCandle = isFreshRed(s);
+  const blueStillAbove =
+    s.ribbon === "thick_blue_above" || s.ribbon === "just_flipped_red";
+  const chipsOverhead = s.chip === "below_resistance";
+  return justRibbon || (freshCandle && (blueStillAbove || chipsOverhead));
+}
+
+function isSetupConfluence(s: Sighting) {
+  const ribbonEdge =
+    s.ribbon === "red_widening" || (s.ribbon === "red_thinning" && s.atSupport);
+  const holeHigh = s.hole === "close_above_high";
+  const chipFlip = s.chip === "flipped_res_to_sup";
+  const color = isFreshRed(s) || s.candle === "dark_blue_continuation";
+  const whaleUp =
+    s.whaleRising &&
+    !s.whaleDeclining &&
+    (s.whalePct == null || s.whalePct >= 50);
+  const structure = [ribbonEdge, holeHigh, chipFlip].filter(Boolean).length;
+  const confirm = [color, whaleUp].filter(Boolean).length;
+  return structure >= 1 && confirm >= 1;
+}
+
+function isInversioneSignals(s: Sighting) {
+  const justRed = isEarlyRedStart(s);
+  const holePlay =
+    s.hole === "close_in_middle" ||
+    s.hole === "early_with_blue" ||
+    s.hole === "packed_under_overhead";
+  const p2Ahead =
+    s.panel2 === "flip_green_red_widening" &&
+    s.ribbon !== "red_widening" &&
+    s.ribbon !== "red_thinning";
+  const whaleStoppedMid =
+    s.whalePct != null &&
+    s.whalePct >= 35 &&
+    s.whalePct < 50 &&
+    !s.whaleDeclining;
+  const whaleAbsentJustFlipped =
+    (s.whalePct == null || s.whalePct < 35) && !s.whaleDeclining && justRed;
+  return (
+    justRed ||
+    (holePlay && (justRed || s.ribbon === "thick_blue_above")) ||
+    p2Ahead ||
+    whaleStoppedMid ||
+    whaleAbsentJustFlipped
+  );
+}
+
+export function classifyBucket(s: Sighting): Bucket {
+  if (s.notAChart) return "Morto";
+  if (s.hole === "close_below_low") return "Morto";
+  if (s.candle === "yellow_monthly" && s.whaleDeclining) return "Morto";
+  if (s.ribbon === "red_thinning" && bearishHigherTf(s)) return "Morto";
+
+  const earlyFlip = isEarlyRedStart(s);
+  const whaleAbsentFalling =
+    s.whalePct != null && s.whalePct < 35 && s.whaleDeclining;
+  const whaleFallingRetailRising = s.whaleDeclining && s.retailRising;
+  if ((whaleAbsentFalling || whaleFallingRetailRising) && !earlyFlip) {
+    return "Morto";
   }
 
+  if (isStaleRed(s) && s.ribbon === "red_thinning" && s.whaleDeclining) {
+    return "Morto";
+  }
+
+  const yellowDirty =
+    (s.candle === "yellow_monthly" || s.candle === "yellow_weekly") &&
+    !holeOverridesCandleColor(s);
+  if (!yellowDirty && isSetupConfluence(s)) return "Setup";
+  if (isInversioneSignals(s)) return "Inversione";
+  return "Sporco";
+}
+
+function mortoReason(s: Sighting): { vote: number; reason: string } {
+  if (s.notAChart) {
+    return { vote: 1, reason: "non è un grafico (logo/cover/thumb/testo/tabella)" };
+  }
   if (s.hole === "close_below_low") {
-    return sellResult(s, 1, "Sell Now", "hole bucato in giù, close sotto il bordo basso", true);
+    return { vote: 1, reason: "hole bucato in giù, close sotto il bordo basso" };
   }
-
+  if (monthlyBroken(s) || (s.candle === "yellow_monthly" && s.whaleDeclining)) {
+    return {
+      vote: 2,
+      reason: "gialla monthly + whale in calo (daily bello, monthly rotto)",
+    };
+  }
   if (s.ribbon === "red_thinning" && bearishHigherTf(s)) {
-    return sellResult(
-      s,
-      2,
-      "Sell Now",
-      "ribbon rossa che si stringe con bearish W/M",
-      true
-    );
+    return { vote: 2, reason: "ribbon rossa che si stringe con bearish W/M" };
   }
+  if (isStaleRed(s) && s.ribbon === "red_thinning" && s.whaleDeclining) {
+    return {
+      vote: 2,
+      reason: "rossa stantia + ribbon che si stringe + whale in calo",
+    };
+  }
+  if (s.whalePct != null && s.whalePct < 35 && s.whaleDeclining) {
+    return { vote: 2, reason: "whale <35% e in calo (fase avanzata)" };
+  }
+  if (s.whaleDeclining && s.retailRising) {
+    return { vote: 2, reason: "whale in calo e retail in salita (fase avanzata)" };
+  }
+  return { vote: 2, reason: "morto: morte chiara" };
+}
 
-  if (s.candle === "yellow_monthly" && !holeOverridesCandleColor(s)) {
-    return sellResult(s, 4, "Sell", "gialla monthly: non è un buy", false);
+function finalizeInversione(s: Sighting, scored: ScoreResult): ScoreResult {
+  const vote = Math.max(3, Math.min(4, scored.vote < 2 ? 3 : scored.vote));
+  const rating = ratingFromVote(vote);
+  const why =
+    s.ribbon === "just_flipped_red" || isEarlyRedStart(s)
+      ? "inversione precoce: ribbon appena rossa, CHIP ancora tetto, whale assente/non pronto"
+      : scored.explanation.replace(/^\d+\s*=\s*/, "");
+  return {
+    ...scored,
+    vote,
+    rating,
+    bucket: "Inversione",
+    goesToTelegram: true,
+    sellBranch: false,
+    sellNow: false,
+    notBuy: true,
+    notFullBuy: true,
+    inCartAsBuy: false,
+    zone: null,
+    explanation: `${vote} = ${why}`,
+    warnings: [
+      ...scored.warnings.filter((w) => !/Morto/i.test(w)),
+      "Inversione: voto 1–10, va a Telegram. Zona: no. Non è Morto.",
+    ],
+  };
+}
+
+export function scoreSighting(s: Sighting): ScoreResult {
+  const bucket = classifyBucket(s);
+
+  if (bucket === "Morto") {
+    const { vote, reason } = mortoReason(s);
+    return sellResult(s, vote, "Sell Now", reason, true, {
+      bucket: "Morto",
+      goesToTelegram: false,
+    });
   }
 
   const parts: ScorePart[] = [];
@@ -216,6 +342,15 @@ export function scoreSighting(s: Sighting): ScoreResult {
 
   if (s.ribbon === "red_widening") {
     parts.push({ key: "ribbon", label: "ribbon rossa che si allarga", points: 2 });
+  } else if (s.ribbon === "just_flipped_red") {
+    parts.push({
+      key: "ribbon",
+      label: "ribbon appena girata rossa (inversione precoce)",
+      points: 1,
+    });
+    caps.push({ limit: 4, reason: "inversione precoce, ribbon appena rossa" });
+    notBuy = true;
+    warnings.push("Ribbon appena rossa: inversione, non Morto.");
   } else if (s.ribbon === "red_thinning") {
     parts.push({ key: "ribbon", label: "ribbon rossa che si assottiglia", points: 1 });
   } else if (s.ribbon === "thick_blue_above") {
@@ -254,6 +389,11 @@ export function scoreSighting(s: Sighting): ScoreResult {
       caps.push({ limit: 5, reason: "gialla weekly" });
       notBuy = true;
       warnings.push("Gialla weekly: non è un buy, watch remoto.");
+    } else if (candle === "yellow_monthly") {
+      parts.push({ key: "candle", label: "gialla monthly (whale non in calo: sporco, non morto)", points: 0 });
+      caps.push({ limit: 4, reason: "gialla monthly" });
+      notBuy = true;
+      warnings.push("Gialla monthly senza whale in calo: Sporco, voto e Telegram. Non è Morto.");
     }
 
     if (s.hole === "early_with_blue") {
@@ -271,6 +411,15 @@ export function scoreSighting(s: Sighting): ScoreResult {
         points: 0,
       });
       warnings.push("Senza close fuori dal bordo non si scommette la direzione.");
+    } else if (s.hole === "packed_under_overhead") {
+      parts.push({
+        key: "hole",
+        label: "close nel nodo pieno sotto hole vuoto sopra (non bucato in giù)",
+        points: 0,
+      });
+      warnings.push(
+        "Hole = volatilità, non direzione. Packed sotto una zona vuota sopra ≠ close sotto il bordo basso."
+      );
     }
   }
 
@@ -431,12 +580,14 @@ export function scoreSighting(s: Sighting): ScoreResult {
 
   const inCartAsBuy = rating === "Strong Buy" || rating === "Buy";
 
-  return {
+  const scored: ScoreResult = {
     sum,
     vote,
     rating,
     parts,
     caps,
+    bucket,
+    goesToTelegram: true,
     sellBranch: false,
     sellNow: rating === "Sell Now",
     notBuy,
@@ -446,6 +597,12 @@ export function scoreSighting(s: Sighting): ScoreResult {
     explanation: `${vote} = ${body}${formatZone(zone)}${capNote}`,
     warnings,
   };
+
+  if (bucket === "Inversione") {
+    return finalizeInversione(s, scored);
+  }
+
+  return scored;
 }
 
 export function ratingRank(rating: Rating) {

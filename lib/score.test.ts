@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCart } from "@/lib/cart";
-import { emptySighting, scoreSighting } from "@/lib/score";
+import { buildCart, formatCartForTelegram } from "@/lib/cart";
+import { classifyBucket, emptySighting, scoreSighting } from "@/lib/score";
 import type { Analysis, Sighting } from "@/lib/types";
 
 function sight(partial: Partial<Sighting>): Sighting {
@@ -305,6 +305,54 @@ describe("carrello", () => {
     expect(cart.rows.some((r) => r.ticker === "OK")).toBe(true);
   });
 
+  it("Morto non entra in carrello; Inversione sì", () => {
+    const morto = sight({
+      ticker: "DEAD",
+      hole: "close_below_low",
+      ribbon: "red_widening",
+      whalePct: 80,
+      whaleRising: true,
+    });
+    const qcom = sight({
+      ticker: "QCOM",
+      hasWeekly: false,
+      hasMonthly: false,
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      redAgeDays: 3,
+      chip: "below_resistance",
+      hole: "packed_under_overhead",
+      whalePct: 12,
+      whaleRising: false,
+      whaleDeclining: false,
+      retailDominant: true,
+      macdBearCrossBelowZero: true,
+      closePrice: "166.61",
+      accelPrice: "",
+      invPrice: "",
+      zoneLow: "",
+      zoneHigh: "",
+    });
+    const cart = buildCart([
+      {
+        id: "d",
+        updatedAt: new Date().toISOString(),
+        sighting: morto,
+        score: scoreSighting(morto),
+      },
+      {
+        id: "q",
+        updatedAt: new Date().toISOString(),
+        sighting: qcom,
+        score: scoreSighting(qcom),
+      },
+    ]);
+    expect(cart.rows.some((r) => r.ticker === "DEAD")).toBe(false);
+    expect(cart.rows.some((r) => r.ticker === "QCOM")).toBe(true);
+    const qRow = cart.rows.find((r) => r.ticker === "QCOM");
+    expect(qRow?.bucket).toBe("Inversione");
+  });
+
   it("se il primo non è Buy 7, lo scrive così", () => {
     const s = sight({
       ticker: "HOLD1",
@@ -323,5 +371,179 @@ describe("carrello", () => {
     ]);
     expect(cart.marketOfferingEntry).toBe(false);
     expect(cart.headline).toContain("non sta offrendo un ingresso");
+  });
+});
+
+describe("secchio Morto / Inversione", () => {
+  it("QCOM daily 166.61 è Inversione, non Morto; voto basso; Telegram sì", () => {
+    const { sighting, score } = scored({
+      ticker: "QCOM",
+      name: "Qualcomm",
+      hasDaily: true,
+      hasWeekly: false,
+      hasMonthly: false,
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      redAgeDays: 3,
+      chip: "below_resistance",
+      hole: "packed_under_overhead",
+      whalePct: 12,
+      whaleRising: false,
+      whaleDeclining: false,
+      retailDominant: true,
+      retailRising: false,
+      macdBearCrossBelowZero: true,
+      rsiBelow50StackedWrong: false,
+      closePrice: "166.61",
+      accelPrice: "",
+      invPrice: "",
+      zoneLow: "",
+      zoneHigh: "",
+      notes: "CHIP 202/204 overhead; hole empty 168-192; packed 160-168",
+    });
+
+    expect(classifyBucket(sighting)).toBe("Inversione");
+    expect(score.bucket).toBe("Inversione");
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(true);
+    expect(score.vote).toBeGreaterThanOrEqual(3);
+    expect(score.vote).toBeLessThanOrEqual(4);
+    expect(score.rating).toBe("Sell");
+    expect(score.zone).toBeNull();
+    expect(score.sellNow).toBe(false);
+    expect(score.explanation.toLowerCase()).toMatch(/inversione/);
+  });
+
+  it("stesso QCOM con blu spessa sopra + rossa recente non è Morto", () => {
+    const { score } = scored({
+      ticker: "QCOM",
+      hasWeekly: false,
+      ribbon: "thick_blue_above",
+      candle: "fresh_red_wm",
+      redAgeDays: 3,
+      chip: "below_resistance",
+      hole: "packed_under_overhead",
+      whalePct: 12,
+      whaleDeclining: false,
+      retailDominant: true,
+      macdBearCrossBelowZero: true,
+      closePrice: "166.61",
+    });
+    expect(score.bucket).toBe("Inversione");
+    expect(score.goesToTelegram).toBe(true);
+    expect(score.vote).toBe(3);
+  });
+
+  it("whale basso + retail alto da soli non uccidono", () => {
+    const { score } = scored({
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      redAgeDays: 2,
+      chip: "below_resistance",
+      whalePct: 12,
+      whaleDeclining: false,
+      retailDominant: true,
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("MACD <0 e RSI ~50 non decidono Morto", () => {
+    const { score } = scored({
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      hole: "packed_under_overhead",
+      whalePct: 12,
+      macdBearCrossBelowZero: true,
+      rsiBelow50StackedWrong: false,
+    });
+    expect(score.bucket).toBe("Inversione");
+    expect(score.parts.some((p) => p.key === "p45")).toBe(false);
+  });
+
+  it("close sotto hole low è Morto e skip Telegram", () => {
+    const { score } = scored({
+      hole: "close_below_low",
+      ribbon: "red_widening",
+      whalePct: 80,
+      whaleRising: true,
+    });
+    expect(score.bucket).toBe("Morto");
+    expect(score.goesToTelegram).toBe(false);
+    expect(score.sellNow).toBe(true);
+  });
+
+  it("gialla monthly + whale in calo è Morto", () => {
+    const { score } = scored({
+      candle: "yellow_monthly",
+      whaleDeclining: true,
+      dailyLooksGood: true,
+      whalePct: 40,
+    });
+    expect(score.bucket).toBe("Morto");
+    expect(score.goesToTelegram).toBe(false);
+  });
+
+  it("gialla monthly con whale ancora alto è Sporco, non Morto", () => {
+    const { score } = scored({
+      candle: "yellow_monthly",
+      whaleDeclining: false,
+      whalePct: 70,
+      whaleRising: true,
+      ribbon: "red_widening",
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("whale <35 e in calo (avanzato) è Morto; whale <35 fermo no", () => {
+    const dead = scored({
+      whalePct: 20,
+      whaleDeclining: true,
+      retailRising: false,
+      ribbon: "absent",
+      candle: "absent",
+    });
+    const live = scored({
+      whalePct: 20,
+      whaleDeclining: false,
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      chip: "below_resistance",
+    });
+    expect(dead.score.bucket).toBe("Morto");
+    expect(live.score.bucket).toBe("Inversione");
+  });
+
+  it("logo/cover non è un grafico: Morto", () => {
+    const { score } = scored({ notAChart: true, ribbon: "red_widening" });
+    expect(score.bucket).toBe("Morto");
+    expect(score.goesToTelegram).toBe(false);
+  });
+
+  it("Telegram del carrello omette Morto e tiene Inversione validata", () => {
+    const inv = sight({
+      ticker: "QCOM",
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      chip: "below_resistance",
+      hole: "packed_under_overhead",
+      whalePct: 12,
+    });
+    const cart = buildCart([
+      {
+        id: "q",
+        updatedAt: new Date().toISOString(),
+        sighting: inv,
+        score: scoreSighting(inv),
+      },
+    ]);
+    cart.rows.forEach((r) => {
+      r.ceoMark = "valida";
+    });
+    const text = formatCartForTelegram(cart);
+    expect(text).toContain("QCOM");
+    expect(text).toContain("Inversione");
+    expect(text).not.toMatch(/\[Morto\]/);
   });
 });
