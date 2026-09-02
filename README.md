@@ -55,6 +55,4 @@ Il canone di voto è in `lib/score.ts` e sulla sedia CEO. I test: `npx vitest ru
 
 **Non è Morto** — resta Inversione o Sporco, **voto 1–10, va a Telegram**: ribbon appena girata rossa / candela rossa recente con CHIP ancora tetto; blu spessa ancora visibile sopra + nuovo inizio rosso; whale basso / retail alto / “not ready” da soli; close nel nodo pieno **sotto** un hole vuoto sopra (non è “close sotto hole low”); due verdi con P1 blu-sopra; P2 misto; P4/P5 non decidono.
 
-Esempio: **$QCOM** daily close 166.61, ribbon appena rossa, CHIP 202/204 ancora tetto, whale ~12% non in calo avanzato, hole vuoto ~168–192 e close nel packed ~160–168 → **Inversione**, Sell ~3, zona no, Telegram sì.
-
-Prompt Grok da incollare: `prompts/analyst-grok.md`.
+Prompt Grok da incollare: `prompts/analyst-grok.md`. Il giro successivo vota da solo sul grafico e sulle regole. Non coachare il bot su un ticker.
