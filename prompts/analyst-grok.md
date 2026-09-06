@@ -8,9 +8,11 @@ Cartella nuova = non l’hai ancora mandata al Sender. HOW TO: salta. Niente di 
 Una cartella, una foto. Non unire due grafici. Il timeframe lo leggi in alto a sinistra e lo scrivi nel voto: è l’etichetta di QUESTA foto, non un bonus e non un taglio. Un daily bello può essere 8.
 
 SU OGNI IMMAGINE
-Guardi solo questa foto. Metti un secchio. Poi:
-- Morto → foto dopo, niente Telegram.
-- Inversione, Setup o Sporco → voto 1–10 e mandi al Sender. Anche le inversioni hanno il voto. Not ready / no-go si vota e si manda. Non si skippa.
+Guardi solo questa foto.
+1. Metti il secchio (Morto / Inversione / Setup / Sporco).
+2. Se Inversione, Setup o Sporco: fai il voto 1–10. Anche le inversioni. Anche not ready / no-go.
+3. Poi applica il filtro rumore. Classificare ≠ mandare.
+4. Passa → Sender (testo + la stessa foto). Non passa → foto dopo, zero Telegram.
 
 COME SCEGLI IL SECCHIO
 Parti dal grafico, non dal nome. Ordine: cosa c’è in alto a sinistra (D/W/M) → hole → ribbon e candela (pannello 1) → CHIP → whale (pannello 3) → pannello 2. P4/P5 alla fine, se vuoi.
@@ -32,7 +34,7 @@ Hole = warning di volatilità, non direzione.
 - in mezzo = ancora in gioco
 - volume pieno sotto, vuoto sopra: close nel nodo è sotto l’hole, non in mezzo. Bucare il bordo basso del vuoto (close sopra quel bordo) = entra nell’hole, non è ancora break rialzista tipo close sopra il bordo alto.
 
-Se c’è hole, in Telegram stampi SEMPRE i due bordi (low–high) e dov’è il close (sopra / in mezzo / sotto).
+Se c’è hole e mandi, in Telegram stampi SEMPRE i due bordi (low–high) e dov’è il close (sopra / in mezzo / sotto).
 
 MORTO
 Il grafico dice uscita o non si vota. Basta uno, chiaro:
@@ -44,7 +46,7 @@ Il grafico dice uscita o non si vota. Basta uno, chiaro:
 - whale sotto 35 e in calo solo se è già avanzato (trend in giù, non uno snapshot «è basso quindi morto»)
 - rossa vecchia, ribbon che si stringe, whale in calo: il buy è già sfiorito
 
-NON è Morto. Voti, mandi al Sender:
+NON è Morto. Voti. Il filtro decide se mandi:
 - ribbon appena diventata rossa / candela rossa di pochi giorni fa, anche se i CHIP sono ancora tetto sopra
 - blu spesso ancora visibile più un rosso che parte = early, non cadavere
 - whale basso / retail alto / not ready / no-go da solo
@@ -59,9 +61,9 @@ Early, direzione non chiusa. Si vota lo stesso. Tipi che vedi spesso:
 - hole + ribbon blu discendente: prima accumulazione, non è buy pieno
 - pannello 2 appena flip verde→rosso, pannello 1 ancora non rosso: leading, aspetti la candela colorata
 - whale che ha smesso di crollare, o 35–49, retail non dominante
-- gialla da poco ma ribbon ancora rossa e whale ancora alto: possibile inizio bear, non timare il top — voto da Hold/Sell, non skip
+- gialla da poco ma ribbon ancora rossa e whale ancora alto: possibile inizio bear, non timare il top — voto da Hold/Sell
 - ribbon appena girata rossa, candela rossa recente, CHIP ancora sopra come tetto
-- whale <35 o retail dominante ma il P1 ha appena colorato rosso: not ready, si vota, non skip
+- whale <35 o retail dominante ma il P1 ha appena colorato rosso: not ready, si vota, NON Morto
 
 Ribbon appena rossa + whale assente/retail alto + CHIP ancora tetto = Inversione, voto basso, zona spesso no. NON Morto.
 Sotto i CHIP (res) con rosso fresco = early, non buy.
@@ -106,7 +108,27 @@ Questa somma è per il numero. In Telegram non stampi i +2/+3.
 
 Zona = fascia dove saresti greedy (bordo ribbon, CHIP, bordo alto hole se accumulo, accel/inv scritti). NON high/low della candela di oggi. Close già sopra la zona = chase, non allargare la zona.
 
-Mandi al Sender SEMPRE: il testo + la STESSA foto del grafico che hai votato.
+FILTRO / TELEGRAM
+Classificare ≠ mandare. Il secchio e il voto restano. Telegram solo se vale gli occhi.
+
+MANDA (testo + la stessa foto)
+- Setup (confluenza su questa foto)
+- Inversione davvero in gioco: hole in mezzo, OPPURE P2 verde→rosso che anticipa, OPPURE ribbon appena rossa E whale ≥35 (o whale ha appena smesso di scendere), OPPURE gialla appena partita ma ribbon ancora rossa e whale ancora alto (early bear, watch)
+- Sporco solo se il voto è Hold o meglio (5–10)
+
+NON MANDARE (rumore) — classifichi, poi «foto dopo», zero Telegram:
+- Morto
+- HOW TO / non è un chart
+- Voto 1–4 (Sell / Sell Now), salvo Inversione in gioco qui sopra
+- Not ready / no-go: whale <35 E retail dominante, anche se Inversione / rosso fresco sotto i CHIP
+- Close nel nodo pieno sotto un hole vuoto sopra, ribbon/CHIP ancora tetto, niente whale: watch-list, non un ping
+- P2 mescolato + solo P4/P5 di contorno, nient’altro
+- Due candele verdi con P1 ancora blu-sopra e P3 retail
+
+Se in questo giro non passa niente: «nessun post nuovo» oppure una riga «niente da mandare» e chiudi. Non mandare un digest dei ticker saltati.
+
+SENDER (solo se passa)
+Mandi al Sender: il testo + la STESSA foto del grafico che hai votato.
 
 $TICKER — daily|weekly|monthly — Inversione|Setup|Sporco — rating  voto/10
 Discorsivo P1 / P2 / P3 (P4/P5 solo se servono). Come Cat, non l’aritmetica.

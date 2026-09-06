@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCart, formatCartForTelegram } from "@/lib/cart";
-import { classifyBucket, emptySighting, scoreSighting } from "@/lib/score";
+import { classifyBucket, emptySighting, passesSenderGate, scoreSighting } from "@/lib/score";
 import type { Analysis, Sighting } from "@/lib/types";
 
 function sight(partial: Partial<Sighting>): Sighting {
@@ -375,7 +375,7 @@ describe("carrello", () => {
 });
 
 describe("secchio Morto / Inversione", () => {
-  it("QCOM daily 166.61 è Inversione, non Morto; voto basso; Telegram sì", () => {
+  it("QCOM daily 166.61 è Inversione, non Morto; voto basso; Telegram no (rumore)", () => {
     const { sighting, score } = scored({
       ticker: "QCOM",
       name: "Qualcomm",
@@ -405,7 +405,7 @@ describe("secchio Morto / Inversione", () => {
     expect(classifyBucket(sighting)).toBe("Inversione");
     expect(score.bucket).toBe("Inversione");
     expect(score.bucket).not.toBe("Morto");
-    expect(score.goesToTelegram).toBe(true);
+    expect(score.goesToTelegram).toBe(false);
     expect(score.vote).toBeGreaterThanOrEqual(3);
     expect(score.vote).toBeLessThanOrEqual(4);
     expect(score.rating).toBe("Sell");
@@ -430,7 +430,7 @@ describe("secchio Morto / Inversione", () => {
       closePrice: "166.61",
     });
     expect(score.bucket).toBe("Inversione");
-    expect(score.goesToTelegram).toBe(true);
+    expect(score.goesToTelegram).toBe(false);
     expect(score.vote).toBe(3);
   });
 
@@ -445,7 +445,7 @@ describe("secchio Morto / Inversione", () => {
       retailDominant: true,
     });
     expect(score.bucket).not.toBe("Morto");
-    expect(score.goesToTelegram).toBe(true);
+    expect(score.goesToTelegram).toBe(false);
   });
 
   it("whale <35 in calo + retail alto not-ready non è Morto", () => {
@@ -458,7 +458,7 @@ describe("secchio Morto / Inversione", () => {
       candle: "absent",
     });
     expect(score.bucket).not.toBe("Morto");
-    expect(score.goesToTelegram).toBe(true);
+    expect(score.goesToTelegram).toBe(false);
   });
 
   it("MACD <0 e RSI ~50 non decidono Morto", () => {
@@ -558,5 +558,127 @@ describe("secchio Morto / Inversione", () => {
     expect(text).toContain("QCOM");
     expect(text).toContain("Inversione");
     expect(text).not.toMatch(/\[Morto\]/);
+  });
+});
+
+describe("filtro rumore Sender", () => {
+  it("Setup con confluenza passa", () => {
+    const { score } = scored({
+      ribbon: "red_widening",
+      candle: "fresh_red_wm",
+      redAgeDays: 2,
+      whalePct: 82,
+      whaleRising: true,
+      atSupport: true,
+    });
+    expect(score.bucket).toBe("Setup");
+    expect(score.vote).toBeGreaterThanOrEqual(5);
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("Inversione hole in mezzo passa", () => {
+    const { sighting, score } = scored({
+      hole: "close_in_middle",
+      ribbon: "thick_blue_above",
+      whalePct: 40,
+      whaleDeclining: false,
+      retailDominant: false,
+    });
+    expect(score.bucket).toBe("Inversione");
+    expect(passesSenderGate(sighting, score.bucket, score.vote)).toBe(true);
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("Inversione P2 verde→rosso leading passa", () => {
+    const { score } = scored({
+      panel2: "flip_green_red_widening",
+      ribbon: "thick_blue_above",
+      candle: "absent",
+      whalePct: 42,
+      whaleDeclining: false,
+      retailDominant: false,
+    });
+    expect(score.bucket).toBe("Inversione");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("Inversione ribbon appena rossa + whale ≥35 passa", () => {
+    const { score } = scored({
+      ribbon: "just_flipped_red",
+      candle: "fresh_red_wm",
+      redAgeDays: 2,
+      whalePct: 38,
+      whaleDeclining: false,
+      retailDominant: false,
+    });
+    expect(score.bucket).toBe("Inversione");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("gialla appena partita + ribbon rossa + whale alto passa (early bear)", () => {
+    const { score } = scored({
+      candle: "yellow_monthly",
+      whaleDeclining: false,
+      whalePct: 70,
+      whaleRising: true,
+      ribbon: "red_widening",
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(true);
+  });
+
+  it("Sporco Hold o meglio passa; Sell no", () => {
+    const hold = scored({
+      candle: "yellow_weekly",
+      ribbon: "red_widening",
+      whalePct: 80,
+      whaleRising: true,
+      atSupport: true,
+    });
+    const sell = scored({
+      ribbon: "thick_blue_above",
+      candle: "absent",
+      whalePct: 20,
+      retailDominant: false,
+      panel2: "off_or_red_to_green",
+    });
+    expect(hold.score.vote).toBeGreaterThanOrEqual(5);
+    expect(hold.score.goesToTelegram).toBe(true);
+    expect(sell.score.vote).toBeLessThanOrEqual(4);
+    expect(sell.score.goesToTelegram).toBe(false);
+  });
+
+  it("packed sotto hole + tetto + niente whale: watch-list, no ping", () => {
+    const { score } = scored({
+      hole: "packed_under_overhead",
+      ribbon: "just_flipped_red",
+      chip: "below_resistance",
+      whalePct: 12,
+      retailDominant: false,
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(false);
+  });
+
+  it("P2 mescolato + solo P4/P5: rumore", () => {
+    const { score } = scored({
+      panel2: "off_or_red_to_green",
+      macdBearCrossBelowZero: true,
+      ribbon: "absent",
+      candle: "absent",
+      whalePct: 10,
+    });
+    expect(score.goesToTelegram).toBe(false);
+  });
+
+  it("due verdi + P1 blu-sopra + P3 retail: rumore", () => {
+    const { score } = scored({
+      ribbon: "thick_blue_above",
+      retailDominant: true,
+      candle: "dark_blue_continuation",
+      whalePct: 40,
+    });
+    expect(score.bucket).not.toBe("Morto");
+    expect(score.goesToTelegram).toBe(false);
   });
 });

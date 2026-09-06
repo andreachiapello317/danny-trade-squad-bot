@@ -131,7 +131,7 @@ function sellResult(
       : sellNow
         ? ["Ramo sell: non si somma, uscita."]
         : extras.bucket === "Inversione"
-          ? ["Inversione: voto basso, va a Telegram. Zona: no."]
+          ? ["Inversione: voto basso, zona no. Telegram solo se passa il filtro."]
           : ["Ramo sell: non si somma, non è un buy."],
   };
 }
@@ -199,6 +199,68 @@ function isSetupConfluence(s: Sighting) {
   return structure >= 1 && confirm >= 1;
 }
 
+function whaleStoppedFalling(s: Sighting) {
+  return s.whalePct != null && s.whalePct >= 35 && !s.whaleDeclining;
+}
+
+function isYellowEarlyBear(s: Sighting) {
+  const yellow = s.candle === "yellow_weekly" || s.candle === "yellow_monthly";
+  const ribbonRed =
+    s.ribbon === "red_widening" ||
+    s.ribbon === "red_thinning" ||
+    s.ribbon === "just_flipped_red";
+  const whaleHigh = s.whalePct != null && s.whalePct >= 50 && !s.whaleDeclining;
+  return yellow && ribbonRed && whaleHigh;
+}
+
+function isInversioneInPlay(s: Sighting) {
+  const holeInPlay = s.hole === "close_in_middle" || s.hole === "early_with_blue";
+  const p2Leading = s.panel2 === "flip_green_red_widening";
+  const justRed = s.ribbon === "just_flipped_red" || isEarlyRedStart(s);
+  const whalePlay =
+    (s.whalePct != null && s.whalePct >= 35) || whaleStoppedFalling(s);
+  return holeInPlay || p2Leading || (justRed && whalePlay) || isYellowEarlyBear(s);
+}
+
+function isNotReadyNoise(s: Sighting) {
+  const whaleLow = s.whalePct == null || s.whalePct < 35;
+  return whaleLow && s.retailDominant;
+}
+
+function isPackedWatchlistJunk(s: Sighting) {
+  const ceiling =
+    s.chip === "below_resistance" ||
+    s.ribbon === "thick_blue_above" ||
+    s.ribbon === "just_flipped_red";
+  const noWhale = s.whalePct == null || s.whalePct < 35;
+  return s.hole === "packed_under_overhead" && ceiling && noWhale;
+}
+
+function isP2P45GravyOnly(s: Sighting) {
+  const p2Mixed = s.panel2 === "off_or_red_to_green";
+  const gravy = s.macdBearCrossBelowZero || s.rsiBelow50StackedWrong;
+  const noPrimary =
+    s.ribbon !== "red_widening" &&
+    s.ribbon !== "red_thinning" &&
+    s.ribbon !== "just_flipped_red" &&
+    !isFreshRed(s) &&
+    s.hole !== "close_in_middle" &&
+    s.hole !== "close_above_high" &&
+    s.hole !== "early_with_blue" &&
+    (s.whalePct == null || s.whalePct < 35);
+  return p2Mixed && gravy && noPrimary;
+}
+
+function isTwoGreenRetailNoise(s: Sighting) {
+  return (
+    s.ribbon === "thick_blue_above" &&
+    s.retailDominant &&
+    s.candle !== "fresh_red_wm" &&
+    s.candle !== "yellow_weekly" &&
+    s.candle !== "yellow_monthly"
+  );
+}
+
 function isInversioneSignals(s: Sighting) {
   const justRed = isEarlyRedStart(s);
   const holePlay =
@@ -223,6 +285,22 @@ function isInversioneSignals(s: Sighting) {
     whaleStoppedMid ||
     whaleAbsentJustFlipped
   );
+}
+
+/** Classificare ≠ mandare. Telegram only if the chart is worth Andrea's eyes. */
+export function passesSenderGate(s: Sighting, bucket: Bucket, vote: number): boolean {
+  if (bucket === "Morto" || s.notAChart) return false;
+  if (isNotReadyNoise(s)) return false;
+  if (isPackedWatchlistJunk(s)) return false;
+  if (isP2P45GravyOnly(s)) return false;
+  if (isTwoGreenRetailNoise(s)) return false;
+  if (vote <= 4 && !isInversioneInPlay(s) && !isYellowEarlyBear(s)) return false;
+
+  if (isYellowEarlyBear(s)) return true;
+  if (bucket === "Setup") return vote >= 5;
+  if (bucket === "Inversione") return isInversioneInPlay(s);
+  if (bucket === "Sporco") return vote >= 5;
+  return false;
 }
 
 export function classifyBucket(s: Sighting): Bucket {
@@ -295,12 +373,13 @@ function finalizeInversione(s: Sighting, scored: ScoreResult): ScoreResult {
     s.ribbon === "just_flipped_red" || isEarlyRedStart(s)
       ? "inversione precoce: ribbon appena rossa, CHIP ancora tetto, whale assente/non pronto"
       : scored.explanation.replace(/^\d+\s*=\s*/, "");
+  const goesToTelegram = passesSenderGate(s, "Inversione", vote);
   return {
     ...scored,
     vote,
     rating,
     bucket: "Inversione",
-    goesToTelegram: true,
+    goesToTelegram,
     sellBranch: false,
     sellNow: false,
     notBuy: true,
@@ -310,7 +389,9 @@ function finalizeInversione(s: Sighting, scored: ScoreResult): ScoreResult {
     explanation: `${vote} = ${why}`,
     warnings: [
       ...scored.warnings.filter((w) => !/Morto/i.test(w)),
-      "Inversione: voto 1–10, va a Telegram. Zona: no. Non è Morto.",
+      goesToTelegram
+        ? "Inversione in gioco: voto 1–10, va a Telegram. Zona: no. Non è Morto."
+        : "Inversione: classificato e votato, filtro rumore — niente Telegram. Non è Morto.",
     ],
   };
 }
@@ -399,7 +480,7 @@ export function scoreSighting(s: Sighting): ScoreResult {
       parts.push({ key: "candle", label: "gialla monthly (whale non in calo: sporco, non morto)", points: 0 });
       caps.push({ limit: 4, reason: "gialla monthly" });
       notBuy = true;
-      warnings.push("Gialla monthly senza whale in calo: Sporco, voto e Telegram. Non è Morto.");
+      warnings.push("Gialla monthly senza whale in calo: Sporco, si vota. Non è Morto. Telegram solo se passa il filtro.");
     }
 
     if (s.hole === "early_with_blue") {
@@ -585,6 +666,7 @@ export function scoreSighting(s: Sighting): ScoreResult {
       : "";
 
   const inCartAsBuy = rating === "Strong Buy" || rating === "Buy";
+  const goesToTelegram = passesSenderGate(s, bucket, vote);
 
   const scored: ScoreResult = {
     sum,
@@ -593,7 +675,7 @@ export function scoreSighting(s: Sighting): ScoreResult {
     parts,
     caps,
     bucket,
-    goesToTelegram: true,
+    goesToTelegram,
     sellBranch: false,
     sellNow: rating === "Sell Now",
     notBuy,
