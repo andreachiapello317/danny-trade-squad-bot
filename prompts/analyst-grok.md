@@ -38,7 +38,7 @@ inoltra a Sender testo + foto, com’è.
 ```
 DEST: Sender
 TIPO: TRENDING STOCK
-CHAT: 4349690570
+CHAT: 5021603163
 $ titolo
 <testo originale>
 + foto in ordine
