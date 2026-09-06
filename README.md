@@ -14,7 +14,7 @@ Ping Analyst: `giro 4 ore`.
 | Stock with bullish signal today | Trader (scheda HOW TO) → Sender | 3929227957 |
 | Altro | post successivo | — |
 
-Trader, su ogni nome del post bullish: timeframe, motivo di Danny, piano DCA / aspetta / exit-trim da rossa, hole, whale, CHIP. Schede + foto al Sender su 3929227957.
+Trader, su ogni nome del post bullish: foto prima, poi accel/inv, motivo copiato. Albero A–G (prima riga vera) dà Piano + Priorità (ora / watch / chase / exit). Schede + foto al Sender su 3929227957.
 
 Niente di nuovo: `nessun post nuovo`.
 
