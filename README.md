@@ -11,10 +11,10 @@ Ping Analyst: `giro 4 ore`.
 | MUST READ | Sender, testo + foto com’è | 4349690570 |
 | HOW TO | Sender, testo + foto com’è | 4382873897 |
 | TRENDING STOCK | Sender, testo + foto com’è | 5021603163 |
-| Stock with bullish signal today | Trader (scheda HOW TO) → Sender | 3929227957 |
+| Stock with bullish signal today | Trader (scheda one-shot) → Sender | 3929227957 |
 | Altro | post successivo | — |
 
-Trader, su ogni nome del post bullish: foto prima, poi accel/inv, motivo copiato. Albero A–G (prima riga vera) dà Piano + Priorità (ora / watch / chase / exit). Schede + foto al Sender su 3929227957.
+Trader, su ogni nome del post bullish: una scheda one-shot (un ingresso, un’invalida, un target). Foto prima, motivo copiato. Albero A–I dà Piano + Priorità (shot / watch / chase / niente). Schede + foto al Sender su 3929227957.
 
 Niente di nuovo: `nessun post nuovo`.
 
