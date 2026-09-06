@@ -32,6 +32,18 @@ $ titolo
 + foto in ordine
 ```
 
+TRENDING STOCK (titolo contiene TRENDING STOCK / Trending Stock / trending stock):
+inoltra a Sender testo + foto, com’è.
+
+```
+DEST: Sender
+TIPO: TRENDING STOCK
+CHAT: 4349690570
+$ titolo
+<testo originale>
++ foto in ordine
+```
+
 Titolo «Stock with bullish signal today» (è, o inizia così):
 lista intera. Una riga per ticker: $TICKER — motivo di Danny, copiato. Senza motivo: motivo: —.
 Foto accoppiate se il layout le accoppia; altrimenti lista poi tutte le chart.

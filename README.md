@@ -11,6 +11,7 @@ Ogni 4 ore mandi all’Analyst il ping `giro 4 ore`.
 | Post | Dove | Cosa |
 | --- | --- | --- |
 | MUST READ / Must Read / must-read | Sender → chat **4349690570** | Testo + foto, com’è. Un post = un messaggio (o un album) |
+| TRENDING STOCK / Trending Stock / trending stock | Sender → chat **4349690570** | Testo + foto, com’è. Un post = un messaggio (o un album) |
 | HOW TO / How To / how-to | Sender → chat **4382873897** | Testo + foto, com’è. Un post = un messaggio (o un album) |
 | Titolo «Stock with bullish signal today» | Trader | Lista `$TICKER — motivo` + chart |
 | Altro titolo | — | Post successivo |
