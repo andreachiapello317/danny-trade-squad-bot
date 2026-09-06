@@ -1,3 +1,4 @@
+/** Leftover Morto/Setup 1–10 engine. Live Analyst is the Drive router in prompts/. */
 import type {
   Bucket,
   CandleSight,
