@@ -14,4 +14,4 @@ Stesso testo. Stesse foto. Stesso ordine.
 Un post = un messaggio Telegram, o un album: caption = testo, media = le foto.
 
 Ogni 2 ore: fai quello che Andrea scrive.
-«nessun post nuovo»: aspetta.
+«nessun post nuovo» o «nessuno shot»: aspetta.

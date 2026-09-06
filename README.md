@@ -14,7 +14,7 @@ Ping Analyst: `giro 4 ore`.
 | Stock with bullish signal today | Trader (scheda one-shot) → Sender | 3929227957 |
 | Altro | post successivo | — |
 
-Trader, su ogni nome del post bullish: una scheda one-shot (un ingresso, un’invalida, un target). Foto prima, motivo copiato. Albero A–I dà Piano + Priorità (shot / watch / chase / niente). Schede + foto al Sender su 3929227957.
+Trader legge tutta la lista bullish e manda al Sender solo i one-shot completi (entra / shot, prezzi veri, Invalida < Ingresso < Target, R≥1, whale ≥35, prezzo sul livello, confluenza). Nome che non chiude: ticker successivo. Zero shot: `nessuno shot`, Telegram fermo.
 
 Niente di nuovo: `nessun post nuovo`.
 
