@@ -14,7 +14,7 @@ Ping Analyst: `giro 4 ore`.
 | Stock with bullish signal today | Trader (scheda one-shot) → Sender | 3929227957 |
 | Altro | post successivo | — |
 
-Trader: un trade unico, un click. Manda al Sender solo i one-shot completi (rossa appena partita sul livello, o retest hole-high). Rossa già corsa: ticker successivo. Zero shot: `nessuno shot`, Telegram fermo.
+Trader: un trade unico, un click. Ogni one-shot chiuso → un blocco Sender (scheda + foto di QUEL ticker) su 3929227957. Un titolo, un messaggio, una foto. Zero shot: `nessuno shot`, Telegram fermo.
 
 Niente di nuovo: `nessun post nuovo`.
 
