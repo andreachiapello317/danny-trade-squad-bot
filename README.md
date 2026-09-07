@@ -8,13 +8,13 @@ Ping Analyst: `giro 4 ore`.
 
 | Titolo | Destino | Chat |
 | --- | --- | --- |
-| MUST READ | Sender, un ticker = un messaggio + quella foto | 4349690570 |
+| MUST READ | Sender, un ticker = un messaggio + tutte le sue foto | 4349690570 |
 | HOW TO | Sender, un post = un album (lista ticker: spezza) | 4382873897 |
-| TRENDING STOCK | Sender, un ticker = un messaggio + quella foto | 5021603163 |
+| TRENDING STOCK | Sender, un ticker = un messaggio + tutte le sue foto | 5021603163 |
 | Stock with bullish signal today | Trader (scheda one-shot) → Sender | 3929227957 |
 | Altro | post successivo | — |
 
-MUST READ e Trending: Analyst spezza per ticker, Sender manda un titolo / un messaggio / una foto. HOW TO resta un pezzo. Trader: un trade unico, un click, stesso spezzamento su 3929227957. Zero shot: `nessuno shot`, Telegram fermo.
+Un ticker, un messaggio, tutte le sue foto (daily+weekly insieme; chart di altri nomi fuori). HOW TO resta un pezzo. Trader: un trade unico, un click, stesso spezzamento su 3929227957. Zero shot: `nessuno shot`, Telegram fermo.
 
 Niente di nuovo: `nessun post nuovo`.
 
