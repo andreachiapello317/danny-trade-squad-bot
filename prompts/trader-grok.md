@@ -43,7 +43,7 @@ Chiude il one-shot → SUBITO un blocco al Sender, solo questo ticker + le foto 
 ```
 DEST: Sender
 TIPO: Bullish signal today
-CHAT: 3929227957
+CHAT: -1003929227957
 $TICKER — daily|weekly|monthly
 Motivo: …
 Priorità: shot
