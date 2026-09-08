@@ -61,7 +61,7 @@ Poi hole e close, una riga.
 Poi whale e CHIP, una riga.
 Poi riga vuota.
 Poi `Danny:` + motivo, una riga.
-Poi una frase: ribbon / CHIP / hole / whale, perché è un click qui. Niente +2/+3. Niente Priorità. Niente Piano.
+Poi una frase: ribbon / CHIP / hole / whale, perché è un click qui. Solo il ticket. ENTRA sta sulla prima riga.
 
 ```
 DEST: Sender
