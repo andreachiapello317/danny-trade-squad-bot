@@ -18,7 +18,7 @@ HOW TO:
 così com’è. Un post, un album. Caption = testo originale. Media = tutte le foto del post, in ordine.
 
 Dal Trader, Bullish signal today:
-Un ticker, un messaggio, tutte le sue foto. Caption = la scheda di quel $TICKER. Media = solo le immagini di quel ticker, in ordine.
+Un ticker, un messaggio, tutte le sue foto. Caption = il ticket, com’è (`$TICKER · weekly · ENTRA` …). Media = solo le immagini di quel ticker, in ordine.
 
 Ogni 2 ore: fai quello che Andrea scrive.
 «nessun post nuovo» o «nessuno shot»: aspetta.

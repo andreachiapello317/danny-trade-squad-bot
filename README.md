@@ -14,7 +14,7 @@ Ping Analyst: `giro 4 ore`.
 | Stock with bullish signal today | Trader (scheda one-shot) → Sender | `-1003929227957` |
 | Altro | post successivo | — |
 
-MUST READ e Trending: un ticker, un messaggio, tutte le sue foto. HOW TO intero. Trader: un trade unico, un click, stesso spezzamento su `-1003929227957`. Zero shot: `nessuno shot`, Telegram fermo.
+MUST READ e Trending: un ticker, un messaggio, tutte le sue foto. HOW TO intero. Trader: un trade unico, un click; ticket `$TICKER · weekly · ENTRA` su `-1003929227957`. Zero shot: `nessuno shot`, Telegram fermo.
 
 Niente di nuovo: `nessun post nuovo`.
 
