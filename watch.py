@@ -624,6 +624,9 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
     except (OSError, TimeoutError, RuntimeError, ValueError, ConnectionError) as exc:
         print(f"Telegram userbot: lettura fallita ({exc})", file=sys.stderr)
         return 0
+    except Exception as exc:
+        print(f"Telegram userbot: lettura fallita ({exc})", file=sys.stderr)
+        return 0
     finally:
         try:
             client.disconnect()
