@@ -24,4 +24,4 @@ Incolla in tre chat Grok: `prompts/analyst-grok.md`, `prompts/sender-grok.md`, `
 
 ## Price watch
 
-Le schede Trader sul gruppo Telegram diventano alert di prezzo (ingresso / stop / target). **Non gira sul PC:** GitHub Actions ogni 5 minuti. Cosa fare, una volta: `WATCH.md`.
+Le schede Trader sul gruppo Telegram diventano alert di prezzo (ingresso / stop / target). **Non gira sul PC:** GitHub Actions ogni 5 minuti, **dalle 15 alle 22 ora italiana**. Cosa fare, una volta: `WATCH.md`.
