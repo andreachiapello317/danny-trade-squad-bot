@@ -1,0 +1,31 @@
+# Gira ogni 5 minuti su GitHub, non sul PC di Andrea.
+# Secret obbligatorio: TELEGRAM_BOT_TOKEN
+# Secret opzionale: TELEGRAM_CHAT_ID (default -1003929227957)
+name: watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            watchlist.json
+            watch_state.json
+          key: watch-state
+      - name: Dipendenze
+        run: pip install -r requirements.txt
+      - name: Un ciclo (Telegram + Yahoo)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python watch.py run --once

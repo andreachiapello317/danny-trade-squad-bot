@@ -273,6 +273,34 @@ def load_state(path: Path) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def fired_key_str(key: tuple[str, str, str]) -> str:
+    return "|".join(key)
+
+
+def load_fired(state: dict[str, Any]) -> dict[tuple[str, str, str], bool]:
+    raw = state.get("fired")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[tuple[str, str, str], bool] = {}
+    for k, v in raw.items():
+        if not v or not isinstance(k, str):
+            continue
+        parts = k.split("|")
+        if len(parts) == 3:
+            out[(parts[0], parts[1], parts[2])] = True
+    return out
+
+
+def dump_fired(fired: dict[tuple[str, str, str], bool]) -> dict[str, bool]:
+    return {fired_key_str(k): True for k, v in fired.items() if v}
+
+
+def persist_fired(state_path: Path, fired: dict[tuple[str, str, str], bool]) -> None:
+    state = load_state(state_path)
+    state["fired"] = dump_fired(fired)
+    save_state(state_path, state)
+
+
 def save_state(path: Path, state: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(state, indent=2, ensure_ascii=False) + "\n",
@@ -588,7 +616,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     interval = max(5, int(args.interval))
     path = Path(args.watchlist)
     state_path = Path(args.state)
-    fired: dict[tuple[str, str, str], bool] = {}
+    fired = load_fired(load_state(state_path))
     if not telegram_token():
         print(MISSING_TOKEN_MSG, flush=True)
     else:
@@ -609,6 +637,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
             else:
                 cycle(items, fired)
+            persist_fired(state_path, fired)
             if args.once:
                 break
             time.sleep(interval)

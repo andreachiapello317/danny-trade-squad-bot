@@ -24,4 +24,4 @@ Incolla in tre chat Grok: `prompts/analyst-grok.md`, `prompts/sender-grok.md`, `
 
 ## Price watch
 
-Le schede Trader su Telegram sono watchlist + livelli (ingresso/stop/target), non ordini. Script: `watch.py` — `WATCH.md`. Token una volta in `.env`, bot nel gruppo (privacy OFF), poi `python watch.py run` tutto il giorno. I ticket arrivano da soli. Solo prezzo vs i livelli già sulla scheda.
+Le schede Trader sul gruppo Telegram diventano alert di prezzo (ingresso / stop / target). **Non gira sul PC:** GitHub Actions ogni 5 minuti. Cosa fare, una volta: `WATCH.md`.

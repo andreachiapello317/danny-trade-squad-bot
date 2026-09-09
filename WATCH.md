@@ -1,49 +1,46 @@
-# Price watch
+# Cosa fare (price watch)
 
-Le schede Trader su Telegram (`$AMD · daily` + Livelli ingresso/stop/target) sono una **watchlist**. Non sono ordini.
+Non gira sul tuo PC. Non incolli niente.
 
-**Grok Trader → Sender → Telegram → `watch.py run` da solo.** Niente incolla. Confronta il prezzo Yahoo con i livelli già sulla scheda. Pezzo assente: salta quell’alert.
+## Cosa è già automatico
 
-Non piazza ordini. Non è consulenza finanziaria.
+1. Analyst trova il post bullish su Drive.
+2. Trader scrive una scheda per ogni stock.
+3. Sender la manda sul gruppo Telegram `-1003929227957`.
 
-## Una volta
+Lo script **legge quel gruppo da solo** e ti scrive lì quando il prezzo tocca **ingresso**, **stop** o **target**. Non piazza ordini.
 
-```bash
-pip install -r requirements.txt
-```
+## Cosa fai tu, una volta
 
-Copia `.env.example` → `.env`.
+Serve il **token del bot Telegram** (lo stesso che usa già il Sender, o uno nuovo da @BotFather).
 
-Metti `TELEGRAM_BOT_TOKEN` in `.env` (stesso bot del Sender, o uno nuovo). Aggiungi il bot al gruppo `-1003929227957`. Su @BotFather: **Group Privacy OFF**. Nel gruppo: un `/start`.
+1. Metti il bot nel gruppo delle schede (`-1003929227957`).
+2. Su @BotFather: il tuo bot → **Group Privacy → OFF**.
+3. Nel gruppo: scrivi `/start`.
+4. Sul repo GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+   - Nome: `TELEGRAM_BOT_TOKEN`
+   - Valore: il token
+5. **Actions** → workflow `watch` → **Enable** (se chiede). Poi **Run workflow** una volta per prova.
 
-Il bot non legge lo storico: solo i ticket da quando è nel gruppo e lo script è acceso. Non incollare i ticket.
+GitHub lo lancia **ogni 5 minuti**. Il PC può restare spento.
 
-## Ogni giorno
+Se il repo ancora non c’è: crea il repo da Cursor, pusha questo branch, poi i passi 4–5.
 
-```bash
-python watch.py run
-```
+## Cosa vedi
 
-O doppio click su `watch.bat` (Windows). Lascia il terminale aperto.
+Sul gruppo Telegram, messaggi tipo:
 
-`run` legge i ticket nuovi dal gruppo, aggiorna `watchlist.json`, poi poll Yahoo (default 60s). **ALERT** (console + stesso gruppo, o `TELEGRAM_CHAT_ID` se lo cambi) quando:
+`ALERT AMD ingresso 131.20 (130–134)`
 
-- il prezzo tocca la banda di **ingresso**
-- il prezzo è **≤ stop**
-- il prezzo è **≥ target**
+Ogni alert arriva **una volta** finché il prezzo non esce da quella zona.
 
-Ogni alert una volta sola, finché la condizione non si spegne. Ctrl+C esce.
+## Se gli alert non partono
 
-Offset Telegram: `watch_state.json` (non rimangia i vecchi messaggi).
+- Il bot è nel gruppo e Privacy è OFF?
+- Hai fatto `/start` nel gruppo **dopo** aver spento la privacy?
+- Lo script vede solo i ticket **da quando** il bot è nel gruppo (non lo storico).
+- Il secret `TELEGRAM_BOT_TOKEN` è quello giusto?
 
-```bash
-python watch.py list
-python watch.py remove AMD
-python watch.py run --interval 30
-```
+## Non fare
 
-Watchlist: `watchlist.json` (ticker, tf, ingresso_low, ingresso_high, stop, target, motivo). Stesso ticker + stesso timeframe: si sovrascrive.
-
-## Windows
-
-Lascia una finestra aperta con `watch.py run` / `watch.bat`. Per accenderlo al login: collegamento a `watch.bat` in Esecuzione automatica (`shell:startup`).
+Non lasciare `watch.py run` acceso sul computer. Quello era il piano vecchio.

@@ -88,6 +88,23 @@ class TelegramExtractTests(unittest.TestCase):
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
 
+    def test_fired_roundtrip(self) -> None:
+        fired = {("AMD", "daily", "ingresso"): True, ("NVDA", "weekly", "stop"): False}
+        dumped = watch.dump_fired(fired)
+        self.assertEqual(dumped, {"AMD|daily|ingresso": True})
+        loaded = watch.load_fired({"fired": dumped})
+        self.assertTrue(loaded[("AMD", "daily", "ingresso")])
+        self.assertNotIn(("NVDA", "weekly", "stop"), loaded)
+
+    def test_persist_fired_keeps_offset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"telegram_offset": 9})
+            watch.persist_fired(spath, {("AMD", "daily", "target"): True})
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertEqual(state["telegram_offset"], 9)
+            self.assertEqual(state["fired"]["AMD|daily|target"], True)
+
     def test_dotenv_does_not_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
