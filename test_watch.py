@@ -7,8 +7,10 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import watch
 
@@ -33,6 +35,25 @@ def _msg(text: str | None = None, caption: str | None = None, chat_id: int = -10
     if caption is not None:
         out["caption"] = caption
     return out
+
+
+class WatchWindowTests(unittest.TestCase):
+    def test_inside_and_outside_rome(self) -> None:
+        rome = ZoneInfo("Europe/Rome")
+        self.assertTrue(watch.in_watch_window(datetime(2026, 9, 9, 15, 0, tzinfo=rome)))
+        self.assertTrue(watch.in_watch_window(datetime(2026, 9, 9, 22, 30, tzinfo=rome)))
+        self.assertFalse(watch.in_watch_window(datetime(2026, 9, 9, 14, 59, tzinfo=rome)))
+        self.assertFalse(watch.in_watch_window(datetime(2026, 9, 9, 23, 0, tzinfo=rome)))
+
+    def test_dst_winter_utc(self) -> None:
+        # 14:00 UTC in gennaio = 15:00 CET
+        self.assertTrue(
+            watch.in_watch_window(datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc))
+        )
+        # 13:00 UTC in gennaio = 14:00 CET
+        self.assertFalse(
+            watch.in_watch_window(datetime(2026, 1, 15, 13, 0, tzinfo=timezone.utc))
+        )
 
 
 class ParseTicketTests(unittest.TestCase):

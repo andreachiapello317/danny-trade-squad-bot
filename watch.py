@@ -17,6 +17,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 try:
     import yfinance as yf
@@ -28,6 +29,9 @@ DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
 DEFAULT_CHAT_ID = "-1003929227957"
 SINGLE_TOUCH_PCT = 0.0015
+WATCH_TZ = ZoneInfo("Europe/Rome")
+WATCH_HOUR_START = 15
+WATCH_HOUR_END = 22  # inclusivo: 15:00–22:59 ora italiana
 MISSING_TOKEN_MSG = (
     "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
     "al gruppo (Group Privacy OFF su @BotFather). Poi gira da solo."
@@ -253,6 +257,20 @@ def load_dotenv(path: Path | None = None) -> None:
                 continue
             os.environ[key] = value.strip().strip("'").strip('"')
         break
+
+
+def rome_now(now: datetime | None = None) -> datetime:
+    if now is None:
+        return datetime.now(WATCH_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now.astimezone(WATCH_TZ)
+
+
+def in_watch_window(now: datetime | None = None) -> bool:
+    """True dalle 15:00 alle 22:59 (Europe/Rome), estate e inverno."""
+    local = rome_now(now)
+    return WATCH_HOUR_START <= local.hour <= WATCH_HOUR_END
 
 
 def telegram_token() -> str:
@@ -626,11 +644,22 @@ def cmd_run(args: argparse.Namespace) -> int:
             flush=True,
         )
     print(
-        "Prezzi vs livelli del ticket. Non è consulenza. Ctrl+C esce.",
+        "Prezzi vs livelli del ticket. Finestra 15–22 ora italiana. Non è consulenza. Ctrl+C esce.",
         flush=True,
     )
     try:
         while True:
+            if not args.ignore_window and not in_watch_window():
+                local = rome_now()
+                print(
+                    f"Fuori finestra ({local.strftime('%H:%M')} ora italiana). "
+                    "Prossimo controllo dalle 15:00.",
+                    flush=True,
+                )
+                if args.once:
+                    return 0
+                time.sleep(interval)
+                continue
             ingest_telegram(path, state_path)
             items = load_watchlist(path)
             if not items:
@@ -695,6 +724,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--once",
         action="store_true",
         help="Un solo ciclo, poi esce",
+    )
+    run_p.add_argument(
+        "--ignore-window",
+        action="store_true",
+        help="Controlla anche fuori dalle 15–22 ora italiana",
     )
     run_p.add_argument(
         "--state",

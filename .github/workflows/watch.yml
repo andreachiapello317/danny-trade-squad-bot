@@ -1,12 +1,18 @@
-# Gira ogni 5 minuti su GitHub, non sul PC di Andrea.
+# Ogni 5 minuti, solo nella fascia UTC che copre le 15–22 ora italiana
+# (CET e CEST). Lo script salta se Europe/Rome è fuori da quell’orario.
 # Secret obbligatorio: TELEGRAM_BOT_TOKEN
 # Secret opzionale: TELEGRAM_CHAT_ID (default -1003929227957)
 name: watch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 13-21 * * *"
   workflow_dispatch:
+    inputs:
+      ignore_window:
+        description: "Forza un ciclo anche fuori dalle 15–22 italiane"
+        type: boolean
+        default: false
 
 jobs:
   watch:
@@ -28,4 +34,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python watch.py run --once
+        run: |
+          extra=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.ignore_window }}" = "true" ]; then
+            extra="--ignore-window"
+          fi
+          python watch.py run --once $extra

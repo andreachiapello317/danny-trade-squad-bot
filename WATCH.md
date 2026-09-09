@@ -22,7 +22,7 @@ Serve il **token del bot Telegram** (lo stesso che usa già il Sender, o uno nuo
    - Valore: il token
 5. **Actions** → workflow `watch` → **Enable** (se chiede). Poi **Run workflow** una volta per prova.
 
-GitHub lo lancia **ogni 5 minuti**. Il PC può restare spento.
+GitHub lo lancia **ogni 5 minuti dalle 15:00 alle 22:00 ora italiana**. Fuori da quella fascia non controlla. Il PC può restare spento.
 
 Se il repo ancora non c’è: crea il repo da Cursor, pusha questo branch, poi i passi 4–5.
 
