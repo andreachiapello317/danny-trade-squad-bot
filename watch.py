@@ -24,6 +24,13 @@ try:
 except ImportError:  # pragma: no cover
     yf = None
 
+try:
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+except ImportError:  # pragma: no cover
+    TelegramClient = None
+    StringSession = None
+
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
@@ -275,6 +282,19 @@ def in_watch_window(now: datetime | None = None) -> bool:
 
 def telegram_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def userbot_credentials() -> tuple[int, str, str] | None:
+    api_id_raw = os.environ.get("TELEGRAM_API_ID", "").strip()
+    api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
+    session = os.environ.get("TELEGRAM_USER_SESSION", "").strip()
+    if not api_id_raw or not api_hash or not session:
+        return None
+    try:
+        api_id = int(api_id_raw)
+    except ValueError:
+        return None
+    return api_id, api_hash, session
 
 
 def telegram_chat_id() -> str:
@@ -555,6 +575,63 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
     return len(tickets)
 
 
+def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
+    """Stesso gruppo via account utente (Telethon). Vede i messaggi scritti da bot."""
+    if TelegramClient is None or StringSession is None:
+        return 0
+    creds = userbot_credentials()
+    if creds is None:
+        return 0
+    api_id, api_hash, session = creds
+    state = load_state(state_path)
+    raw_last = state.get("userbot_last_id")
+    last_id = raw_last if isinstance(raw_last, int) else 0
+    chat_raw = telegram_chat_id()
+    try:
+        chat_id: int | str = int(chat_raw)
+    except ValueError:
+        chat_id = chat_raw
+
+    client = TelegramClient(StringSession(session), api_id, api_hash)
+    count = 0
+    max_seen = last_id
+    try:
+        client.start()
+        items = load_watchlist(watchlist_path)
+        kwargs: dict[str, Any] = {"min_id": last_id, "reverse": True}
+        if last_id == 0:
+            kwargs["limit"] = 100
+        for message in client.iter_messages(chat_id, **kwargs):
+            mid = getattr(message, "id", None)
+            if isinstance(mid, int):
+                max_seen = mid if max_seen == 0 else max(max_seen, mid)
+            text = (getattr(message, "text", None) or "").strip()
+            if is_noise_text(text):
+                continue
+            tickets = parse_tickets(text)
+            if not tickets:
+                continue
+            for ticket in tickets:
+                items = upsert(items, ticket)
+                print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+                count += 1
+        if count:
+            save_watchlist(watchlist_path, items)
+        if max_seen:
+            state = load_state(state_path)
+            state["userbot_last_id"] = max_seen
+            save_state(state_path, state)
+    except (OSError, TimeoutError, RuntimeError, ValueError, ConnectionError) as exc:
+        print(f"Telegram userbot: lettura fallita ({exc})", file=sys.stderr)
+        return 0
+    finally:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+    return count
+
+
 def alert_key(item: dict[str, Any], kind: str) -> tuple[str, str, str]:
     return (item.get("ticker") or "", item.get("tf") or "", kind)
 
@@ -661,6 +738,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 time.sleep(interval)
                 continue
             ingest_telegram(path, state_path)
+            ingest_telegram_userbot(path, state_path)
             items = load_watchlist(path)
             if not items:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)

@@ -41,6 +41,18 @@ Ogni alert arriva **una volta** finché il prezzo non esce da quella zona.
 - Lo script vede solo i ticket **da quando** il bot è nel gruppo (non lo storico).
 - Il secret `TELEGRAM_BOT_TOKEN` è quello giusto?
 
+## Account utente (opzionale)
+
+I bot Telegram non vedono i messaggi scritti da altri bot. Per leggere le schede del Sender serve anche un **account utente** (Telethon).
+
+Una volta, su https://my.telegram.org → API development tools: `api_id` e `api_hash`. Poi genera una `StringSession` (script Telethon sul tuo telefono/PC, login una volta). In `.env` o nei secret GitHub:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+- `TELEGRAM_USER_SESSION`
+
+Senza queste tre chiavi lo script gira lo stesso, solo con la Bot API.
+
 ## Non fare
 
 Non lasciare `watch.py run` acceso sul computer. Quello era il piano vecchio.

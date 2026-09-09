@@ -126,6 +126,58 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(state["telegram_offset"], 9)
             self.assertEqual(state["fired"]["AMD|daily|target"], True)
 
+    def test_userbot_skips_without_creds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            for key in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_USER_SESSION"):
+                os.environ.pop(key, None)
+            self.assertEqual(watch.ingest_telegram_userbot(wpath, spath), 0)
+
+    def test_userbot_ingests_and_persists_last_id(self) -> None:
+        class FakeMsg:
+            def __init__(self, mid: int, text: str) -> None:
+                self.id = mid
+                self.text = text
+
+        class FakeClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def start(self) -> None:
+                return None
+
+            def iter_messages(self, *args: object, **kwargs: object):
+                return [
+                    FakeMsg(10, TICKET),
+                    FakeMsg(11, "ALERT AMD ingresso 131"),
+                ]
+
+            def disconnect(self) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            os.environ["TELEGRAM_API_ID"] = "12345"
+            os.environ["TELEGRAM_API_HASH"] = "hash"
+            os.environ["TELEGRAM_USER_SESSION"] = "session"
+            try:
+                with (
+                    patch.object(watch, "TelegramClient", FakeClient),
+                    patch.object(watch, "StringSession", lambda s: s),
+                ):
+                    n = watch.ingest_telegram_userbot(wpath, spath)
+            finally:
+                os.environ.pop("TELEGRAM_API_ID", None)
+                os.environ.pop("TELEGRAM_API_HASH", None)
+                os.environ.pop("TELEGRAM_USER_SESSION", None)
+            self.assertEqual(n, 1)
+            items = json.loads(wpath.read_text(encoding="utf-8"))
+            self.assertEqual(items[0]["ticker"], "AMD")
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertEqual(state["userbot_last_id"], 11)
+
     def test_dotenv_does_not_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
