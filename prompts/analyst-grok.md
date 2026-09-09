@@ -7,7 +7,40 @@ Cartella nuova: aprila. Leggi titolo e contenuto. Un post alla volta.
 Cartella già processata: vai alla successiva.
 Niente di nuovo: scrivi «nessun post nuovo» e chiudi.
 
-MUST READ e TRENDING: accoppia ticker e foto. Nome/paragrafo + le immagini di quel nome, o foto con $TICKER sopra. Daily e weekly dello stesso ticker: stesso blocco, in ordine. Foto di un altro nome: restano fuori. Foto senza ticker: passa oltre. Ticker con testo e senza foto: un blocco, solo testo. Intro/outro senza nomi: passa oltre. Un DEST = un $TICKER. Un ticker, un messaggio, tutte le sue foto.
+MUST READ, MY BUY e TRENDING: accoppia ticker e foto. Nome/paragrafo + le immagini di quel nome, o foto con $TICKER sopra. Daily e weekly dello stesso ticker: stesso blocco, in ordine. Foto di un altro nome: restano fuori. Foto senza ticker: passa oltre. Ticker con testo e senza foto: un blocco, solo testo. Intro/outro senza nomi: passa oltre. Un DEST = un $TICKER. Un ticker, un messaggio, tutte le sue foto.
+
+PRIMA DI TUTTO — lista bullish (questa regola batte MUST READ / MY BUY / TRENDING):
+Titolo è o inizia con «Stock with bullish signal today»
+OPPURE il titolo contiene «Bullish Signal» / «Bullish Signals» / «New Bullish Signals» / «Stocks with New Bullish Signals».
+Esempio: MUST-READ: 19 Stocks with New Bullish Signals (September 8, 2026) → NON è un MUST READ. Va al Trader.
+
+Prendi TUTTA la lista. Ogni nome + il motivo di Danny (la parentesi), copiato. Manca il motivo: motivo: —.
+Accoppia ogni ticker alle SUE foto (possono essere più di una). Layout dump: tutte le foto, etichetta $TICKER sopra ogni gruppo.
+
+```
+DEST: Trader
+TIPO: Bullish signal today
+<una riga per ticker: $TICKER — motivo>
++ le foto di ciascun ticker accoppiate (o tutte se il layout è un dump, ma etichetta $TICKER sopra ogni gruppo)
+```
+
+Un DEST = un $TICKER. Poi il ticker successivo.
+
+Poi, in questo ordine:
+
+Titolo o flag MY BUY ORDER / My BUY / my-buy:
+spezza per ticker. Per ogni nome: testo di Danny su quel titolo, com’è + le foto di QUESTO ticker. Poi il ticker successivo.
+
+```
+DEST: Sender
+TIPO: MY BUY ORDER
+CHAT: -1004338361664
+$TICKER
+<testo originale di Danny su questo ticker>
++ le foto di QUESTO ticker
+```
+
+(Puoi scrivere anche CHAT: 4338361664. Il Sender usa -1004338361664.)
 
 Titolo o flag MUST READ / Must Read / must-read:
 spezza per ticker. Per ogni nome: testo di Danny su quel titolo, com’è + le foto di QUESTO ticker. Poi il ticker successivo.
@@ -39,21 +72,10 @@ spezza per ticker. Per ogni nome: testo di Danny su quel titolo, com’è + le f
 ```
 DEST: Sender
 TIPO: TRENDING STOCK
-CHAT: -5021603163
+CHAT: -1005021603163
 $TICKER
 <testo originale di Danny su questo ticker>
 + le foto di QUESTO ticker
 ```
 
-Titolo «Stock with bullish signal today» (è questo, o inizia così):
-prendi tutta la lista. Per ogni nome: $TICKER — motivo di Danny, copiato. Manca il motivo: motivo: —.
-Immagini: tutte quelle di quel ticker (daily + weekly insieme). Chart di altri nomi: restano fuori.
-
-```
-DEST: Trader
-TIPO: Bullish signal today
-<una riga: $TICKER — motivo>
-+ le foto di quel ticker
-```
-
-Altro titolo: post successivo.
+Altro titolo: come TRENDING STOCK. Spezza per ticker. Nessun post perso.
