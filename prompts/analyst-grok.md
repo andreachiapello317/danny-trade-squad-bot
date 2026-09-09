@@ -14,17 +14,15 @@ Titolo è o inizia con «Stock with bullish signal today»
 OPPURE il titolo contiene «Bullish Signal» / «Bullish Signals» / «New Bullish Signals» / «Stocks with New Bullish Signals».
 Esempio: MUST-READ: 19 Stocks with New Bullish Signals (September 8, 2026) → NON è un MUST READ. Va al Trader.
 
-Prendi TUTTA la lista. Ogni nome + il motivo di Danny (la parentesi), copiato. Manca il motivo: motivo: —.
-Accoppia ogni ticker alle SUE foto (possono essere più di una). Layout dump: tutte le foto, etichetta $TICKER sopra ogni gruppo.
+Manda il post intero, così com’è. Un post = un DEST. Testo originale + tutte le foto, in ordine. Non spezzare per ticker. Non estrarre la lista. Il Trader lo fa.
 
 ```
 DEST: Trader
 TIPO: Bullish signal today
-<una riga per ticker: $TICKER — motivo>
-+ le foto di ciascun ticker accoppiate (o tutte se il layout è un dump, ma etichetta $TICKER sopra ogni gruppo)
+$ titolo
+<testo originale intero del post>
++ tutte le foto del post, in ordine
 ```
-
-Un DEST = un $TICKER. Poi il ticker successivo.
 
 Poi, in questo ordine:
 
