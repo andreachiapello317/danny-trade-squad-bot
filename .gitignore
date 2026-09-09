@@ -33,6 +33,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 .data/
 
 # vercel
@@ -48,5 +49,6 @@ next-env.d.ts
 
 # price watch
 watchlist.json
+watch_state.json
 __pycache__/
 *.pyc

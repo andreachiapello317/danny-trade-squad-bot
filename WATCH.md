@@ -1,69 +1,49 @@
 # Price watch
 
-Le schede Trader su Telegram (`$AMD · daily` + motivo Danny + P1/P2/P3 + Hole + Livelli) sono una **watchlist con livelli**. Non sono ordini. Non è un segnale di “compra adesso”.
+Le schede Trader su Telegram (`$AMD · daily` + Livelli ingresso/stop/target) sono una **watchlist**. Non sono ordini.
 
-Questo script sta in mezzo: **Grok Trader → Telegram → tu incolli il ticket in `watch.py add` → `watch.py run` tutto il giorno**. Confronta il prezzo Yahoo (yfinance) con ingresso / stop / target già scritti sulla scheda. Se un pezzo manca, vede solo il prezzo e salta quell’alert.
+**Grok Trader → Sender → Telegram → `watch.py run` da solo.** Niente incolla. Confronta il prezzo Yahoo con i livelli già sulla scheda. Pezzo assente: salta quell’alert.
 
 Non piazza ordini. Non è consulenza finanziaria.
 
-## Install
+## Una volta
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Uso
+Copia `.env.example` → `.env`.
 
-Aggiungi una o più schede (stdin: incolla, poi Ctrl+D):
+Metti `TELEGRAM_BOT_TOKEN` in `.env` (stesso bot del Sender, o uno nuovo). Aggiungi il bot al gruppo `-1003929227957`. Su @BotFather: **Group Privacy OFF**. Nel gruppo: un `/start`.
 
-```bash
-python watch.py add
-```
+Il bot non legge lo storico: solo i ticket da quando è nel gruppo e lo script è acceso. Non incollare i ticket.
 
-O da file:
+## Ogni giorno
 
 ```bash
-python watch.py add scheda.txt
-```
-
-Poi:
-
-```bash
-python watch.py list
-python watch.py remove AMD
 python watch.py run
-python watch.py run --interval 30
 ```
 
-`run` stampa uno stato compatto a ogni ciclo (default 60s). **ALERT** quando:
+O doppio click su `watch.bat` (Windows). Lascia il terminale aperto.
+
+`run` legge i ticket nuovi dal gruppo, aggiorna `watchlist.json`, poi poll Yahoo (default 60s). **ALERT** (console + stesso gruppo, o `TELEGRAM_CHAT_ID` se lo cambi) quando:
 
 - il prezzo tocca la banda di **ingresso**
 - il prezzo è **≤ stop**
 - il prezzo è **≥ target**
 
-Ogni alert una volta sola, finché la condizione non si spegne (niente spam). Ctrl+C esce.
+Ogni alert una volta sola, finché la condizione non si spegne. Ctrl+C esce.
 
-## Esempio `add`
+Offset Telegram: `watch_state.json` (non rimangia i vecchi messaggi).
 
 ```bash
-python watch.py add <<'EOF'
-$AMD · daily
-
-Danny: Red candle on daily chart, panel 1
-
-P1: …
-Hole: 120–140, close in mezzo
-CHIP: supporto a 132
-
-Livelli: ingresso 130–134 · stop 124 · target 148
-rossa daily sul bordo, whale 40
-EOF
+python watch.py list
+python watch.py remove AMD
+python watch.py run --interval 30
 ```
-
-Serve `$TICKER`. Poi i numeri su `ingresso` / `stop` / `target` / `Livelli` se ci sono. Ticker tipo IBIT, MSTR, ETHA: stesso Yahoo, stesso comando.
 
 Watchlist: `watchlist.json` (ticker, tf, ingresso_low, ingresso_high, stop, target, motivo). Stesso ticker + stesso timeframe: si sovrascrive.
 
-## Telegram (opzionale)
+## Windows
 
-Se ci sono `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` (default `-1003929227957`), l’alert va anche su Telegram. Senza token: solo console. Non si blocca.
+Lascia una finestra aperta con `watch.py run` / `watch.bat`. Per accenderlo al login: collegamento a `watch.bat` in Esecuzione automatica (`shell:startup`).

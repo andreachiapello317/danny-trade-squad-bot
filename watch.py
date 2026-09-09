@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ticket Trader → watchlist. Confronta il prezzo Yahoo con i livelli già sul ticket.
+"""Ticket Trader → watchlist automatica da Telegram. Prezzo Yahoo vs livelli.
 
 Non piazza ordini. Non è consulenza finanziaria.
 """
@@ -24,9 +24,20 @@ except ImportError:  # pragma: no cover
     yf = None
 
 DEFAULT_WATCHLIST = Path("watchlist.json")
+DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
 DEFAULT_CHAT_ID = "-1003929227957"
 SINGLE_TOUCH_PCT = 0.0015
+MISSING_TOKEN_MSG = (
+    "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
+    "al gruppo (Group Privacy OFF su @BotFather). Poi gira da solo."
+)
+UPDATE_KEYS = (
+    "message",
+    "channel_post",
+    "edited_message",
+    "edited_channel_post",
+)
 
 TICKER_START = re.compile(r"^\$([A-Za-z]{1,8}(?:[.\-][A-Za-z]{1,4})?)\b", re.M)
 FIRST_TICKER = re.compile(r"\$([A-Za-z]{1,8}(?:[.\-][A-Za-z]{1,4})?)\b")
@@ -216,6 +227,114 @@ def fmt_ticket_line(item: dict[str, Any]) -> str:
     )
 
 
+def load_dotenv(path: Path | None = None) -> None:
+    candidates: list[Path] = []
+    if path is not None:
+        candidates.append(path)
+    else:
+        candidates.append(Path(".env"))
+        here = Path(__file__).resolve().with_name(".env")
+        if here not in candidates:
+            candidates.append(here)
+    for env_path in candidates:
+        if not env_path.is_file():
+            continue
+        try:
+            raw = env_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            os.environ[key] = value.strip().strip("'").strip('"')
+        break
+
+
+def telegram_token() -> str:
+    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def telegram_chat_id() -> str:
+    return os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_CHAT_ID).strip() or DEFAULT_CHAT_ID
+
+
+def load_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def save_state(path: Path, state: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def update_payload(update: dict[str, Any]) -> dict[str, Any] | None:
+    for key in UPDATE_KEYS:
+        msg = update.get(key)
+        if isinstance(msg, dict):
+            return msg
+    return None
+
+
+def payload_text(msg: dict[str, Any]) -> str:
+    caption = msg.get("caption")
+    text = msg.get("text")
+    if isinstance(caption, str) and caption.strip():
+        return caption.strip()
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return ""
+
+
+def chat_matches(chat: Any, want: str) -> bool:
+    if not isinstance(chat, dict):
+        return False
+    return str(chat.get("id", "")).strip() == str(want).strip()
+
+
+def is_noise_text(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if stripped.startswith("ALERT "):
+        return True
+    if stripped.startswith("/"):
+        return True
+    return False
+
+
+def tickets_from_updates(
+    updates: list[dict[str, Any]],
+    chat_id: str,
+) -> tuple[list[dict[str, Any]], int | None]:
+    tickets: list[dict[str, Any]] = []
+    max_id: int | None = None
+    for update in updates:
+        uid = update.get("update_id")
+        if isinstance(uid, int):
+            max_id = uid if max_id is None else max(max_id, uid)
+        msg = update_payload(update)
+        if not msg or not chat_matches(msg.get("chat"), chat_id):
+            continue
+        text = payload_text(msg)
+        if is_noise_text(text):
+            continue
+        tickets.extend(parse_tickets(text))
+    return tickets, max_id
+
+
 def read_input(files: list[str]) -> str:
     if files:
         parts = [Path(f).read_text(encoding="utf-8") for f in files]
@@ -314,13 +433,12 @@ def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
     return {t: fetch_price(t) for t in tickers}
 
 
-def send_telegram(text: str) -> None:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+def telegram_api(method: str, payload: dict[str, Any] | None = None, timeout: int = 20) -> Any:
+    token = telegram_token()
     if not token:
-        return
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_CHAT_ID).strip() or DEFAULT_CHAT_ID
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    body = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+        raise RuntimeError("no token")
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    body = json.dumps(payload or {}).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=body,
@@ -328,10 +446,67 @@ def send_telegram(text: str) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            resp.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as decode_exc:
+            raise RuntimeError(f"HTTP {exc.code}") from decode_exc
+        raise RuntimeError(data.get("description") or f"HTTP {exc.code}") from exc
+    data = json.loads(raw)
+    if not data.get("ok"):
+        raise RuntimeError(data.get("description") or method)
+    return data.get("result")
+
+
+def send_telegram(text: str) -> None:
+    if not telegram_token():
+        return
+    try:
+        telegram_api("sendMessage", {"chat_id": telegram_chat_id(), "text": text}, timeout=12)
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
         print(f"Telegram: invio fallito ({exc})", file=sys.stderr)
+
+
+def telegram_get_updates(offset: int | None) -> list[dict[str, Any]]:
+    payload: dict[str, Any] = {
+        "timeout": 0,
+        "allowed_updates": list(UPDATE_KEYS),
+    }
+    if offset is not None:
+        payload["offset"] = offset
+    result = telegram_api("getUpdates", payload, timeout=20)
+    if not isinstance(result, list):
+        return []
+    return [u for u in result if isinstance(u, dict)]
+
+
+def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
+    """Legge i ticket nuovi dal gruppo. Offset persistito. Ritorna quanti ticket ha preso."""
+    if not telegram_token():
+        return 0
+    state = load_state(state_path)
+    raw_offset = state.get("telegram_offset")
+    offset = raw_offset if isinstance(raw_offset, int) else None
+    try:
+        updates = telegram_get_updates(offset)
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
+        print(f"Telegram: lettura fallita ({exc})", file=sys.stderr)
+        return 0
+    tickets, max_id = tickets_from_updates(updates, telegram_chat_id())
+    if max_id is not None:
+        state["telegram_offset"] = max_id + 1
+        save_state(state_path, state)
+    if not tickets:
+        return 0
+    items = load_watchlist(watchlist_path)
+    for ticket in tickets:
+        items = upsert(items, ticket)
+        print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+    save_watchlist(watchlist_path, items)
+    return len(tickets)
 
 
 def alert_key(item: dict[str, Any], kind: str) -> tuple[str, str, str]:
@@ -412,16 +587,26 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
     interval = max(5, int(args.interval))
     path = Path(args.watchlist)
+    state_path = Path(args.state)
     fired: dict[tuple[str, str, str], bool] = {}
+    if not telegram_token():
+        print(MISSING_TOKEN_MSG, flush=True)
+    else:
+        print(
+            f"Telegram chat {telegram_chat_id()}: ticket da soli. "
+            "Se non arrivano: bot nel gruppo, Group Privacy OFF su @BotFather, un /start nel gruppo.",
+            flush=True,
+        )
     print(
         "Prezzi vs livelli del ticket. Non è consulenza. Ctrl+C esce.",
         flush=True,
     )
     try:
         while True:
+            ingest_telegram(path, state_path)
             items = load_watchlist(path)
             if not items:
-                print("Watchlist vuota. python watch.py add", flush=True)
+                print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
             else:
                 cycle(items, fired)
             if args.once:
@@ -447,14 +632,18 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="watch.py",
         description=(
-            "Ticket Trader (Telegram) → watchlist. "
+            "Ticket Trader da Telegram → watchlist. "
             "Controlla il prezzo vs ingresso/stop/target. "
             "Non piazza ordini. Non è consulenza finanziaria."
         ),
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    add_p = sub.add_parser("add", parents=[common], help="Aggiungi ticket: stdin o file")
+    add_p = sub.add_parser(
+        "add",
+        parents=[common],
+        help=argparse.SUPPRESS,
+    )
     add_p.add_argument("files", nargs="*", help="File testo. Vuoto = stdin")
     add_p.set_defaults(func=cmd_add)
 
@@ -465,7 +654,7 @@ def build_parser() -> argparse.ArgumentParser:
     rm_p.add_argument("ticker", help="Ticker, es. AMD")
     rm_p.set_defaults(func=cmd_remove)
 
-    run_p = sub.add_parser("run", parents=[common], help="Osserva i prezzi fino a Ctrl+C")
+    run_p = sub.add_parser("run", parents=[common], help="Telegram + Yahoo, fino a Ctrl+C")
     run_p.add_argument(
         "-i",
         "--interval",
@@ -478,11 +667,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Un solo ciclo, poi esce",
     )
+    run_p.add_argument(
+        "--state",
+        default=str(DEFAULT_STATE),
+        help="File offset Telegram (default: watch_state.json)",
+    )
     run_p.set_defaults(func=cmd_run)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args))
