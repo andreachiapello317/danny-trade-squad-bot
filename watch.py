@@ -432,7 +432,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _watchlist_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "-w",
+        "--watchlist",
+        default=str(DEFAULT_WATCHLIST),
+        help="File JSON della watchlist (default: watchlist.json)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    _watchlist_arg(common)
     p = argparse.ArgumentParser(
         prog="watch.py",
         description=(
@@ -441,26 +452,20 @@ def build_parser() -> argparse.ArgumentParser:
             "Non piazza ordini. Non è consulenza finanziaria."
         ),
     )
-    p.add_argument(
-        "-w",
-        "--watchlist",
-        default=str(DEFAULT_WATCHLIST),
-        help="File JSON della watchlist (default: watchlist.json)",
-    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    add_p = sub.add_parser("add", help="Aggiungi ticket: stdin o file")
+    add_p = sub.add_parser("add", parents=[common], help="Aggiungi ticket: stdin o file")
     add_p.add_argument("files", nargs="*", help="File testo. Vuoto = stdin")
     add_p.set_defaults(func=cmd_add)
 
-    list_p = sub.add_parser("list", help="Mostra la watchlist")
+    list_p = sub.add_parser("list", parents=[common], help="Mostra la watchlist")
     list_p.set_defaults(func=cmd_list)
 
-    rm_p = sub.add_parser("remove", help="Togli un ticker (es. AMD)")
+    rm_p = sub.add_parser("remove", parents=[common], help="Togli un ticker (es. AMD)")
     rm_p.add_argument("ticker", help="Ticker, es. AMD")
     rm_p.set_defaults(func=cmd_remove)
 
-    run_p = sub.add_parser("run", help="Osserva i prezzi fino a Ctrl+C")
+    run_p = sub.add_parser("run", parents=[common], help="Osserva i prezzi fino a Ctrl+C")
     run_p.add_argument(
         "-i",
         "--interval",
