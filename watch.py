@@ -642,7 +642,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_p = sub.add_parser(
         "add",
         parents=[common],
-        help=argparse.SUPPRESS,
+        help="emergenza: ticket da file/stdin",
     )
     add_p.add_argument("files", nargs="*", help="File testo. Vuoto = stdin")
     add_p.set_defaults(func=cmd_add)
