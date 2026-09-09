@@ -45,3 +45,8 @@ next-env.d.ts
 # next agent scaffolds
 /AGENTS.md
 /CLAUDE.md
+
+# price watch
+watchlist.json
+__pycache__/
+*.pyc

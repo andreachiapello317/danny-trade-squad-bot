@@ -21,3 +21,7 @@ Niente di nuovo: `nessun post nuovo`.
 Incolla in tre chat Grok: `prompts/analyst-grok.md`, `prompts/sender-grok.md`, `prompts/trader-grok.md`. Python resta su 12 ore.
 
 `lib/score.ts` è leftover.
+
+## Price watch
+
+Le schede Trader su Telegram sono watchlist + livelli (ingresso/stop/target), non ordini. Script: `watch.py` — come usarlo in `WATCH.md`. `pip install -r requirements.txt`, poi `python watch.py add` (incolli il ticket) e `python watch.py run` tutto il giorno. Solo prezzo vs i livelli già sulla scheda.
