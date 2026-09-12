@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "ticker": "KOSPI",
+    "tf": "weekly",
+    "ingresso_low": 6767.0,
+    "ingresso_high": 6767.0,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  }
+]
