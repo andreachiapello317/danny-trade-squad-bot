@@ -2,10 +2,10 @@
   {
     "ticker": "CRCL",
     "tf": "",
-    "ingresso_low": 75.0,
-    "ingresso_high": 90.0,
+    "ingresso_low": 85.0,
+    "ingresso_high": 95.0,
     "stop": 70.0,
-    "target": 103.0,
+    "target": 150.0,
     "motivo": ""
   }
 ]
