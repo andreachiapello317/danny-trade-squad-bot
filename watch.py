@@ -67,6 +67,7 @@ STOP_RE = re.compile(rf"\bstop\s*:?\s*{NUM}", re.I)
 TARGET_RE = re.compile(rf"\btarget\s*:?\s*{NUM}", re.I)
 LIVELLI_LINE_RE = re.compile(r"^Livelli:\s*(.+)$", re.I | re.M)
 BARE_NUM_RE = re.compile(rf"{NUM}(?:\s*{RANGE_SEP}\s*{NUM})?")
+REMOVE_RE = re.compile(r"^/(?:rm|remove|rimuovi)\s+\$?([A-Za-z]{1,8})\b", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -370,6 +371,23 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_remove(text: str, watchlist_path: Path) -> bool:
+    m = REMOVE_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    items = load_watchlist(watchlist_path)
+    keep = [it for it in items if (it.get("ticker") or "").upper() != ticker]
+    if len(keep) == len(items):
+        print(f"{ticker} non era in watchlist.", flush=True)
+        send_telegram(f"{ticker} non era in watchlist.")
+    else:
+        save_watchlist(watchlist_path, keep)
+        print(f"Rimosso {ticker} dalla watchlist (via comando Telegram).", flush=True)
+        send_telegram(f"✅ {ticker} rimosso dalla watchlist.")
+    return True
+
+
 def is_noise_text(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
@@ -561,7 +579,13 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
         print(f"Telegram: lettura fallita ({exc})", file=sys.stderr)
         return 0
-    tickets, max_id = tickets_from_updates(updates, telegram_chat_id())
+    chat_id = telegram_chat_id()
+    for update in updates:
+        msg = update_payload(update)
+        if not msg or not chat_matches(msg.get("chat"), chat_id):
+            continue
+        apply_telegram_remove(payload_text(msg), watchlist_path)
+    tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
         state["telegram_offset"] = max_id + 1
         save_state(state_path, state)
@@ -606,6 +630,8 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
+            if apply_telegram_remove(text, watchlist_path):
+                continue
             if is_noise_text(text):
                 continue
             tickets = parse_tickets(text)
