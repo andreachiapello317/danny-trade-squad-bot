@@ -28,7 +28,9 @@ rossa daily sul bordo
 """
 
 
-def _msg(text: str | None = None, caption: str | None = None, chat_id: int = -1003929227957) -> dict:
+def _msg(text: str | None = None, caption: str | None = None, chat_id: int | None = None) -> dict:
+    if chat_id is None:
+        chat_id = int(watch.DEFAULT_CHAT_ID)
     out: dict = {"chat": {"id": chat_id}}
     if text is not None:
         out["text"] = text
@@ -88,7 +90,7 @@ class TelegramExtractTests(unittest.TestCase):
             {"update_id": 12, "channel_post": _msg(text=TICKET.replace("AMD", "NVDA"), chat_id=1)},
             {"update_id": 13, "message": _msg(text="/start")},
         ]
-        tickets, max_id = watch.tickets_from_updates(updates, "-1003929227957")
+        tickets, max_id = watch.tickets_from_updates(updates, watch.DEFAULT_CHAT_ID)
         self.assertEqual(max_id, 13)
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0]["ticker"], "AMD")
@@ -101,13 +103,47 @@ class TelegramExtractTests(unittest.TestCase):
             with (
                 patch.object(watch, "telegram_token", return_value="123:abc"),
                 patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "send_telegram") as send,
             ):
                 n = watch.ingest_telegram(wpath, spath)
+            send.assert_called_once()
+            body = send.call_args[0][0]
+            self.assertIn("✅ AMD aggiunto/aggiornato", body)
+            self.assertIn("AMD", body)
+            self.assertIn("ing 130-134", body)
             self.assertEqual(n, 1)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             self.assertEqual(items[0]["ticker"], "AMD")
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
+
+    def test_remove_returns_ticker_or_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
+            with patch.object(watch, "send_telegram") as send:
+                self.assertEqual(watch.apply_telegram_remove("/rm AMD", wpath), "AMD")
+                self.assertIsNone(watch.apply_telegram_remove("/rm AMD", wpath))
+                self.assertIsNone(watch.apply_telegram_remove("ciao", wpath))
+            send.assert_not_called()
+
+    def test_summary_silent_without_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(wpath, [])
+            with patch.object(watch, "send_telegram") as send:
+                watch.send_watchlist_summary([], [], wpath)
+            send.assert_not_called()
+
+    def test_summary_empty_watchlist_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(wpath, [])
+            with patch.object(watch, "send_telegram") as send:
+                watch.send_watchlist_summary([], ["HOOD"], wpath)
+            body = send.call_args[0][0]
+            self.assertIn("❌ HOOD rimosso", body)
+            self.assertIn("Watchlist vuota.", body)
 
     def test_fired_roundtrip(self) -> None:
         fired = {("AMD", "daily", "ingresso"): True, ("NVDA", "weekly", "stop"): False}
@@ -166,6 +202,7 @@ class TelegramExtractTests(unittest.TestCase):
                 with (
                     patch.object(watch, "TelegramClient", FakeClient),
                     patch.object(watch, "StringSession", lambda s: s),
+                    patch.object(watch, "send_telegram"),
                 ):
                     n = watch.ingest_telegram_userbot(wpath, spath)
             finally:

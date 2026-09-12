@@ -210,6 +210,46 @@ def upsert(items: list[dict[str, Any]], ticket: dict[str, Any]) -> list[dict[str
     return next_items
 
 
+def _ticket_sig(ticket: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        ticket.get("ticker"),
+        ticket.get("tf") or "",
+        ticket.get("ingresso_low"),
+        ticket.get("ingresso_high"),
+        ticket.get("stop"),
+        ticket.get("target"),
+        ticket.get("motivo") or "",
+    )
+
+
+def upsert_if_changed(
+    items: list[dict[str, Any]], ticket: dict[str, Any]
+) -> tuple[list[dict[str, Any]], bool]:
+    key = (ticket["ticker"], ticket.get("tf") or "")
+    for it in items:
+        if (it.get("ticker"), it.get("tf") or "") == key:
+            if _ticket_sig(it) == _ticket_sig(ticket):
+                return items, False
+            return upsert(items, ticket), True
+    return upsert(items, ticket), True
+
+
+def send_watchlist_summary(
+    added: list[str], removed: list[str], watchlist_path: Path
+) -> None:
+    if not added and not removed:
+        return
+    items = load_watchlist(watchlist_path)
+    lines = [f"✅ {ticker} aggiunto/aggiornato" for ticker in added]
+    lines.extend(f"❌ {ticker} rimosso" for ticker in removed)
+    lines.append("")
+    if not items:
+        lines.append("Watchlist vuota.")
+    else:
+        lines.extend(fmt_ticket_line(it) for it in items)
+    send_telegram("\n".join(lines))
+
+
 def fmt_level(value: float | None) -> str:
     if value is None:
         return "—"
@@ -371,21 +411,19 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
-def apply_telegram_remove(text: str, watchlist_path: Path) -> bool:
+def apply_telegram_remove(text: str, watchlist_path: Path) -> str | None:
     m = REMOVE_RE.match(text.strip())
     if not m:
-        return False
+        return None
     ticker = m.group(1).upper()
     items = load_watchlist(watchlist_path)
     keep = [it for it in items if (it.get("ticker") or "").upper() != ticker]
     if len(keep) == len(items):
         print(f"{ticker} non era in watchlist.", flush=True)
-        send_telegram(f"{ticker} non era in watchlist.")
-    else:
-        save_watchlist(watchlist_path, keep)
-        print(f"Rimosso {ticker} dalla watchlist (via comando Telegram).", flush=True)
-        send_telegram(f"✅ {ticker} rimosso dalla watchlist.")
-    return True
+        return None
+    save_watchlist(watchlist_path, keep)
+    print(f"Rimosso {ticker} dalla watchlist (via comando Telegram).", flush=True)
+    return ticker
 
 
 def is_noise_text(text: str) -> bool:
@@ -580,22 +618,28 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         print(f"Telegram: lettura fallita ({exc})", file=sys.stderr)
         return 0
     chat_id = telegram_chat_id()
+    added: list[str] = []
+    removed: list[str] = []
     for update in updates:
         msg = update_payload(update)
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
-        apply_telegram_remove(payload_text(msg), watchlist_path)
+        gone = apply_telegram_remove(payload_text(msg), watchlist_path)
+        if gone:
+            removed.append(gone)
     tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
         state["telegram_offset"] = max_id + 1
         save_state(state_path, state)
-    if not tickets:
-        return 0
     items = load_watchlist(watchlist_path)
     for ticket in tickets:
-        items = upsert(items, ticket)
-        print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-    save_watchlist(watchlist_path, items)
+        items, changed = upsert_if_changed(items, ticket)
+        if changed:
+            added.append(str(ticket["ticker"]))
+            print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+    if tickets:
+        save_watchlist(watchlist_path, items)
+    send_watchlist_summary(added, removed, watchlist_path)
     return len(tickets)
 
 
@@ -622,6 +666,8 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
     try:
         client.start()
         items = load_watchlist(watchlist_path)
+        added: list[str] = []
+        removed: list[str] = []
         kwargs: dict[str, Any] = {"min_id": last_id, "reverse": True}
         if last_id == 0:
             kwargs["limit"] = 100
@@ -630,7 +676,10 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
-            if apply_telegram_remove(text, watchlist_path):
+            gone = apply_telegram_remove(text, watchlist_path)
+            if gone:
+                removed.append(gone)
+                items = load_watchlist(watchlist_path)
                 continue
             if is_noise_text(text):
                 continue
@@ -638,11 +687,14 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if not tickets:
                 continue
             for ticket in tickets:
-                items = upsert(items, ticket)
-                print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-                count += 1
-        if count:
+                items, changed = upsert_if_changed(items, ticket)
+                if changed:
+                    added.append(str(ticket["ticker"]))
+                    print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+                    count += 1
+        if added or count:
             save_watchlist(watchlist_path, items)
+        send_watchlist_summary(added, removed, watchlist_path)
         if max_seen:
             state = load_state(state_path)
             state["userbot_last_id"] = max_seen
