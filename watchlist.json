@@ -1,32 +1,5 @@
 [
   {
-    "ticker": "KOSPI",
-    "tf": "weekly",
-    "ingresso_low": 6767.0,
-    "ingresso_high": 6767.0,
-    "stop": null,
-    "target": null,
-    "motivo": "Red candle on weekly chart, panel 1"
-  },
-  {
-    "ticker": "VST",
-    "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
-  },
-  {
-    "ticker": "SNDK",
-    "tf": "weekly",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": "Red candle on weekly chart, panel 1"
-  },
-  {
     "ticker": "CRCL",
     "tf": "",
     "ingresso_low": 75.0,
