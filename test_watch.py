@@ -117,6 +117,31 @@ class TelegramExtractTests(unittest.TestCase):
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
 
+    def test_set_range_and_single_ingresso(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(
+                wpath,
+                [{"ticker": "CRCL", "tf": "daily", "motivo": "keep", "ingresso_low": 1}],
+            )
+            self.assertEqual(
+                watch.apply_telegram_set("/set CRCL 75-90 70 103", wpath),
+                "CRCL",
+            )
+            item = watch.load_watchlist(wpath)[0]
+            self.assertEqual(item["tf"], "daily")
+            self.assertEqual(item["motivo"], "keep")
+            self.assertEqual(item["ingresso_low"], 75.0)
+            self.assertEqual(item["ingresso_high"], 90.0)
+            self.assertEqual(item["stop"], 70.0)
+            self.assertEqual(item["target"], 103.0)
+            self.assertEqual(watch.apply_telegram_set("/set $hood 75 70 103", wpath), "HOOD")
+            hood = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "HOOD")
+            self.assertEqual(hood["ingresso_low"], 75.0)
+            self.assertEqual(hood["ingresso_high"], 75.0)
+            self.assertEqual(hood["tf"], "")
+            self.assertIsNone(watch.apply_telegram_set("ciao", wpath))
+
     def test_remove_returns_ticker_or_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

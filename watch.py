@@ -68,6 +68,11 @@ TARGET_RE = re.compile(rf"\btarget\s*:?\s*{NUM}", re.I)
 LIVELLI_LINE_RE = re.compile(r"^Livelli:\s*(.+)$", re.I | re.M)
 BARE_NUM_RE = re.compile(rf"{NUM}(?:\s*{RANGE_SEP}\s*{NUM})?")
 REMOVE_RE = re.compile(r"^/(?:rm|remove|rimuovi)\s+\$?([A-Za-z]{1,8})\b", re.I)
+SET_RE = re.compile(
+    rf"^/set\s+\$?([A-Za-z]{{1,8}})\s+({NUM}(?:{RANGE_SEP}{NUM})?)\s+"
+    rf"{NUM}\s+{NUM}",
+    re.I,
+)
 
 
 def parse_num(raw: str) -> float:
@@ -411,6 +416,49 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
+    m = SET_RE.match(text.strip())
+    if not m:
+        return None
+    ticker = m.group(1).upper()
+    ingresso_low = parse_num(m.group(3))
+    high_raw = m.group(4)
+    ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
+    if ingresso_low > ingresso_high:
+        ingresso_low, ingresso_high = ingresso_high, ingresso_low
+    stop = parse_num(m.group(5))
+    target = parse_num(m.group(6))
+    items = load_watchlist(watchlist_path)
+    found = False
+    next_items: list[dict[str, Any]] = []
+    for it in items:
+        if (it.get("ticker") or "").upper() == ticker:
+            updated = dict(it)
+            updated["ingresso_low"] = ingresso_low
+            updated["ingresso_high"] = ingresso_high
+            updated["stop"] = stop
+            updated["target"] = target
+            next_items.append(updated)
+            found = True
+        else:
+            next_items.append(it)
+    if not found:
+        next_items.append(
+            {
+                "ticker": ticker,
+                "tf": "",
+                "ingresso_low": ingresso_low,
+                "ingresso_high": ingresso_high,
+                "stop": stop,
+                "target": target,
+                "motivo": "",
+            }
+        )
+    save_watchlist(watchlist_path, next_items)
+    print(f"Set  {ticker}  ing {ingresso_low:g}-{ingresso_high:g}  stop {stop:g}  tgt {target:g}", flush=True)
+    return ticker
+
+
 def apply_telegram_remove(text: str, watchlist_path: Path) -> str | None:
     m = REMOVE_RE.match(text.strip())
     if not m:
@@ -624,7 +672,12 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         msg = update_payload(update)
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
-        gone = apply_telegram_remove(payload_text(msg), watchlist_path)
+        text = payload_text(msg)
+        set_ticker = apply_telegram_set(text, watchlist_path)
+        if set_ticker:
+            added.append(set_ticker)
+            continue
+        gone = apply_telegram_remove(text, watchlist_path)
         if gone:
             removed.append(gone)
     tickets, max_id = tickets_from_updates(updates, chat_id)
@@ -676,6 +729,11 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
+            set_ticker = apply_telegram_set(text, watchlist_path)
+            if set_ticker:
+                added.append(set_ticker)
+                items = load_watchlist(watchlist_path)
+                continue
             gone = apply_telegram_remove(text, watchlist_path)
             if gone:
                 removed.append(gone)
