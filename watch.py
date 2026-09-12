@@ -196,14 +196,6 @@ def save_watchlist(path: Path, items: list[dict[str, Any]]) -> None:
 
 
 def upsert(items: list[dict[str, Any]], ticket: dict[str, Any]) -> list[dict[str, Any]]:
-    next_items, _inserted = upsert_insert(items, ticket)
-    return next_items
-
-
-def upsert_insert(
-    items: list[dict[str, Any]], ticket: dict[str, Any]
-) -> tuple[list[dict[str, Any]], bool]:
-    """Come upsert. inserted=True solo se ticker+tf non c’era già."""
     key = (ticket["ticker"], ticket.get("tf") or "")
     next_items: list[dict[str, Any]] = []
     replaced = False
@@ -215,35 +207,7 @@ def upsert_insert(
             next_items.append(it)
     if not replaced:
         next_items.append(ticket)
-        return next_items, True
-    return next_items, False
-
-
-def format_watchlist_digest(
-    added: list[str], removed: list[str], items: list[dict[str, Any]]
-) -> str:
-    lines: list[str] = []
-    for name in added:
-        lines.append(f"+ {name}")
-    for name in removed:
-        lines.append(f"- {name}")
-    lines.append("")
-    lines.append("Watchlist:")
-    if not items:
-        lines.append("(vuota)")
-    else:
-        for it in items:
-            lines.append(fmt_ticket_line(it))
-    return "\n".join(lines)
-
-
-def notify_watchlist_changes(
-    added: list[str], removed: list[str], watchlist_path: Path
-) -> None:
-    if not added and not removed:
-        return
-    items = load_watchlist(watchlist_path)
-    send_telegram(format_watchlist_digest(added, removed, items))
+    return next_items
 
 
 def fmt_level(value: float | None) -> str:
@@ -407,11 +371,7 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
-def apply_telegram_remove(
-    text: str,
-    watchlist_path: Path,
-    removed: list[str] | None = None,
-) -> bool:
+def apply_telegram_remove(text: str, watchlist_path: Path) -> bool:
     m = REMOVE_RE.match(text.strip())
     if not m:
         return False
@@ -420,11 +380,11 @@ def apply_telegram_remove(
     keep = [it for it in items if (it.get("ticker") or "").upper() != ticker]
     if len(keep) == len(items):
         print(f"{ticker} non era in watchlist.", flush=True)
-        return True
-    save_watchlist(watchlist_path, keep)
-    print(f"Rimosso {ticker} dalla watchlist (via comando Telegram).", flush=True)
-    if removed is not None:
-        removed.append(ticker)
+        send_telegram(f"{ticker} non era in watchlist.")
+    else:
+        save_watchlist(watchlist_path, keep)
+        print(f"Rimosso {ticker} dalla watchlist (via comando Telegram).", flush=True)
+        send_telegram(f"✅ {ticker} rimosso dalla watchlist.")
     return True
 
 
@@ -433,10 +393,6 @@ def is_noise_text(text: str) -> bool:
     if not stripped:
         return True
     if stripped.startswith("ALERT "):
-        return True
-    if stripped.startswith("Watchlist:"):
-        return True
-    if stripped.startswith("+ ") or stripped.startswith("- "):
         return True
     if stripped.startswith("/"):
         return True
@@ -611,12 +567,7 @@ def telegram_get_updates(offset: int | None) -> list[dict[str, Any]]:
     return [u for u in result if isinstance(u, dict)]
 
 
-def ingest_telegram(
-    watchlist_path: Path,
-    state_path: Path,
-    added: list[str] | None = None,
-    removed: list[str] | None = None,
-) -> int:
+def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
     """Legge i ticket nuovi dal gruppo. Offset persistito. Ritorna quanti ticket ha preso."""
     if not telegram_token():
         return 0
@@ -633,7 +584,7 @@ def ingest_telegram(
         msg = update_payload(update)
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
-        apply_telegram_remove(payload_text(msg), watchlist_path, removed)
+        apply_telegram_remove(payload_text(msg), watchlist_path)
     tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
         state["telegram_offset"] = max_id + 1
@@ -641,27 +592,14 @@ def ingest_telegram(
     if not tickets:
         return 0
     items = load_watchlist(watchlist_path)
-    new_count = 0
     for ticket in tickets:
-        items, inserted = upsert_insert(items, ticket)
-        if inserted:
-            new_count += 1
-            if added is not None:
-                label = ticket["ticker"]
-                if ticket.get("tf"):
-                    label = f"{label} {ticket['tf']}"
-                added.append(label)
-            print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+        items = upsert(items, ticket)
+        print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
     save_watchlist(watchlist_path, items)
-    return new_count
+    return len(tickets)
 
 
-def ingest_telegram_userbot(
-    watchlist_path: Path,
-    state_path: Path,
-    added: list[str] | None = None,
-    removed: list[str] | None = None,
-) -> int:
+def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
     """Stesso gruppo via account utente (Telethon). Vede i messaggi scritti da bot."""
     if TelegramClient is None or StringSession is None:
         return 0
@@ -692,7 +630,7 @@ def ingest_telegram_userbot(
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
-            if apply_telegram_remove(text, watchlist_path, removed):
+            if apply_telegram_remove(text, watchlist_path):
                 continue
             if is_noise_text(text):
                 continue
@@ -700,14 +638,7 @@ def ingest_telegram_userbot(
             if not tickets:
                 continue
             for ticket in tickets:
-                items, inserted = upsert_insert(items, ticket)
-                if not inserted:
-                    continue
-                if added is not None:
-                    label = ticket["ticker"]
-                    if ticket.get("tf"):
-                        label = f"{label} {ticket['tf']}"
-                    added.append(label)
+                items = upsert(items, ticket)
                 print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
                 count += 1
         if count:
@@ -835,11 +766,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                     return 0
                 time.sleep(interval)
                 continue
-            added: list[str] = []
-            removed: list[str] = []
-            ingest_telegram(path, state_path, added, removed)
-            ingest_telegram_userbot(path, state_path, added, removed)
-            notify_watchlist_changes(added, removed, path)
+            ingest_telegram(path, state_path)
+            ingest_telegram_userbot(path, state_path)
             items = load_watchlist(path)
             if not items:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)

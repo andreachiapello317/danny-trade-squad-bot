@@ -28,9 +28,7 @@ rossa daily sul bordo
 """
 
 
-def _msg(text: str | None = None, caption: str | None = None, chat_id: int | None = None) -> dict:
-    if chat_id is None:
-        chat_id = int(watch.DEFAULT_CHAT_ID)
+def _msg(text: str | None = None, caption: str | None = None, chat_id: int = -1003929227957) -> dict:
     out: dict = {"chat": {"id": chat_id}}
     if text is not None:
         out["text"] = text
@@ -90,7 +88,7 @@ class TelegramExtractTests(unittest.TestCase):
             {"update_id": 12, "channel_post": _msg(text=TICKET.replace("AMD", "NVDA"), chat_id=1)},
             {"update_id": 13, "message": _msg(text="/start")},
         ]
-        tickets, max_id = watch.tickets_from_updates(updates, watch.DEFAULT_CHAT_ID)
+        tickets, max_id = watch.tickets_from_updates(updates, "-1003929227957")
         self.assertEqual(max_id, 13)
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0]["ticker"], "AMD")
@@ -127,47 +125,6 @@ class TelegramExtractTests(unittest.TestCase):
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 9)
             self.assertEqual(state["fired"]["AMD|daily|target"], True)
-
-    def test_remove_missing_does_not_telegram(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            wpath.write_text("[]\n", encoding="utf-8")
-            with patch.object(watch, "send_telegram") as send:
-                handled = watch.apply_telegram_remove("/rm AMD", wpath, [])
-            self.assertTrue(handled)
-            send.assert_not_called()
-
-    def test_remove_existing_records_change(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
-            removed: list[str] = []
-            with patch.object(watch, "send_telegram") as send:
-                watch.apply_telegram_remove("/rm $amd", wpath, removed)
-            send.assert_not_called()
-            self.assertEqual(removed, ["AMD"])
-            self.assertEqual(watch.load_watchlist(wpath), [])
-
-    def test_upsert_insert_only_first_time(self) -> None:
-        t = {"ticker": "AMD", "tf": "daily", "ingresso_low": 1, "ingresso_high": 2}
-        items, inserted = watch.upsert_insert([], t)
-        self.assertTrue(inserted)
-        items, inserted = watch.upsert_insert(items, t)
-        self.assertFalse(inserted)
-
-    def test_digest_only_when_changes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
-            with patch.object(watch, "send_telegram") as send:
-                watch.notify_watchlist_changes([], [], wpath)
-            send.assert_not_called()
-            with patch.object(watch, "send_telegram") as send:
-                watch.notify_watchlist_changes(["AMD daily"], [], wpath)
-            send.assert_called_once()
-            body = send.call_args[0][0]
-            self.assertIn("+ AMD daily", body)
-            self.assertIn("Watchlist:", body)
 
     def test_userbot_skips_without_creds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
