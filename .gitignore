@@ -47,8 +47,6 @@ next-env.d.ts
 /AGENTS.md
 /CLAUDE.md
 
-# price watch
-watchlist.json
-watch_state.json
+# price watch (watchlist.json e watch_state.json restano in repo: li aggiorna Actions)
 __pycache__/
 *.pyc
