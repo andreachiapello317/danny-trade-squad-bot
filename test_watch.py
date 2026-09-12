@@ -117,6 +117,44 @@ class TelegramExtractTests(unittest.TestCase):
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
 
+    def test_list_sends_and_returns_true(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
+            with patch.object(watch, "send_telegram") as send:
+                self.assertTrue(watch.apply_telegram_list("/list", wpath))
+                self.assertTrue(watch.apply_telegram_list("/WATCHLIST", wpath))
+                self.assertFalse(watch.apply_telegram_list("/rm AMD", wpath))
+            self.assertEqual(send.call_count, 2)
+            self.assertIn("AMD", send.call_args_list[0][0][0])
+            watch.save_watchlist(wpath, [])
+            with patch.object(watch, "send_telegram") as send:
+                watch.apply_telegram_list("/list", wpath)
+            send.assert_called_with("Watchlist vuota.")
+
+    def test_daily_summary_only_first_hour_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            rome = ZoneInfo("Europe/Rome")
+            at_open = datetime(2026, 9, 12, 15, 10, tzinfo=rome)
+            later = datetime(2026, 9, 12, 16, 10, tzinfo=rome)
+            items = [{"ticker": "AMD", "tf": "daily", "ingresso_low": 1, "ingresso_high": 2, "stop": 0, "target": 3}]
+            with (
+                patch.object(watch, "rome_now", return_value=at_open),
+                patch.object(watch, "fetch_prices", return_value={"AMD": 1.5}),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.maybe_send_daily_summary(items, spath)
+                watch.maybe_send_daily_summary(items, spath)
+            send.assert_called_once()
+            self.assertIn("Riepilogo giornaliero", send.call_args[0][0])
+            with (
+                patch.object(watch, "rome_now", return_value=later),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.maybe_send_daily_summary(items, spath)
+            send.assert_not_called()
+
     def test_clear_returns_tickers_or_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

@@ -74,6 +74,7 @@ SET_RE = re.compile(
     re.I,
 )
 CLEAR_RE = re.compile(r"^/(?:clear|reset|clearall)\s*$", re.I)
+LIST_RE = re.compile(r"^/(?:list|watchlist)\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -417,6 +418,17 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_list(text: str, watchlist_path: Path) -> bool:
+    if not LIST_RE.match(text.strip()):
+        return False
+    items = load_watchlist(watchlist_path)
+    if not items:
+        send_telegram("Watchlist vuota.")
+    else:
+        send_telegram("\n".join(fmt_ticket_line(it) for it in items))
+    return True
+
+
 def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     if not CLEAR_RE.match(text.strip()):
         return None
@@ -684,6 +696,8 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
         text = payload_text(msg)
+        if apply_telegram_list(text, watchlist_path):
+            continue
         cleared = apply_telegram_clear(text, watchlist_path)
         if cleared is not None:
             removed.extend(cleared)
@@ -744,6 +758,8 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
+            if apply_telegram_list(text, watchlist_path):
+                continue
             cleared = apply_telegram_clear(text, watchlist_path)
             if cleared is not None:
                 removed.extend(cleared)
@@ -863,6 +879,40 @@ def cycle(items: list[dict[str, Any]], fired: dict[tuple[str, str, str], bool]) 
             )
 
 
+def format_priced_watchlist_lines(items: list[dict[str, Any]]) -> list[str]:
+    tickers = list(dict.fromkeys(it["ticker"] for it in items if it.get("ticker")))
+    prices = fetch_prices(tickers) if tickers else {}
+    lines: list[str] = []
+    for it in items:
+        ticker = it["ticker"]
+        price = prices.get(ticker)
+        px = f"{price:.2f}" if price is not None else "n/d"
+        lines.append(
+            f"{ticker:<6} {px:>8}  "
+            f"ing {fmt_ingresso(it):<12} "
+            f"stop {fmt_level(it.get('stop')):<8} "
+            f"tgt {fmt_level(it.get('target'))}"
+        )
+    return lines
+
+
+def maybe_send_daily_summary(items: list[dict[str, Any]], state_path: Path) -> None:
+    local = rome_now()
+    if local.hour != WATCH_HOUR_START:
+        return
+    today = local.strftime("%Y-%m-%d")
+    state = load_state(state_path)
+    if state.get("last_daily_summary") == today:
+        return
+    if not items:
+        body = "📋 Riepilogo giornaliero\nWatchlist vuota."
+    else:
+        body = "📋 Riepilogo giornaliero\n" + "\n".join(format_priced_watchlist_lines(items))
+    send_telegram(body)
+    state["last_daily_summary"] = today
+    save_state(state_path, state)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if yf is None:
         print("Manca yfinance. pip install -r requirements.txt", file=sys.stderr)
@@ -903,6 +953,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
             else:
                 cycle(items, fired)
+            maybe_send_daily_summary(items, state_path)
             persist_fired(state_path, fired)
             if args.once:
                 break
