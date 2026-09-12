@@ -25,5 +25,14 @@
     "stop": null,
     "target": null,
     "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "CRCL",
+    "tf": "",
+    "ingresso_low": 75.0,
+    "ingresso_high": 90.0,
+    "stop": 70.0,
+    "target": 103.0,
+    "motivo": ""
   }
 ]
