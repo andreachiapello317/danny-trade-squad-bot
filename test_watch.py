@@ -117,6 +117,18 @@ class TelegramExtractTests(unittest.TestCase):
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
 
+    def test_clear_returns_tickers_or_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(
+                wpath,
+                [{"ticker": "AMD", "tf": "daily"}, {"ticker": "HOOD", "tf": "weekly"}],
+            )
+            self.assertEqual(watch.apply_telegram_clear("/clear", wpath), ["AMD", "HOOD"])
+            self.assertEqual(watch.load_watchlist(wpath), [])
+            self.assertEqual(watch.apply_telegram_clear("/RESET", wpath), [])
+            self.assertIsNone(watch.apply_telegram_clear("/rm AMD", wpath))
+
     def test_set_range_and_single_ingresso(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

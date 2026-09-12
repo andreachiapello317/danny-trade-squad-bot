@@ -73,6 +73,7 @@ SET_RE = re.compile(
     rf"{NUM}\s+{NUM}",
     re.I,
 )
+CLEAR_RE = re.compile(r"^/(?:clear|reset|clearall)\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -416,6 +417,16 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
+    if not CLEAR_RE.match(text.strip()):
+        return None
+    items = load_watchlist(watchlist_path)
+    tickers = [str(it.get("ticker") or "").upper() for it in items if it.get("ticker")]
+    save_watchlist(watchlist_path, [])
+    print(f"Watchlist svuotata ({len(tickers)} ticker).", flush=True)
+    return tickers
+
+
 def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
     m = SET_RE.match(text.strip())
     if not m:
@@ -673,6 +684,10 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
         text = payload_text(msg)
+        cleared = apply_telegram_clear(text, watchlist_path)
+        if cleared is not None:
+            removed.extend(cleared)
+            continue
         set_ticker = apply_telegram_set(text, watchlist_path)
         if set_ticker:
             added.append(set_ticker)
@@ -729,6 +744,11 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
+            cleared = apply_telegram_clear(text, watchlist_path)
+            if cleared is not None:
+                removed.extend(cleared)
+                items = load_watchlist(watchlist_path)
+                continue
             set_ticker = apply_telegram_set(text, watchlist_path)
             if set_ticker:
                 added.append(set_ticker)
