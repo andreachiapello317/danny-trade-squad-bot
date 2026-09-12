@@ -16,5 +16,14 @@
     "stop": null,
     "target": null,
     "motivo": ""
+  },
+  {
+    "ticker": "SNDK",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
   }
 ]
