@@ -1,31 +1,13 @@
 {
-  "telegram_offset": 236543048,
+  "telegram_offset": 236543049,
   "fired": {
     "VST||target": true,
     "TSLA||stop": true,
     "ABCL||stop": true,
     "ABCL||ingresso": true,
-    "TSLA||ingresso": true,
-    "AMD||ingresso": true,
-    "IBIT||ingresso": true,
-    "MSTR||ingresso": true,
-    "ETHA||ingresso": true,
-    "HOOD||ingresso": true,
-    "IREN||ingresso": true,
-    "TSM||ingresso": true,
-    "BE||ingresso": true,
-    "MU||ingresso": true,
-    "SBET||ingresso": true,
-    "BMNR||ingresso": true,
-    "MRVL||ingresso": true,
-    "SNDK||ingresso": true,
-    "NBIS||ingresso": true,
-    "DRAM||ingresso": true,
-    "GLXY||ingresso": true,
-    "SKHY||ingresso": true,
-    "CRCL||ingresso": true
+    "TSLA||ingresso": true
   },
   "sent_alerts": [],
-  "summary_message_id": 78,
+  "summary_message_id": 80,
   "last_daily_summary": "2026-09-13"
 }
