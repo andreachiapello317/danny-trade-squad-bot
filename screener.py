@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 try:
@@ -185,21 +186,18 @@ def format_screener_message(tickers: list[str]) -> str:
     return _assemble_message(ranked, missing)
 
 
-def run_screener(watchlist_path: Any, state_path: Any | None = None) -> str:
-    from pathlib import Path
-
+def run_screener(watchlist_path: Path, state_path: Path) -> str:
     from watch import (
-        DEFAULT_STATE,
         alert_key,
         load_fired,
         load_state,
         load_watchlist,
         persist_fired,
+        save_state,
         save_watchlist,
     )
 
     path = Path(watchlist_path)
-    state_file = Path(state_path) if state_path is not None else path.with_name(DEFAULT_STATE.name)
     items = load_watchlist(path)
     ranked: list[tuple[int, str]] = []
     missing: list[str] = []
@@ -223,9 +221,9 @@ def run_screener(watchlist_path: Any, state_path: Any | None = None) -> str:
         ranked.append((score, _format_row(metrics, score)))
         updated.append(ticket)
     save_watchlist(path, items)
-    state = load_state(state_file)
+    state = load_state(state_path)
     fired = load_fired(state)
     for ticket in updated:
         fired[alert_key(ticket, "ingresso")] = True
-    persist_fired(state_file, fired)
+    persist_fired(state_path, fired)
     return _assemble_message(ranked, missing)

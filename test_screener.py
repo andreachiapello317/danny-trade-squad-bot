@@ -159,6 +159,7 @@ class RunScreenerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
             wpath.write_text(
                 json.dumps(
                     [
@@ -184,7 +185,7 @@ class RunScreenerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch.object(screener, "compute_metrics", side_effect=fake_metrics):
-                body = screener.run_screener(wpath)
+                body = screener.run_screener(wpath, spath)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             amd = next(it for it in items if it["ticker"] == "AMD")
             hood = next(it for it in items if it["ticker"] == "HOOD")
@@ -200,7 +201,7 @@ class RunScreenerTests(unittest.TestCase):
             self.assertEqual(hood["motivo"], "keep")
             self.assertIn("✅ AMD  (4/4)", body)
             self.assertIn("HOOD: dati non disponibili", body)
-            state = json.loads((Path(tmp) / "watch_state.json").read_text(encoding="utf-8"))
+            state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertTrue(state["fired"]["AMD|daily|ingresso"])
             self.assertNotIn("AMD|daily|stop", state["fired"])
             self.assertNotIn("AMD|daily|target", state["fired"])
