@@ -1,10 +1,10 @@
 [
   {
-    "ticker": "ABCL",
+    "ticker": "TSLA",
     "tf": "",
-    "ingresso_low": 15.0,
-    "ingresso_high": 15.0,
-    "stop": 18.0,
+    "ingresso_low": 800.0,
+    "ingresso_high": 800.0,
+    "stop": null,
     "target": null,
     "motivo": ""
   }
