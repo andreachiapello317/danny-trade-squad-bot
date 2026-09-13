@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 
 import screener
+import watch
 
 
 def _metrics(**overrides: object) -> dict:
@@ -199,6 +200,40 @@ class RunScreenerTests(unittest.TestCase):
             self.assertEqual(hood["motivo"], "keep")
             self.assertIn("✅ AMD  (4/4)", body)
             self.assertIn("HOOD: dati non disponibili", body)
+            state = json.loads((Path(tmp) / "watch_state.json").read_text(encoding="utf-8"))
+            self.assertTrue(state["fired"]["AMD|daily|ingresso"])
+            self.assertNotIn("AMD|daily|stop", state["fired"])
+            self.assertNotIn("AMD|daily|target", state["fired"])
+            self.assertNotIn("HOOD|weekly|ingresso", state["fired"])
+
+    def test_cycle_skips_ingresso_after_screener(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 134.26,
+            "ingresso_high": 142.3,
+            "stop": 122.78,
+            "target": 162.96,
+            "motivo": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            wpath.write_text(json.dumps([item]), encoding="utf-8")
+            with patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")):
+                screener.run_screener(wpath, spath)
+            fired = watch.load_fired(watch.load_state(spath))
+            with (
+                patch.object(watch, "fetch_prices", return_value={"AMD": 140.0}),
+                patch.object(watch, "fetch_day_ranges", return_value={"AMD": None}),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "expire_sent_alerts"),
+            ):
+                watch.cycle([item], fired, spath)
+            texts = [call[0][0] for call in send.call_args_list]
+            self.assertFalse(any("ingresso" in t for t in texts))
+            self.assertFalse(any("stop" in t for t in texts))
+            self.assertFalse(any("target" in t for t in texts))
 
 
 if __name__ == "__main__":
