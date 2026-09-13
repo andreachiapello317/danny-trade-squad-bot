@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543039,
+  "telegram_offset": 236543041,
   "fired": {
     "VST||target": true,
     "TSLA||stop": true,
@@ -115,6 +115,6 @@
       "sent_at": "2026-09-13T20:59:31.416964+00:00"
     }
   ],
-  "summary_message_id": 45,
+  "summary_message_id": 69,
   "last_daily_summary": "2026-09-13"
 }
