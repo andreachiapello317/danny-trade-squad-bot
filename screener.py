@@ -149,9 +149,20 @@ def _rsi_label(metrics: dict[str, Any]) -> str:
     return f"RSI {oggi:.0f}{arrow}"
 
 
-def _format_row(metrics: dict[str, Any], score: int) -> str:
+def _format_row(
+    metrics: dict[str, Any],
+    score: int,
+    levels: dict[str, float] | None = None,
+) -> str:
+    extras = ""
+    if levels is not None:
+        extras = (
+            f"ing {levels['ingresso_low']:.2f}-{levels['ingresso_high']:.2f} "
+            f"stop {levels['stop']:.2f} tgt {levels['target']:.2f}  "
+        )
     return (
         f"{_score_emoji(score)} {metrics['ticker']}  ({score}/4)  "
+        f"{extras}"
         f"ATR {metrics['atr_pct']:.1f}%  "
         f"vol {metrics['volume_ratio']:.1f}x  "
         f"{_rsi_label(metrics)}  "
@@ -218,7 +229,7 @@ def run_screener(watchlist_path: Path, state_path: Path) -> str:
         ticket["target"] = levels["target"]
         emoji = _score_emoji(score)
         ticket["motivo"] = f"Screener automatico ({score}/4 {emoji}) — {', '.join(reasons)}"
-        ranked.append((score, _format_row(metrics, score)))
+        ranked.append((score, _format_row(metrics, score, levels)))
         updated.append(ticket)
     save_watchlist(path, items)
     state = load_state(state_path)
