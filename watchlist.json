@@ -2,146 +2,146 @@
   {
     "ticker": "AMD",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 506.61,
+    "ingresso_high": 519.94,
+    "stop": 487.57,
+    "target": 554.21,
+    "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, RSI 40-65 in salita, entro 5% da max10"
   },
   {
     "ticker": "IBIT",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 43.1,
+    "ingresso_high": 44.04,
+    "stop": 41.77,
+    "target": 46.44,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   },
   {
     "ticker": "MSTR",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 126.17,
+    "ingresso_high": 132.89,
+    "stop": 116.57,
+    "target": 150.17,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   },
   {
     "ticker": "ETHA",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 18.83,
+    "ingresso_high": 19.29,
+    "stop": 18.17,
+    "target": 20.48,
+    "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, volume > 1.3x, entro 5% da max10"
   },
   {
     "ticker": "HOOD",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 109.27,
+    "ingresso_high": 113.89,
+    "stop": 102.68,
+    "target": 125.75,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   },
   {
     "ticker": "IREN",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 42.37,
+    "ingresso_high": 44.41,
+    "stop": 39.45,
+    "target": 49.67,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
   },
   {
     "ticker": "TSM",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 428.3,
+    "ingresso_high": 435.22,
+    "stop": 418.41,
+    "target": 454.9,
+    "motivo": "Screener automatico (2/4 ⚠️) — RSI 40-65 in salita, entro 5% da max10"
   },
   {
     "ticker": "BE",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 267.28,
+    "ingresso_high": 279.14,
+    "stop": 250.33,
+    "target": 309.65,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
   },
   {
     "ticker": "MU",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 953.19,
+    "ingresso_high": 984.09,
+    "stop": 909.04,
+    "target": 1063.56,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
   },
   {
     "ticker": "SBET",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 8.58,
+    "ingresso_high": 9.0,
+    "stop": 7.98,
+    "target": 10.09,
+    "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, volume > 1.3x, RSI 40-65 in salita"
   },
   {
     "ticker": "BMNR",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 24.1,
+    "ingresso_high": 25.4,
+    "stop": 22.23,
+    "target": 28.77,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, volume > 1.3x"
   },
   {
     "ticker": "MRVL",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 229.48,
+    "ingresso_high": 238.75,
+    "stop": 216.24,
+    "target": 262.59,
+    "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, RSI 40-65 in salita, entro 5% da max10"
   },
   {
     "ticker": "SNDK",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 1582.66,
+    "ingresso_high": 1653.63,
+    "stop": 1481.28,
+    "target": 1836.11,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   },
   {
     "ticker": "NBIS",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 217.72,
+    "ingresso_high": 227.28,
+    "stop": 204.06,
+    "target": 251.87,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   },
   {
     "ticker": "DRAM",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 57.94,
+    "ingresso_high": 59.56,
+    "stop": 55.62,
+    "target": 63.74,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
   },
   {
     "ticker": "GLXY",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 23.52,
+    "ingresso_high": 24.75,
+    "stop": 21.76,
+    "target": 27.92,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
   },
   {
     "ticker": "KOSPI",
@@ -155,19 +155,19 @@
   {
     "ticker": "SKHY",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 185.9,
+    "ingresso_high": 191.74,
+    "stop": 177.55,
+    "target": 206.77,
+    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
   },
   {
     "ticker": "CRCL",
     "tf": "",
-    "ingresso_low": null,
-    "ingresso_high": null,
-    "stop": null,
-    "target": null,
-    "motivo": ""
+    "ingresso_low": 87.1,
+    "ingresso_high": 92.0,
+    "stop": 80.11,
+    "target": 104.59,
+    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
   }
 ]
