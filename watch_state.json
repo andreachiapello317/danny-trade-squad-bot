@@ -1,7 +1,8 @@
 {
-  "telegram_offset": 236543009,
+  "telegram_offset": 236543012,
   "fired": {
     "CRCL||ingresso": true,
     "VST||target": true
-  }
+  },
+  "sent_alerts": []
 }
