@@ -14,7 +14,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -39,6 +39,7 @@ SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
 WATCH_HOUR_END = 22  # inclusivo: 15:00–22:59 ora italiana
+ALERT_TTL = timedelta(hours=48)
 MISSING_TOKEN_MSG = (
     "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
     "al gruppo (Group Privacy OFF su @BotFather). Poi gira da solo."
@@ -75,6 +76,10 @@ SET_RE = re.compile(
 )
 CLEAR_RE = re.compile(r"^/(?:clear|reset|clearall)\s*$", re.I)
 LIST_RE = re.compile(r"^/(?:list|watchlist)\s*$", re.I)
+SET_FIELD_RE = re.compile(
+    rf"^/(setbuy|settarget|setstop)\s+\$?([A-Za-z]{{1,8}})\s+{NUM}",
+    re.I,
+)
 
 
 def parse_num(raw: str) -> float:
@@ -242,7 +247,10 @@ def upsert_if_changed(
 
 
 def send_watchlist_summary(
-    added: list[str], removed: list[str], watchlist_path: Path
+    added: list[str],
+    removed: list[str],
+    watchlist_path: Path,
+    state_path: Path,
 ) -> None:
     if not added and not removed:
         return
@@ -254,7 +262,14 @@ def send_watchlist_summary(
         lines.append("Watchlist vuota.")
     else:
         lines.extend(fmt_ticket_line(it) for it in items)
-    send_telegram("\n".join(lines))
+    state = load_state(state_path)
+    old_id = state.get("summary_message_id")
+    if isinstance(old_id, int):
+        delete_telegram_message(old_id)
+    new_id = send_telegram("\n".join(lines))
+    if isinstance(new_id, int):
+        state["summary_message_id"] = new_id
+        save_state(state_path, state)
 
 
 def fmt_level(value: float | None) -> str:
@@ -482,6 +497,53 @@ def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
     return ticker
 
 
+def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | None:
+    m = SET_FIELD_RE.match(text.strip())
+    if not m:
+        return None
+    command = m.group(1).lower()
+    ticker = m.group(2).upper()
+    price = parse_num(m.group(3))
+    items = load_watchlist(watchlist_path)
+    found = False
+    next_items: list[dict[str, Any]] = []
+    for it in items:
+        if (it.get("ticker") or "").upper() == ticker:
+            updated = dict(it)
+            if command == "setbuy":
+                updated["ingresso_low"] = price
+                updated["ingresso_high"] = price
+            elif command == "settarget":
+                updated["target"] = price
+            else:
+                updated["stop"] = price
+            next_items.append(updated)
+            found = True
+        else:
+            next_items.append(it)
+    if not found:
+        blank: dict[str, Any] = {
+            "ticker": ticker,
+            "tf": "",
+            "ingresso_low": None,
+            "ingresso_high": None,
+            "stop": None,
+            "target": None,
+            "motivo": "",
+        }
+        if command == "setbuy":
+            blank["ingresso_low"] = price
+            blank["ingresso_high"] = price
+        elif command == "settarget":
+            blank["target"] = price
+        else:
+            blank["stop"] = price
+        next_items.append(blank)
+    save_watchlist(watchlist_path, next_items)
+    print(f"{command}  {ticker}  {price:g}", flush=True)
+    return ticker
+
+
 def apply_telegram_remove(text: str, watchlist_path: Path) -> str | None:
     m = REMOVE_RE.match(text.strip())
     if not m:
@@ -654,13 +716,49 @@ def telegram_api(method: str, payload: dict[str, Any] | None = None, timeout: in
     return data.get("result")
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str) -> int | None:
     if not telegram_token():
-        return
+        return None
     try:
-        telegram_api("sendMessage", {"chat_id": telegram_chat_id(), "text": text}, timeout=12)
+        result = telegram_api(
+            "sendMessage",
+            {"chat_id": telegram_chat_id(), "text": text},
+            timeout=12,
+        )
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
         print(f"Telegram: invio fallito ({exc})", file=sys.stderr)
+        return None
+    if isinstance(result, dict):
+        mid = result.get("message_id")
+        if isinstance(mid, int):
+            return mid
+    return None
+
+
+def delete_telegram_message(message_id: int | None) -> None:
+    if not isinstance(message_id, int):
+        return
+    try:
+        telegram_api(
+            "deleteMessage",
+            {"chat_id": telegram_chat_id(), "message_id": message_id},
+            timeout=12,
+        )
+    except Exception:
+        pass
+
+
+def should_delete_chat_message(text: str) -> bool:
+    stripped = text.strip()
+    if stripped.startswith("ALERT "):
+        return False
+    if stripped.startswith("📋"):
+        return False
+    if stripped.startswith("✅") or stripped.startswith("❌"):
+        return False
+    if stripped == "Watchlist vuota.":
+        return False
+    return True
 
 
 def telegram_get_updates(offset: int | None) -> list[dict[str, Any]]:
@@ -697,18 +795,27 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
             continue
         text = payload_text(msg)
         if apply_telegram_list(text, watchlist_path):
-            continue
-        cleared = apply_telegram_clear(text, watchlist_path)
-        if cleared is not None:
-            removed.extend(cleared)
-            continue
-        set_ticker = apply_telegram_set(text, watchlist_path)
-        if set_ticker:
-            added.append(set_ticker)
-            continue
-        gone = apply_telegram_remove(text, watchlist_path)
-        if gone:
-            removed.append(gone)
+            pass
+        else:
+            cleared = apply_telegram_clear(text, watchlist_path)
+            if cleared is not None:
+                removed.extend(cleared)
+            else:
+                set_ticker = apply_telegram_set(text, watchlist_path)
+                if set_ticker:
+                    added.append(set_ticker)
+                else:
+                    field_ticker = apply_telegram_set_field(text, watchlist_path)
+                    if field_ticker:
+                        added.append(field_ticker)
+                    else:
+                        gone = apply_telegram_remove(text, watchlist_path)
+                        if gone:
+                            removed.append(gone)
+        if should_delete_chat_message(text):
+            mid = msg.get("message_id")
+            if isinstance(mid, int):
+                delete_telegram_message(mid)
     tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
         state["telegram_offset"] = max_id + 1
@@ -721,7 +828,7 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
             print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
     if tickets:
         save_watchlist(watchlist_path, items)
-    send_watchlist_summary(added, removed, watchlist_path)
+    send_watchlist_summary(added, removed, watchlist_path, state_path)
     return len(tickets)
 
 
@@ -759,36 +866,40 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
             if apply_telegram_list(text, watchlist_path):
-                continue
-            cleared = apply_telegram_clear(text, watchlist_path)
-            if cleared is not None:
-                removed.extend(cleared)
-                items = load_watchlist(watchlist_path)
-                continue
-            set_ticker = apply_telegram_set(text, watchlist_path)
-            if set_ticker:
-                added.append(set_ticker)
-                items = load_watchlist(watchlist_path)
-                continue
-            gone = apply_telegram_remove(text, watchlist_path)
-            if gone:
-                removed.append(gone)
-                items = load_watchlist(watchlist_path)
-                continue
-            if is_noise_text(text):
-                continue
-            tickets = parse_tickets(text)
-            if not tickets:
-                continue
-            for ticket in tickets:
-                items, changed = upsert_if_changed(items, ticket)
-                if changed:
-                    added.append(str(ticket["ticker"]))
-                    print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-                    count += 1
+                pass
+            else:
+                cleared = apply_telegram_clear(text, watchlist_path)
+                if cleared is not None:
+                    removed.extend(cleared)
+                    items = load_watchlist(watchlist_path)
+                else:
+                    set_ticker = apply_telegram_set(text, watchlist_path)
+                    if set_ticker:
+                        added.append(set_ticker)
+                        items = load_watchlist(watchlist_path)
+                    else:
+                        field_ticker = apply_telegram_set_field(text, watchlist_path)
+                        if field_ticker:
+                            added.append(field_ticker)
+                            items = load_watchlist(watchlist_path)
+                        else:
+                            gone = apply_telegram_remove(text, watchlist_path)
+                            if gone:
+                                removed.append(gone)
+                                items = load_watchlist(watchlist_path)
+                            elif not is_noise_text(text):
+                                tickets = parse_tickets(text)
+                                for ticket in tickets:
+                                    items, changed = upsert_if_changed(items, ticket)
+                                    if changed:
+                                        added.append(str(ticket["ticker"]))
+                                        print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+                                        count += 1
+            if should_delete_chat_message(text) and isinstance(mid, int):
+                delete_telegram_message(mid)
         if added or count:
             save_watchlist(watchlist_path, items)
-        send_watchlist_summary(added, removed, watchlist_path)
+        send_watchlist_summary(added, removed, watchlist_path, state_path)
         if max_seen:
             state = load_state(state_path)
             state["userbot_last_id"] = max_seen
@@ -811,24 +922,78 @@ def alert_key(item: dict[str, Any], kind: str) -> tuple[str, str, str]:
     return (item.get("ticker") or "", item.get("tf") or "", kind)
 
 
+def record_sent_alert(state_path: Path, message_id: int) -> None:
+    state = load_state(state_path)
+    alerts = list(state.get("sent_alerts") or [])
+    alerts.append(
+        {
+            "message_id": message_id,
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    state["sent_alerts"] = alerts
+    save_state(state_path, state)
+
+
+def expire_sent_alerts(state_path: Path, now: datetime | None = None) -> None:
+    """Cancella gli alert Telegram più vecchi di 48 ore. Non tocca il riepilogo."""
+    state = load_state(state_path)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    kept: list[Any] = []
+    for entry in state.get("sent_alerts") or []:
+        if not isinstance(entry, dict):
+            continue
+        expired = False
+        sent_at_raw = entry.get("sent_at")
+        if isinstance(sent_at_raw, str):
+            try:
+                sent_at = datetime.fromisoformat(sent_at_raw.replace("Z", "+00:00"))
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=timezone.utc)
+                expired = now - sent_at > ALERT_TTL
+            except ValueError:
+                expired = False
+        if expired:
+            mid = entry.get("message_id")
+            if isinstance(mid, int):
+                delete_telegram_message(mid)
+        else:
+            kept.append(entry)
+    state["sent_alerts"] = kept
+    save_state(state_path, state)
+
+
 def maybe_alert(
     item: dict[str, Any],
     kind: str,
     line: str,
     active: bool,
     fired: dict[tuple[str, str, str], bool],
+    state_path: Path,
 ) -> None:
     key = alert_key(item, kind)
     if active:
         if not fired.get(key):
             print(line, flush=True)
-            send_telegram(line)
+            mid = send_telegram(line)
             fired[key] = True
+            if isinstance(mid, int):
+                record_sent_alert(state_path, mid)
     else:
         fired[key] = False
 
 
-def cycle(items: list[dict[str, Any]], fired: dict[tuple[str, str, str], bool]) -> None:
+def cycle(
+    items: list[dict[str, Any]],
+    fired: dict[tuple[str, str, str], bool],
+    state_path: Path,
+) -> None:
+    expire_sent_alerts(state_path)
     tickers = list(dict.fromkeys(it["ticker"] for it in items if it.get("ticker")))
     prices = fetch_prices(tickers)
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
@@ -856,6 +1021,7 @@ def cycle(items: list[dict[str, Any]], fired: dict[tuple[str, str, str], bool]) 
             f"ALERT {ticker} ingresso {price:.2f} ({fmt_ingresso(it)}){suffix}",
             in_band,
             fired,
+            state_path,
         )
 
         stop = it.get("stop")
@@ -866,6 +1032,7 @@ def cycle(items: list[dict[str, Any]], fired: dict[tuple[str, str, str], bool]) 
                 f"ALERT {ticker} stop {price:.2f} (<= {fmt_level(stop)}){suffix}",
                 price <= float(stop),
                 fired,
+                state_path,
             )
 
         target = it.get("target")
@@ -876,6 +1043,7 @@ def cycle(items: list[dict[str, Any]], fired: dict[tuple[str, str, str], bool]) 
                 f"ALERT {ticker} target {price:.2f} (>= {fmt_level(target)}){suffix}",
                 price >= float(target),
                 fired,
+                state_path,
             )
 
 
@@ -948,11 +1116,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                 continue
             ingest_telegram(path, state_path)
             ingest_telegram_userbot(path, state_path)
+            expire_sent_alerts(state_path)
             items = load_watchlist(path)
             if not items:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
             else:
-                cycle(items, fired)
+                cycle(items, fired, state_path)
             maybe_send_daily_summary(items, state_path)
             persist_fired(state_path, fired)
             if args.once:
