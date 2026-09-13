@@ -31,6 +31,12 @@ except ImportError:  # pragma: no cover
     TelegramClient = None
     StringSession = None
 
+try:
+    from screener import SCREENER_CHAT_ID, run_screener
+except ImportError:  # pragma: no cover
+    SCREENER_CHAT_ID = ""
+    run_screener = None
+
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
@@ -80,6 +86,7 @@ SET_FIELD_RE = re.compile(
     rf"^/(setbuy|settarget|setstop)\s+\$?([A-Za-z]{{1,8}})\s+{NUM}",
     re.I,
 )
+SCAN_RE = re.compile(r"^/scan\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -433,6 +440,18 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_scan(text: str, watchlist_path: Path) -> bool:
+    if not SCAN_RE.match(text.strip()):
+        return False
+    if run_screener is None:
+        print("Screener non disponibile.", flush=True)
+        return True
+    body = run_screener(watchlist_path)
+    dest = SCREENER_CHAT_ID or None
+    send_telegram(body, chat_id_override=dest)
+    return True
+
+
 def apply_telegram_list(text: str, watchlist_path: Path) -> bool:
     if not LIST_RE.match(text.strip()):
         return False
@@ -759,13 +778,14 @@ def telegram_api(method: str, payload: dict[str, Any] | None = None, timeout: in
     return data.get("result")
 
 
-def send_telegram(text: str) -> int | None:
+def send_telegram(text: str, chat_id_override: str | None = None) -> int | None:
     if not telegram_token():
         return None
+    chat_id = (chat_id_override or "").strip() or telegram_chat_id()
     try:
         result = telegram_api(
             "sendMessage",
-            {"chat_id": telegram_chat_id(), "text": text},
+            {"chat_id": chat_id, "text": text},
             timeout=12,
         )
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
@@ -837,7 +857,9 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
         text = payload_text(msg)
-        if apply_telegram_list(text, watchlist_path):
+        if apply_telegram_scan(text, watchlist_path):
+            pass
+        elif apply_telegram_list(text, watchlist_path):
             pass
         else:
             cleared = apply_telegram_clear(text, watchlist_path)
@@ -908,7 +930,9 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
-            if apply_telegram_list(text, watchlist_path):
+            if apply_telegram_scan(text, watchlist_path):
+                pass
+            elif apply_telegram_list(text, watchlist_path):
                 pass
             else:
                 cleared = apply_telegram_clear(text, watchlist_path)
@@ -1142,6 +1166,26 @@ def maybe_send_daily_summary(items: list[dict[str, Any]], state_path: Path) -> N
     save_state(state_path, state)
 
 
+def maybe_send_screener(
+    items: list[dict[str, Any]],
+    state_path: Path,
+    watchlist_path: Path,
+) -> None:
+    if run_screener is None:
+        return
+    local = rome_now()
+    if local.hour != WATCH_HOUR_START:
+        return
+    today = local.strftime("%Y-%m-%d")
+    state = load_state(state_path)
+    if state.get("last_screener_run") == today:
+        return
+    body = run_screener(watchlist_path)
+    send_telegram(body, chat_id_override=SCREENER_CHAT_ID or None)
+    state["last_screener_run"] = today
+    save_state(state_path, state)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if yf is None:
         print("Manca yfinance. pip install -r requirements.txt", file=sys.stderr)
@@ -1184,6 +1228,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             else:
                 cycle(items, fired, state_path)
             maybe_send_daily_summary(items, state_path)
+            maybe_send_screener(items, state_path, path)
             persist_fired(state_path, fired)
             if args.once:
                 break
