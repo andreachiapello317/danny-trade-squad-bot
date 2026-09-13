@@ -257,7 +257,7 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.maybe_send_screener(items, spath, wpath)
                 watch.maybe_send_screener(items, spath, wpath)
-            run.assert_called_once_with(wpath)
+            run.assert_called_once_with(wpath, spath)
             send.assert_called_once_with(
                 "📊 Screener tecnico\n✅ AMD",
                 chat_id_override=watch.SCREENER_CHAT_ID,

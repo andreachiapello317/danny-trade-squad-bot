@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 try:
@@ -185,15 +186,22 @@ def format_screener_message(tickers: list[str]) -> str:
     return _assemble_message(ranked, missing)
 
 
-def run_screener(watchlist_path: Any) -> str:
-    from pathlib import Path
-
-    from watch import load_watchlist, save_watchlist
+def run_screener(watchlist_path: Path, state_path: Path) -> str:
+    from watch import (
+        alert_key,
+        load_fired,
+        load_state,
+        load_watchlist,
+        persist_fired,
+        save_state,
+        save_watchlist,
+    )
 
     path = Path(watchlist_path)
     items = load_watchlist(path)
     ranked: list[tuple[int, str]] = []
     missing: list[str] = []
+    updated: list[dict[str, Any]] = []
     for ticket in items:
         ticker = str(ticket.get("ticker") or "").upper()
         if not ticker:
@@ -211,5 +219,11 @@ def run_screener(watchlist_path: Any) -> str:
         emoji = _score_emoji(score)
         ticket["motivo"] = f"Screener automatico ({score}/4 {emoji}) — {', '.join(reasons)}"
         ranked.append((score, _format_row(metrics, score)))
+        updated.append(ticket)
     save_watchlist(path, items)
+    state = load_state(state_path)
+    fired = load_fired(state)
+    for ticket in updated:
+        fired[alert_key(ticket, "ingresso")] = True
+    persist_fired(state_path, fired)
     return _assemble_message(ranked, missing)

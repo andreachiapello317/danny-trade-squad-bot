@@ -463,13 +463,15 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
-def apply_telegram_scan(text: str, watchlist_path: Path) -> bool:
+def apply_telegram_scan(
+    text: str, watchlist_path: Path, state_path: Path | None = None
+) -> bool:
     if not SCAN_RE.match(text.strip()):
         return False
     if run_screener is None:
         print("Screener non disponibile.", flush=True)
         return True
-    body = run_screener(watchlist_path)
+    body = run_screener(watchlist_path, state_path)
     dest = SCREENER_CHAT_ID or None
     send_telegram(body, chat_id_override=dest)
     return True
@@ -880,7 +882,7 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
         text = payload_text(msg)
-        if apply_telegram_scan(text, watchlist_path):
+        if apply_telegram_scan(text, watchlist_path, state_path):
             pass
         elif apply_telegram_list(text, watchlist_path):
             pass
@@ -957,7 +959,7 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
-            if apply_telegram_scan(text, watchlist_path):
+            if apply_telegram_scan(text, watchlist_path, state_path):
                 pass
             elif apply_telegram_list(text, watchlist_path):
                 pass
@@ -1213,7 +1215,7 @@ def maybe_send_screener(
     state = load_state(state_path)
     if state.get("last_screener_run") == today:
         return
-    body = run_screener(watchlist_path)
+    body = run_screener(watchlist_path, state_path)
     send_telegram(body, chat_id_override=SCREENER_CHAT_ID or None)
     state["last_screener_run"] = today
     save_state(state_path, state)
@@ -1256,12 +1258,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             ingest_telegram_userbot(path, state_path)
             expire_sent_alerts(state_path)
             items = load_watchlist(path)
+            maybe_send_screener(items, state_path, path)
+            items = load_watchlist(path)
+            fired.update(load_fired(load_state(state_path)))
             if not items:
                 print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
             else:
                 cycle(items, fired, state_path)
             maybe_send_daily_summary(items, state_path)
-            maybe_send_screener(items, state_path, path)
             persist_fired(state_path, fired)
             if args.once:
                 break
