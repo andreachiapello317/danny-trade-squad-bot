@@ -32,10 +32,10 @@ except ImportError:  # pragma: no cover
     StringSession = None
 
 try:
-    from screener import SCREENER_CHAT_ID, format_screener_message
+    from screener import SCREENER_CHAT_ID, run_screener
 except ImportError:  # pragma: no cover
     SCREENER_CHAT_ID = ""
-    format_screener_message = None
+    run_screener = None
 
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
@@ -443,20 +443,10 @@ def chat_matches(chat: Any, want: str) -> bool:
 def apply_telegram_scan(text: str, watchlist_path: Path) -> bool:
     if not SCAN_RE.match(text.strip()):
         return False
-    if format_screener_message is None:
+    if run_screener is None:
         print("Screener non disponibile.", flush=True)
         return True
-    items = load_watchlist(watchlist_path)
-    tickers = list(
-        dict.fromkeys(
-            str(it.get("ticker") or "").upper() for it in items if it.get("ticker")
-        )
-    )
-    body = (
-        format_screener_message(tickers)
-        if tickers
-        else "📊 Screener tecnico\nWatchlist vuota."
-    )
+    body = run_screener(watchlist_path)
     dest = SCREENER_CHAT_ID or None
     send_telegram(body, chat_id_override=dest)
     return True
@@ -1176,8 +1166,12 @@ def maybe_send_daily_summary(items: list[dict[str, Any]], state_path: Path) -> N
     save_state(state_path, state)
 
 
-def maybe_send_screener(items: list[dict[str, Any]], state_path: Path) -> None:
-    if format_screener_message is None:
+def maybe_send_screener(
+    items: list[dict[str, Any]],
+    state_path: Path,
+    watchlist_path: Path,
+) -> None:
+    if run_screener is None:
         return
     local = rome_now()
     if local.hour != WATCH_HOUR_START:
@@ -1186,15 +1180,7 @@ def maybe_send_screener(items: list[dict[str, Any]], state_path: Path) -> None:
     state = load_state(state_path)
     if state.get("last_screener_run") == today:
         return
-    tickers = list(
-        dict.fromkeys(
-            str(it.get("ticker") or "").upper() for it in items if it.get("ticker")
-        )
-    )
-    if not tickers:
-        body = "📊 Screener tecnico\nWatchlist vuota."
-    else:
-        body = format_screener_message(tickers)
+    body = run_screener(watchlist_path)
     send_telegram(body, chat_id_override=SCREENER_CHAT_ID or None)
     state["last_screener_run"] = today
     save_state(state_path, state)
@@ -1242,7 +1228,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             else:
                 cycle(items, fired, state_path)
             maybe_send_daily_summary(items, state_path)
-            maybe_send_screener(items, state_path)
+            maybe_send_screener(items, state_path, path)
             persist_fired(state_path, fired)
             if args.once:
                 break

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -15,6 +18,7 @@ def _metrics(**overrides: object) -> dict:
     base: dict = {
         "ticker": "AMD",
         "close": 140.0,
+        "atr_abs": 11.48,
         "atr_pct": 8.2,
         "volume_ratio": 1.6,
         "rsi_oggi": 55.0,
@@ -126,6 +130,75 @@ class ComputeMetricsTests(unittest.TestCase):
         self.assertGreater(metrics["atr_pct"], 0)
         self.assertGreater(metrics["volume_ratio"], 1.3)
         self.assertLessEqual(metrics["dist_da_max10"], 0)
+        self.assertIn("atr_abs", metrics)
+        self.assertAlmostEqual(metrics["atr_abs"], metrics["atr_pct"] * metrics["close"] / 100.0)
+
+
+class ComputeLevelsTests(unittest.TestCase):
+    def test_levels_from_close_and_atr(self) -> None:
+        levels = screener.compute_levels(_metrics())
+        self.assertEqual(levels["ingresso_low"], 134.26)
+        self.assertEqual(levels["ingresso_high"], 142.3)
+        self.assertEqual(levels["stop"], 122.78)
+        self.assertEqual(levels["target"], 162.96)
+
+    def test_target_pct_clamped_between_5_and_20(self) -> None:
+        low = screener.compute_levels(_metrics(atr_pct=1.0, atr_abs=1.4))
+        self.assertEqual(low["target"], 147.0)
+        high = screener.compute_levels(_metrics(atr_pct=12.0, atr_abs=16.8))
+        self.assertEqual(high["target"], 168.0)
+
+
+class RunScreenerTests(unittest.TestCase):
+    def test_updates_watchlist_and_skips_missing(self) -> None:
+        def fake_metrics(ticker: str):
+            if ticker == "HOOD":
+                return None
+            return _metrics(ticker=ticker)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            wpath.write_text(
+                json.dumps(
+                    [
+                        {
+                            "ticker": "AMD",
+                            "tf": "daily",
+                            "ingresso_low": 1,
+                            "ingresso_high": 2,
+                            "stop": 0,
+                            "target": 3,
+                            "motivo": "old",
+                        },
+                        {
+                            "ticker": "HOOD",
+                            "tf": "weekly",
+                            "ingresso_low": 10,
+                            "stop": 9,
+                            "target": 12,
+                            "motivo": "keep",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(screener, "compute_metrics", side_effect=fake_metrics):
+                body = screener.run_screener(wpath)
+            items = json.loads(wpath.read_text(encoding="utf-8"))
+            amd = next(it for it in items if it["ticker"] == "AMD")
+            hood = next(it for it in items if it["ticker"] == "HOOD")
+            self.assertEqual(amd["ingresso_low"], 134.26)
+            self.assertEqual(amd["ingresso_high"], 142.3)
+            self.assertEqual(amd["stop"], 122.78)
+            self.assertEqual(amd["target"], 162.96)
+            self.assertEqual(
+                amd["motivo"],
+                "Screener automatico (4/4 ✅) — ATR% 3-15, volume > 1.3x, RSI 40-65 in salita, entro 5% da max10",
+            )
+            self.assertEqual(hood["ingresso_low"], 10)
+            self.assertEqual(hood["motivo"], "keep")
+            self.assertIn("✅ AMD  (4/4)", body)
+            self.assertIn("HOOD: dati non disponibili", body)
 
 
 if __name__ == "__main__":

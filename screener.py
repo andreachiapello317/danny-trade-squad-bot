@@ -53,7 +53,8 @@ def compute_metrics(ticker: str) -> dict[str, Any] | None:
     atr_now = atr14.iloc[-1]
     if pd.isna(atr_now) or close_now == 0:
         return None
-    atr_pct = float(atr_now) / close_now * 100.0
+    atr_abs = float(atr_now)
+    atr_pct = atr_abs / close_now * 100.0
 
     vol_sma20 = volume.rolling(20).mean().iloc[-1]
     vol_today = float(volume.iloc[-1])
@@ -82,11 +83,25 @@ def compute_metrics(ticker: str) -> dict[str, Any] | None:
     return {
         "ticker": ticker.strip().upper(),
         "close": close_now,
+        "atr_abs": atr_abs,
         "atr_pct": atr_pct,
         "volume_ratio": volume_ratio,
         "rsi_oggi": float(rsi_oggi),
         "rsi_ieri": float(rsi_ieri),
         "dist_da_max10": dist_da_max10,
+    }
+
+
+def compute_levels(metrics: dict[str, Any]) -> dict[str, float]:
+    close = float(metrics["close"])
+    atr_abs = float(metrics["atr_abs"])
+    atr_pct = float(metrics["atr_pct"])
+    target_pct = min(max(2 * atr_pct, 5), 20)
+    return {
+        "ingresso_low": round(close - 0.5 * atr_abs, 2),
+        "ingresso_high": round(close + 0.2 * atr_abs, 2),
+        "stop": round(close - 1.5 * atr_abs, 2),
+        "target": round(close * (1 + target_pct / 100), 2),
     }
 
 
@@ -133,6 +148,27 @@ def _rsi_label(metrics: dict[str, Any]) -> str:
     return f"RSI {oggi:.0f}{arrow}"
 
 
+def _format_row(metrics: dict[str, Any], score: int) -> str:
+    return (
+        f"{_score_emoji(score)} {metrics['ticker']}  ({score}/4)  "
+        f"ATR {metrics['atr_pct']:.1f}%  "
+        f"vol {metrics['volume_ratio']:.1f}x  "
+        f"{_rsi_label(metrics)}  "
+        f"{metrics['dist_da_max10']:+.1f}% da max10"
+    )
+
+
+def _assemble_message(ranked: list[tuple[int, str]], missing: list[str]) -> str:
+    ranked = sorted(ranked, key=lambda item: item[0], reverse=True)
+    lines = ["📊 Screener tecnico"]
+    if not ranked and not missing:
+        lines.append("Watchlist vuota.")
+    else:
+        lines.extend(line for _score, line in ranked)
+        lines.extend(missing)
+    return "\n".join(lines)
+
+
 def format_screener_message(tickers: list[str]) -> str:
     ranked: list[tuple[int, str]] = []
     missing: list[str] = []
@@ -145,23 +181,35 @@ def format_screener_message(tickers: list[str]) -> str:
             missing.append(f"{ticker}: dati non disponibili")
             continue
         score, _reasons = score_ticker(metrics)
-        ranked.append(
-            (
-                score,
-                (
-                    f"{_score_emoji(score)} {ticker}  ({score}/4)  "
-                    f"ATR {metrics['atr_pct']:.1f}%  "
-                    f"vol {metrics['volume_ratio']:.1f}x  "
-                    f"{_rsi_label(metrics)}  "
-                    f"{metrics['dist_da_max10']:+.1f}% da max10"
-                ),
-            )
-        )
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    lines = ["📊 Screener tecnico"]
-    if not ranked and not missing:
-        lines.append("Watchlist vuota.")
-    else:
-        lines.extend(line for _score, line in ranked)
-        lines.extend(missing)
-    return "\n".join(lines)
+        ranked.append((score, _format_row(metrics, score)))
+    return _assemble_message(ranked, missing)
+
+
+def run_screener(watchlist_path: Any) -> str:
+    from pathlib import Path
+
+    from watch import load_watchlist, save_watchlist
+
+    path = Path(watchlist_path)
+    items = load_watchlist(path)
+    ranked: list[tuple[int, str]] = []
+    missing: list[str] = []
+    for ticket in items:
+        ticker = str(ticket.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        metrics = compute_metrics(ticker)
+        if metrics is None:
+            missing.append(f"{ticker}: dati non disponibili")
+            continue
+        score, reasons = score_ticker(metrics)
+        levels = compute_levels(metrics)
+        ticket["ingresso_low"] = levels["ingresso_low"]
+        ticket["ingresso_high"] = levels["ingresso_high"]
+        ticket["stop"] = levels["stop"]
+        ticket["target"] = levels["target"]
+        emoji = _score_emoji(score)
+        ticket["motivo"] = f"Screener automatico ({score}/4 {emoji}) — {', '.join(reasons)}"
+        ranked.append((score, _format_row(metrics, score)))
+    save_watchlist(path, items)
+    return _assemble_message(ranked, missing)
