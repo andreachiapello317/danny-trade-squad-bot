@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
-DEFAULT_CHAT_ID = "-5557136157"
+DEFAULT_CHAT_ID = "-1004312726798"
 SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
