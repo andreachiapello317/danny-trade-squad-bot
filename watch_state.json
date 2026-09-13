@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543026,
+  "telegram_offset": 236543028,
   "fired": {
     "CRCL||ingresso": true,
     "VST||target": true,
@@ -21,6 +21,6 @@
       "sent_at": "2026-09-13T13:23:43.432080+00:00"
     }
   ],
-  "summary_message_id": 26,
+  "summary_message_id": 30,
   "last_daily_summary": "2026-09-13"
 }
