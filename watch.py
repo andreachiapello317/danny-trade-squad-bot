@@ -97,6 +97,25 @@ def to_yahoo(ticker: str) -> str:
     return ticker.strip().upper().replace(".", "-")
 
 
+def classify_ticker(ticker: str) -> str | None:
+    if yf is None:
+        return None
+    try:
+        raw = yf.Ticker(to_yahoo(ticker)).info.get("quoteType")
+    except Exception:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return raw.strip().upper()
+
+
+def is_valid_symbol(ticker: str) -> bool:
+    kind = classify_ticker(ticker)
+    if kind is None:
+        return True
+    return kind in {"EQUITY", "ETF"}
+
+
 def split_tickets(text: str) -> list[str]:
     matches = list(TICKER_START.finditer(text))
     if not matches:
@@ -263,7 +282,11 @@ def send_watchlist_summary(
         return
     items = load_watchlist(watchlist_path)
     lines = [f"✅ {ticker} aggiunto/aggiornato" for ticker in added]
-    lines.extend(f"❌ {ticker} rimosso" for ticker in removed)
+    for item in removed:
+        if "scartato" in item:
+            lines.append(f"❌ {item}")
+        else:
+            lines.append(f"❌ {item} rimosso")
     lines.append("")
     if not items:
         lines.append("Watchlist vuota.")
@@ -887,6 +910,10 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         save_state(state_path, state)
     items = load_watchlist(watchlist_path)
     for ticket in tickets:
+        ticker = str(ticket.get("ticker") or "").upper()
+        if not is_valid_symbol(ticker):
+            removed.append(f"{ticker} scartato (non è un'azione/ETF)")
+            continue
         items, changed = upsert_if_changed(items, ticket)
         if changed:
             added.append(str(ticket["ticker"]))
@@ -957,6 +984,12 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                             elif not is_noise_text(text):
                                 tickets = parse_tickets(text)
                                 for ticket in tickets:
+                                    ticker = str(ticket.get("ticker") or "").upper()
+                                    if not is_valid_symbol(ticker):
+                                        removed.append(
+                                            f"{ticker} scartato (non è un'azione/ETF)"
+                                        )
+                                        continue
                                     items, changed = upsert_if_changed(items, ticket)
                                     if changed:
                                         added.append(str(ticket["ticker"]))
