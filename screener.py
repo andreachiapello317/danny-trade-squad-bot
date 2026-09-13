@@ -197,21 +197,19 @@ def format_screener_message(tickers: list[str]) -> str:
     return _assemble_message(ranked, missing)
 
 
-def run_screener(watchlist_path: Path, state_path: Path) -> str:
+def run_screener(watchlist_path: Path, state_path: Path) -> None:
     from watch import (
         alert_key,
         load_fired,
         load_state,
         load_watchlist,
         persist_fired,
-        save_state,
+        refresh_watchlist_summary,
         save_watchlist,
     )
 
     path = Path(watchlist_path)
     items = load_watchlist(path)
-    ranked: list[tuple[int, str]] = []
-    missing: list[str] = []
     updated: list[dict[str, Any]] = []
     for ticket in items:
         ticker = str(ticket.get("ticker") or "").upper()
@@ -219,7 +217,6 @@ def run_screener(watchlist_path: Path, state_path: Path) -> str:
             continue
         metrics = compute_metrics(ticker)
         if metrics is None:
-            missing.append(f"{ticker}: dati non disponibili")
             continue
         score, reasons = score_ticker(metrics)
         levels = compute_levels(metrics)
@@ -229,7 +226,6 @@ def run_screener(watchlist_path: Path, state_path: Path) -> str:
         ticket["target"] = levels["target"]
         emoji = _score_emoji(score)
         ticket["motivo"] = f"Screener automatico ({score}/4 {emoji}) — {', '.join(reasons)}"
-        ranked.append((score, _format_row(metrics, score, levels)))
         updated.append(ticket)
     save_watchlist(path, items)
     state = load_state(state_path)
@@ -237,4 +233,4 @@ def run_screener(watchlist_path: Path, state_path: Path) -> str:
     for ticket in updated:
         fired[alert_key(ticket, "ingresso")] = True
     persist_fired(state_path, fired)
-    return _assemble_message(ranked, missing)
+    refresh_watchlist_summary(path, state_path)

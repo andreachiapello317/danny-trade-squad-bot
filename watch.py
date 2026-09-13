@@ -273,6 +273,22 @@ def upsert_if_changed(
     return upsert(items, ticket), True
 
 
+def refresh_watchlist_summary(watchlist_path: Path, state_path: Path) -> None:
+    state = load_state(state_path)
+    old_id = state.get("summary_message_id")
+    if old_id is not None:
+        delete_telegram_message(old_id)
+    items = load_watchlist(watchlist_path)
+    if not items:
+        body = "Watchlist vuota."
+    else:
+        body = "\n".join(fmt_ticket_line(it) for it in items)
+    new_id = send_telegram(body)
+    if isinstance(new_id, int):
+        state["summary_message_id"] = new_id
+        save_state(state_path, state)
+
+
 def send_watchlist_summary(
     added: list[str],
     removed: list[str],
@@ -472,9 +488,7 @@ def apply_telegram_scan(
     if run_screener is None:
         print("Screener non disponibile.", flush=True)
         return True
-    body = run_screener(watchlist_path, state_path)
-    dest = SCREENER_CHAT_ID or None
-    send_telegram(body, chat_id_override=dest)
+    run_screener(watchlist_path, state_path)
     return True
 
 
@@ -1233,8 +1247,8 @@ def maybe_send_screener(
     state = load_state(state_path)
     if state.get("last_screener_run") == today:
         return
-    body = run_screener(watchlist_path, state_path)
-    send_telegram(body, chat_id_override=SCREENER_CHAT_ID or None)
+    run_screener(watchlist_path, state_path)
+    state = load_state(state_path)
     state["last_screener_run"] = today
     save_state(state_path, state)
 
