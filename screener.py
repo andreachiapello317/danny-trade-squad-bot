@@ -154,15 +154,8 @@ def _format_row(
     score: int,
     levels: dict[str, float] | None = None,
 ) -> str:
-    extras = ""
-    if levels is not None:
-        extras = (
-            f"ing {levels['ingresso_low']:.2f}-{levels['ingresso_high']:.2f} "
-            f"stop {levels['stop']:.2f} tgt {levels['target']:.2f}  "
-        )
     return (
         f"{_score_emoji(score)} {metrics['ticker']}  ({score}/4)  "
-        f"{extras}"
         f"ATR {metrics['atr_pct']:.1f}%  "
         f"vol {metrics['volume_ratio']:.1f}x  "
         f"{_rsi_label(metrics)}  "
