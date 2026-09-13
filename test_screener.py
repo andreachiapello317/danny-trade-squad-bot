@@ -187,9 +187,18 @@ class RunScreenerTests(unittest.TestCase):
             with (
                 patch.object(screener, "compute_metrics", side_effect=fake_metrics),
                 patch.object(watch, "refresh_watchlist_summary") as refresh,
+                patch.object(watch, "delete_telegram_message") as delete,
+                patch.object(watch, "send_telegram", return_value=55) as send,
             ):
                 self.assertIsNone(screener.run_screener(wpath, spath))
             refresh.assert_called_once_with(wpath, spath)
+            delete.assert_not_called()
+            send.assert_called_once()
+            body = send.call_args[0][0]
+            self.assertTrue(body.startswith("📊 Screener tecnico"))
+            self.assertIn("✅ AMD  (4/4)", body)
+            self.assertIn("ATR 8.2%", body)
+            self.assertIn("HOOD: dati non disponibili", body)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             amd = next(it for it in items if it["ticker"] == "AMD")
             hood = next(it for it in items if it["ticker"] == "HOOD")
@@ -208,6 +217,53 @@ class RunScreenerTests(unittest.TestCase):
             self.assertNotIn("AMD|daily|stop", state["fired"])
             self.assertNotIn("AMD|daily|target", state["fired"])
             self.assertNotIn("HOOD|weekly|ingresso", state["fired"])
+            self.assertEqual(state["screener_message_id"], 55)
+
+    def test_replaces_screener_message_keeps_summary_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            wpath.write_text(
+                json.dumps(
+                    [
+                        {
+                            "ticker": "AMD",
+                            "tf": "daily",
+                            "ingresso_low": 1,
+                            "ingresso_high": 2,
+                            "stop": 0,
+                            "target": 3,
+                            "motivo": "old",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            watch.save_state(
+                spath,
+                {
+                    "summary_message_id": 11,
+                    "screener_message_id": 33,
+                    "telegram_offset": 4,
+                },
+            )
+            with (
+                patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
+                patch.object(watch, "refresh_watchlist_summary"),
+                patch.object(watch, "delete_telegram_message") as delete,
+                patch.object(watch, "send_telegram", return_value=44) as send,
+            ):
+                screener.run_screener(wpath, spath)
+            delete.assert_called_once_with(33)
+            send.assert_called_once()
+            body = send.call_args[0][0]
+            self.assertTrue(body.startswith("📊 Screener tecnico"))
+            self.assertIn("✅ AMD  (4/4)", body)
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertEqual(state["screener_message_id"], 44)
+            self.assertEqual(state["summary_message_id"], 11)
+            self.assertEqual(state["telegram_offset"], 4)
+            self.assertTrue(state["fired"]["AMD|daily|ingresso"])
 
     def test_cycle_skips_ingresso_after_screener(self) -> None:
         item = {
@@ -223,7 +279,12 @@ class RunScreenerTests(unittest.TestCase):
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
             wpath.write_text(json.dumps([item]), encoding="utf-8")
-            with patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")):
+            with (
+                patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
+                patch.object(watch, "refresh_watchlist_summary"),
+                patch.object(watch, "send_telegram", return_value=99),
+                patch.object(watch, "delete_telegram_message"),
+            ):
                 screener.run_screener(wpath, spath)
             fired = watch.load_fired(watch.load_state(spath))
             with (

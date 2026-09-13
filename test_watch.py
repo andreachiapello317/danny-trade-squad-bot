@@ -111,6 +111,15 @@ class ParseTicketTests(unittest.TestCase):
         self.assertIn("Red candle", item["motivo"])
 
 
+class ShouldDeleteChatMessageTests(unittest.TestCase):
+    def test_keeps_bot_digests(self) -> None:
+        self.assertFalse(watch.should_delete_chat_message("📋 AMD  ing 130-134"))
+        self.assertFalse(watch.should_delete_chat_message("📊 Screener tecnico"))
+        self.assertFalse(watch.should_delete_chat_message("ALERT AMD ingresso 131"))
+        self.assertFalse(watch.should_delete_chat_message("Watchlist vuota."))
+        self.assertTrue(watch.should_delete_chat_message("/scan"))
+
+
 class TelegramExtractTests(unittest.TestCase):
     def test_caption_beats_empty_text(self) -> None:
         msg = _msg(caption=TICKET)

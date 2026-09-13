@@ -200,23 +200,29 @@ def format_screener_message(tickers: list[str]) -> str:
 def run_screener(watchlist_path: Path, state_path: Path) -> None:
     from watch import (
         alert_key,
+        delete_telegram_message,
         load_fired,
         load_state,
         load_watchlist,
         persist_fired,
         refresh_watchlist_summary,
+        save_state,
         save_watchlist,
+        send_telegram,
     )
 
     path = Path(watchlist_path)
     items = load_watchlist(path)
     updated: list[dict[str, Any]] = []
+    ranked: list[tuple[int, str]] = []
+    missing: list[str] = []
     for ticket in items:
         ticker = str(ticket.get("ticker") or "").upper()
         if not ticker:
             continue
         metrics = compute_metrics(ticker)
         if metrics is None:
+            missing.append(f"{ticker}: dati non disponibili")
             continue
         score, reasons = score_ticker(metrics)
         levels = compute_levels(metrics)
@@ -227,6 +233,7 @@ def run_screener(watchlist_path: Path, state_path: Path) -> None:
         emoji = _score_emoji(score)
         ticket["motivo"] = f"Screener automatico ({score}/4 {emoji}) — {', '.join(reasons)}"
         updated.append(ticket)
+        ranked.append((score, _format_row(metrics, score, levels)))
     save_watchlist(path, items)
     state = load_state(state_path)
     fired = load_fired(state)
@@ -234,3 +241,12 @@ def run_screener(watchlist_path: Path, state_path: Path) -> None:
         fired[alert_key(ticket, "ingresso")] = True
     persist_fired(state_path, fired)
     refresh_watchlist_summary(path, state_path)
+
+    state = load_state(state_path)
+    old_id = state.get("screener_message_id")
+    if old_id is not None:
+        delete_telegram_message(old_id)
+    new_id = send_telegram(_assemble_message(ranked, missing))
+    if isinstance(new_id, int):
+        state["screener_message_id"] = new_id
+        save_state(state_path, state)

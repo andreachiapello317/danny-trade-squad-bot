@@ -869,6 +869,8 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("📋"):
         return False
+    if stripped.startswith("📊"):
+        return False
     if stripped.startswith("✅") or stripped.startswith("❌"):
         return False
     if stripped == "Watchlist vuota.":
