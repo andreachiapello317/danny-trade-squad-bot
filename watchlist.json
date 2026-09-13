@@ -1,1 +1,173 @@
-[]
+[
+  {
+    "ticker": "AMD",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "IBIT",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "MSTR",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "ETHA",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "HOOD",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "IREN",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "TSM",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "BE",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "MU",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "SBET",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "BMNR",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "MRVL",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "SNDK",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "NBIS",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "DRAM",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "GLXY",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "KOSPI",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "SKHY",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "CRCL",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  }
+]
