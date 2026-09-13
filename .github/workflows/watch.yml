@@ -6,7 +6,7 @@ name: watch
 
 on:
   schedule:
-    - cron: "*/5 13-21 * * *"
+    - cron: "*/5 13-21 * * 1-5"
   workflow_dispatch:
     inputs:
       ignore_window:
