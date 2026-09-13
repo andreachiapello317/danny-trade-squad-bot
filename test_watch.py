@@ -201,7 +201,7 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.apply_telegram_list("/list", wpath)
             send.assert_called_with("Watchlist vuota.")
 
-    def test_scan_sends_to_screener_chat(self) -> None:
+    def test_scan_runs_screener_without_extra_send(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             watch.save_watchlist(
@@ -209,7 +209,7 @@ class TelegramExtractTests(unittest.TestCase):
                 [{"ticker": "AMD", "tf": "daily"}, {"ticker": "NVDA", "tf": "weekly"}],
             )
             with (
-                patch.object(watch, "run_screener", return_value="📊 Screener tecnico\n✅ AMD") as run,
+                patch.object(watch, "run_screener") as run,
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_scan("/scan", wpath))
@@ -217,10 +217,7 @@ class TelegramExtractTests(unittest.TestCase):
                 self.assertFalse(watch.apply_telegram_scan("/list", wpath))
             self.assertEqual(run.call_count, 2)
             self.assertEqual(run.call_args_list[0][0][0], wpath)
-            send.assert_called_with(
-                "📊 Screener tecnico\n✅ AMD",
-                chat_id_override=watch.SCREENER_CHAT_ID,
-            )
+            send.assert_not_called()
 
     def test_ingest_scan_deletes_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -239,7 +236,7 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 n = watch.ingest_telegram(wpath, spath)
             self.assertEqual(n, 0)
-            send.assert_called_once_with("📊 ok", chat_id_override=watch.SCREENER_CHAT_ID)
+            send.assert_not_called()
             delete.assert_called_once_with(701)
 
     def test_screener_daily_only_first_hour_once(self) -> None:
@@ -252,16 +249,13 @@ class TelegramExtractTests(unittest.TestCase):
             wpath = Path(tmp) / "watchlist.json"
             with (
                 patch.object(watch, "rome_now", return_value=at_open),
-                patch.object(watch, "run_screener", return_value="📊 Screener tecnico\n✅ AMD") as run,
+                patch.object(watch, "run_screener") as run,
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.maybe_send_screener(items, spath, wpath)
                 watch.maybe_send_screener(items, spath, wpath)
             run.assert_called_once_with(wpath, spath)
-            send.assert_called_once_with(
-                "📊 Screener tecnico\n✅ AMD",
-                chat_id_override=watch.SCREENER_CHAT_ID,
-            )
+            send.assert_not_called()
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["last_screener_run"], "2026-09-12")
             with (
@@ -270,6 +264,29 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.maybe_send_screener(items, spath, wpath)
             send.assert_not_called()
+
+    def test_refresh_watchlist_summary_skips_missing_tickers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {"ticker": "AMD", "tf": "daily", "ingresso_low": 130, "ingresso_high": 134, "stop": 124, "target": 148},
+                    {"ticker": "KOSPI", "tf": "daily"},
+                ],
+            )
+            watch.save_state(spath, {"summary_message_id": 11})
+            with (
+                patch.object(watch, "delete_telegram_message") as delete,
+                patch.object(watch, "send_telegram", return_value=22) as send,
+            ):
+                watch.refresh_watchlist_summary(wpath, spath, skip_tickers={"KOSPI"})
+            delete.assert_called_once_with(11)
+            body = send.call_args[0][0]
+            self.assertIn("AMD", body)
+            self.assertNotIn("KOSPI", body)
+            self.assertEqual(json.loads(spath.read_text(encoding="utf-8"))["summary_message_id"], 22)
 
     def test_daily_summary_only_first_hour_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

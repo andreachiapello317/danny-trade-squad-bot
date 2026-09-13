@@ -273,6 +273,31 @@ def upsert_if_changed(
     return upsert(items, ticket), True
 
 
+def refresh_watchlist_summary(
+    watchlist_path: Path,
+    state_path: Path,
+    skip_tickers: set[str] | None = None,
+) -> None:
+    state = load_state(state_path)
+    old_id = state.get("summary_message_id")
+    if old_id is not None:
+        delete_telegram_message(old_id)
+    skip = {str(t).upper() for t in (skip_tickers or set())}
+    items = [
+        it
+        for it in load_watchlist(watchlist_path)
+        if (it.get("ticker") or "").upper() not in skip
+    ]
+    if not items:
+        body = "Watchlist vuota."
+    else:
+        body = "\n".join(fmt_ticket_line(it) for it in items)
+    new_id = send_telegram(body)
+    if isinstance(new_id, int):
+        state["summary_message_id"] = new_id
+        save_state(state_path, state)
+
+
 def send_watchlist_summary(
     added: list[str],
     removed: list[str],
@@ -472,9 +497,7 @@ def apply_telegram_scan(
     if run_screener is None:
         print("Screener non disponibile.", flush=True)
         return True
-    body = run_screener(watchlist_path, state_path)
-    dest = SCREENER_CHAT_ID or None
-    send_telegram(body, chat_id_override=dest)
+    run_screener(watchlist_path, state_path)
     return True
 
 
@@ -853,7 +876,7 @@ def should_delete_chat_message(text: str) -> bool:
     stripped = text.strip()
     if stripped.startswith("ALERT "):
         return False
-    if stripped.startswith("📋"):
+    if stripped.startswith("📋") or stripped.startswith("📊"):
         return False
     if stripped.startswith("✅") or stripped.startswith("❌"):
         return False
@@ -1233,8 +1256,8 @@ def maybe_send_screener(
     state = load_state(state_path)
     if state.get("last_screener_run") == today:
         return
-    body = run_screener(watchlist_path, state_path)
-    send_telegram(body, chat_id_override=SCREENER_CHAT_ID or None)
+    run_screener(watchlist_path, state_path)
+    state = load_state(state_path)
     state["last_screener_run"] = today
     save_state(state_path, state)
 
