@@ -184,8 +184,12 @@ class RunScreenerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch.object(screener, "compute_metrics", side_effect=fake_metrics):
-                body = screener.run_screener(wpath, spath)
+            with (
+                patch.object(screener, "compute_metrics", side_effect=fake_metrics),
+                patch.object(watch, "refresh_watchlist_summary") as refresh,
+            ):
+                self.assertIsNone(screener.run_screener(wpath, spath))
+            refresh.assert_called_once_with(wpath, spath)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             amd = next(it for it in items if it["ticker"] == "AMD")
             hood = next(it for it in items if it["ticker"] == "HOOD")
@@ -199,11 +203,6 @@ class RunScreenerTests(unittest.TestCase):
             )
             self.assertEqual(hood["ingresso_low"], 10)
             self.assertEqual(hood["motivo"], "keep")
-            self.assertIn("✅ AMD  (4/4)", body)
-            self.assertIn("ing 134.26-142.30 stop 122.78 tgt 162.96", body)
-            self.assertIn("ATR 8.2%", body)
-            self.assertIn("HOOD: dati non disponibili", body)
-            self.assertNotIn("ing 10", body)
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertTrue(state["fired"]["AMD|daily|ingresso"])
             self.assertNotIn("AMD|daily|stop", state["fired"])
