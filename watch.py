@@ -87,6 +87,7 @@ SET_FIELD_RE = re.compile(
     re.I,
 )
 SCAN_RE = re.compile(r"^/scan\s*$", re.I)
+CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -474,6 +475,18 @@ def apply_telegram_scan(
     body = run_screener(watchlist_path, state_path)
     dest = SCREENER_CHAT_ID or None
     send_telegram(body, chat_id_override=dest)
+    return True
+
+
+def apply_telegram_clean(text: str, state_path: Path) -> bool:
+    if not CLEAN_RE.match(text.strip()):
+        return False
+    state = load_state(state_path)
+    for entry in state.get("sent_alerts") or []:
+        mid = entry.get("message_id") if isinstance(entry, dict) else None
+        delete_telegram_message(mid)
+    state["sent_alerts"] = []
+    save_state(state_path, state)
     return True
 
 
@@ -884,6 +897,8 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         text = payload_text(msg)
         if apply_telegram_scan(text, watchlist_path, state_path):
             pass
+        elif apply_telegram_clean(text, state_path):
+            pass
         elif apply_telegram_list(text, watchlist_path):
             pass
         else:
@@ -908,6 +923,7 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
                 delete_telegram_message(mid)
     tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
+        state = load_state(state_path)
         state["telegram_offset"] = max_id + 1
         save_state(state_path, state)
     items = load_watchlist(watchlist_path)
@@ -960,6 +976,8 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
             if apply_telegram_scan(text, watchlist_path, state_path):
+                pass
+            elif apply_telegram_clean(text, state_path):
                 pass
             elif apply_telegram_list(text, watchlist_path):
                 pass
