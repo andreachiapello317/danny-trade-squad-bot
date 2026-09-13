@@ -280,7 +280,17 @@ class TelegramExtractTests(unittest.TestCase):
             spath = Path(tmp) / "watch_state.json"
             watch.save_watchlist(
                 wpath,
-                [{"ticker": "AMD", "tf": "daily", "ingresso_low": 130, "ingresso_high": 134, "stop": 124, "target": 148}],
+                [
+                    {
+                        "ticker": "AMD",
+                        "tf": "daily",
+                        "ingresso_low": 130,
+                        "ingresso_high": 134,
+                        "stop": 124,
+                        "target": 148,
+                        "motivo": "Screener automatico (4/4 ✅) — ATR% 3-15",
+                    }
+                ],
             )
             watch.save_state(spath, {"summary_message_id": 11, "telegram_offset": 4})
             with (
@@ -292,6 +302,10 @@ class TelegramExtractTests(unittest.TestCase):
             body = send.call_args[0][0]
             self.assertIn("AMD", body)
             self.assertIn("ing 130-134", body)
+            self.assertIn("stop 124", body)
+            self.assertIn("tgt 148", body)
+            self.assertNotIn("Screener automatico", body)
+            self.assertNotIn("motivo", body)
             self.assertNotIn("📊 Screener tecnico", body)
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["summary_message_id"], 22)
