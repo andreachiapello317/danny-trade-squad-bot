@@ -1,11 +1,1 @@
-[
-  {
-    "ticker": "TSLA",
-    "tf": "",
-    "ingresso_low": 800.0,
-    "ingresso_high": 800.0,
-    "stop": null,
-    "target": null,
-    "motivo": ""
-  }
-]
+[]
