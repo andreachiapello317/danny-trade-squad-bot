@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover
     yf = None
 
-SCREENER_CHAT_ID = "-1004469913987"
+SCREENER_CHAT_ID = "-1004312726798"
 
 
 def to_yahoo_style(ticker: str) -> str:
