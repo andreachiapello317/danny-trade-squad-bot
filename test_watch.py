@@ -451,5 +451,121 @@ class TelegramExtractTests(unittest.TestCase):
                 os.environ.pop("TELEGRAM_CHAT_ID", None)
 
 
+class DayRangeTests(unittest.TestCase):
+    def test_in_ingresso_spot_unchanged_without_day_range(self) -> None:
+        self.assertTrue(watch.in_ingresso(132.0, 130.0, 134.0))
+        self.assertFalse(watch.in_ingresso(140.0, 130.0, 134.0))
+        self.assertTrue(watch.in_ingresso(100.0, 100.0, 100.0))
+        self.assertFalse(watch.in_ingresso(101.0, 100.0, 100.0))
+
+    def test_in_ingresso_day_range_overlaps_band(self) -> None:
+        self.assertTrue(watch.in_ingresso(140.0, 130.0, 134.0, 120.0, 131.0))
+        self.assertTrue(watch.in_ingresso(140.0, 130.0, 134.0, 134.0, 150.0))
+        self.assertFalse(watch.in_ingresso(140.0, 130.0, 134.0, 135.0, 150.0))
+        self.assertFalse(watch.in_ingresso(140.0, 130.0, 134.0, 100.0, 129.0))
+
+    def test_in_ingresso_day_range_touches_single_level(self) -> None:
+        # 100 ± max(0.01, 0.15) = 0.15
+        self.assertTrue(watch.in_ingresso(110.0, 100.0, 100.0, 99.9, 105.0))
+        self.assertFalse(watch.in_ingresso(110.0, 100.0, 100.0, 90.0, 99.8))
+
+    def test_fetch_day_range_empty_or_error_is_none(self) -> None:
+        class EmptyHist:
+            empty = True
+
+        class FakeTicker:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def history(self, **kwargs: object) -> EmptyHist:
+                return EmptyHist()
+
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.return_value = FakeTicker()
+            self.assertIsNone(watch.fetch_day_range("AMD"))
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.side_effect = RuntimeError("down")
+            self.assertIsNone(watch.fetch_day_range("AMD"))
+
+    def test_fetch_day_range_returns_low_high(self) -> None:
+        class Col:
+            def __init__(self, values: list[float]) -> None:
+                self._values = values
+
+            def min(self) -> float:
+                return min(self._values)
+
+            def max(self) -> float:
+                return max(self._values)
+
+        class Hist:
+            empty = False
+
+            def __getitem__(self, key: str) -> Col:
+                return {"Low": Col([10.5, 11.0]), "High": Col([12.0, 13.25])}[key]
+
+        class FakeTicker:
+            def history(self, **kwargs: object) -> Hist:
+                return Hist()
+
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.return_value = FakeTicker()
+            self.assertEqual(watch.fetch_day_range("AMD"), (10.5, 13.25))
+            self.assertEqual(
+                watch.fetch_day_ranges(["AMD", "NVDA"]),
+                {"AMD": (10.5, 13.25), "NVDA": (10.5, 13.25)},
+            )
+
+    def test_cycle_uses_day_range_and_notes_intraday_touch(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 130.0,
+            "ingresso_high": 134.0,
+            "stop": 124.0,
+            "target": 148.0,
+            "motivo": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            fired: dict[tuple[str, str, str], bool] = {}
+            with (
+                patch.object(watch, "fetch_prices", return_value={"AMD": 140.0}),
+                patch.object(watch, "fetch_day_ranges", return_value={"AMD": (120.0, 135.0)}),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "expire_sent_alerts"),
+            ):
+                watch.cycle([item], fired, spath)
+            texts = [call[0][0] for call in send.call_args_list]
+            self.assertTrue(any("ingresso" in t and "toccato in giornata, ora 140.00" in t for t in texts))
+            self.assertTrue(any("stop" in t and "toccato in giornata, ora 140.00" in t for t in texts))
+            self.assertFalse(any("target" in t for t in texts))
+
+    def test_cycle_falls_back_to_spot_when_range_missing(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 130.0,
+            "ingresso_high": 134.0,
+            "stop": 124.0,
+            "target": 148.0,
+            "motivo": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            fired: dict[tuple[str, str, str], bool] = {}
+            with (
+                patch.object(watch, "fetch_prices", return_value={"AMD": 132.0}),
+                patch.object(watch, "fetch_day_ranges", return_value={"AMD": None}),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "expire_sent_alerts"),
+            ):
+                watch.cycle([item], fired, spath)
+            texts = [call[0][0] for call in send.call_args_list]
+            self.assertEqual(len(texts), 1)
+            self.assertIn("ingresso 132.00", texts[0])
+            self.assertNotIn("toccato in giornata", texts[0])
+
+
 if __name__ == "__main__":
     unittest.main()
