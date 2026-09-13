@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "ticker": "ABCL",
+    "tf": "",
+    "ingresso_low": 10.9,
+    "ingresso_high": 10.9,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  }
+]
