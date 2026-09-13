@@ -1,1 +1,173 @@
-[]
+[
+  {
+    "ticker": "AMD",
+    "tf": "daily",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on daily chart, panel 1"
+  },
+  {
+    "ticker": "IBIT",
+    "tf": "monthly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red candle on monthly chart, panel 1"
+  },
+  {
+    "ticker": "MSTR",
+    "tf": "monthly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red candle on monthly chart, panel 1"
+  },
+  {
+    "ticker": "ETHA",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red ribbon poised to unfold on weekly chart, panel 1"
+  },
+  {
+    "ticker": "HOOD",
+    "tf": "monthly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red candle on monthly chart, panel 1"
+  },
+  {
+    "ticker": "IREN",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "TSM",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "BE",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "MU",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "SBET",
+    "tf": "monthly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red candle on monthly chart, panel 1"
+  },
+  {
+    "ticker": "BMNR",
+    "tf": "monthly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red candle on monthly chart, panel 1"
+  },
+  {
+    "ticker": "MRVL",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "SNDK",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "NBIS",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "DRAM",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "GLXY",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "KOSPI",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red candle on weekly chart, panel 1"
+  },
+  {
+    "ticker": "SKHY",
+    "tf": "daily",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Red ribbon expanding on daily chart, panel 1"
+  },
+  {
+    "ticker": "CRCL",
+    "tf": "weekly",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": "Potential red ribbon on weekly chart, panel 1"
+  }
+]
