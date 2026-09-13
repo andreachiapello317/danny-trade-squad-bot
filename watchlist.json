@@ -4,7 +4,7 @@
     "tf": "",
     "ingresso_low": 250.0,
     "ingresso_high": 250.0,
-    "stop": null,
+    "stop": 500.0,
     "target": null,
     "motivo": ""
   }
