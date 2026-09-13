@@ -46,6 +46,39 @@ def _msg(
     return out
 
 
+class SymbolFilterTests(unittest.TestCase):
+    def test_classify_none_without_yf(self) -> None:
+        with patch.object(watch, "yf", None):
+            self.assertIsNone(watch.classify_ticker("AMD"))
+
+    def test_classify_quote_type_and_errors(self) -> None:
+        class FakeTicker:
+            def __init__(self, info: dict) -> None:
+                self.info = info
+
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.return_value = FakeTicker({"quoteType": "equity"})
+            self.assertEqual(watch.classify_ticker("amd"), "EQUITY")
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.side_effect = RuntimeError("down")
+            self.assertIsNone(watch.classify_ticker("AMD"))
+        with patch.object(watch, "yf") as yf_mod:
+            yf_mod.Ticker.return_value = FakeTicker({})
+            self.assertIsNone(watch.classify_ticker("AMD"))
+
+    def test_is_valid_symbol_rules(self) -> None:
+        with patch.object(watch, "classify_ticker", return_value="EQUITY"):
+            self.assertTrue(watch.is_valid_symbol("AMD"))
+        with patch.object(watch, "classify_ticker", return_value="ETF"):
+            self.assertTrue(watch.is_valid_symbol("SPY"))
+        with patch.object(watch, "classify_ticker", return_value=None):
+            self.assertTrue(watch.is_valid_symbol("AMD"))
+        with patch.object(watch, "classify_ticker", return_value="INDEX"):
+            self.assertFalse(watch.is_valid_symbol("KOSPI"))
+        with patch.object(watch, "classify_ticker", return_value="CRYPTOCURRENCY"):
+            self.assertFalse(watch.is_valid_symbol("BTC"))
+
+
 class WatchWindowTests(unittest.TestCase):
     def test_inside_and_outside_rome(self) -> None:
         rome = ZoneInfo("Europe/Rome")
@@ -110,6 +143,7 @@ class TelegramExtractTests(unittest.TestCase):
             with (
                 patch.object(watch, "telegram_token", return_value="123:abc"),
                 patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
                 patch.object(watch, "send_telegram") as send,
             ):
                 n = watch.ingest_telegram(wpath, spath)
@@ -123,6 +157,34 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(items[0]["ticker"], "AMD")
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
+
+    def test_ingest_rejects_non_equity_ticket(self) -> None:
+        index_ticket = TICKET.replace("$AMD", "$KOSPI")
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            updates = [{"update_id": 80, "message": _msg(text=index_ticket)}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "classify_ticker", return_value="INDEX"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 1)
+            self.assertEqual(watch.load_watchlist(wpath), [])
+            body = send.call_args[0][0]
+            self.assertIn("❌ KOSPI scartato (non è un'azione/ETF)", body)
+            self.assertNotIn("rimosso", body)
+            self.assertNotIn("✅ KOSPI", body)
+
+    def test_set_ignores_symbol_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            with patch.object(watch, "classify_ticker", return_value="INDEX"):
+                self.assertEqual(watch.apply_telegram_set("/set KOSPI 100 90 120", wpath), "KOSPI")
+            item = watch.load_watchlist(wpath)[0]
+            self.assertEqual(item["ticker"], "KOSPI")
 
     def test_list_sends_and_returns_true(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -491,6 +553,7 @@ class TelegramExtractTests(unittest.TestCase):
                 with (
                     patch.object(watch, "TelegramClient", FakeClient),
                     patch.object(watch, "StringSession", lambda s: s),
+                    patch.object(watch, "is_valid_symbol", return_value=True),
                     patch.object(watch, "send_telegram"),
                     patch.object(watch, "delete_telegram_message") as delete,
                 ):
