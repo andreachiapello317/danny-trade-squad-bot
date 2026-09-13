@@ -139,6 +139,74 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.apply_telegram_list("/list", wpath)
             send.assert_called_with("Watchlist vuota.")
 
+    def test_scan_sends_to_screener_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.save_watchlist(
+                wpath,
+                [{"ticker": "AMD", "tf": "daily"}, {"ticker": "NVDA", "tf": "weekly"}],
+            )
+            with (
+                patch.object(watch, "format_screener_message", return_value="📊 Screener tecnico\n✅ AMD") as fmt,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_scan("/scan", wpath))
+                self.assertTrue(watch.apply_telegram_scan("/SCAN", wpath))
+                self.assertFalse(watch.apply_telegram_scan("/list", wpath))
+            self.assertEqual(fmt.call_count, 2)
+            self.assertEqual(fmt.call_args_list[0][0][0], ["AMD", "NVDA"])
+            send.assert_called_with(
+                "📊 Screener tecnico\n✅ AMD",
+                chat_id_override=watch.SCREENER_CHAT_ID,
+            )
+
+    def test_ingest_scan_deletes_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
+            updates = [
+                {"update_id": 70, "message": _msg(text="/scan", message_id=701)},
+            ]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "format_screener_message", return_value="📊 ok"),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 0)
+            send.assert_called_once_with("📊 ok", chat_id_override=watch.SCREENER_CHAT_ID)
+            delete.assert_called_once_with(701)
+
+    def test_screener_daily_only_first_hour_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            rome = ZoneInfo("Europe/Rome")
+            at_open = datetime(2026, 9, 12, 15, 10, tzinfo=rome)
+            later = datetime(2026, 9, 12, 16, 10, tzinfo=rome)
+            items = [{"ticker": "AMD", "tf": "daily"}]
+            with (
+                patch.object(watch, "rome_now", return_value=at_open),
+                patch.object(watch, "format_screener_message", return_value="📊 Screener tecnico\n✅ AMD"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.maybe_send_screener(items, spath)
+                watch.maybe_send_screener(items, spath)
+            send.assert_called_once_with(
+                "📊 Screener tecnico\n✅ AMD",
+                chat_id_override=watch.SCREENER_CHAT_ID,
+            )
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertEqual(state["last_screener_run"], "2026-09-12")
+            with (
+                patch.object(watch, "rome_now", return_value=later),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.maybe_send_screener(items, spath)
+            send.assert_not_called()
+
     def test_daily_summary_only_first_hour_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
