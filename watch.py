@@ -642,13 +642,27 @@ def cmd_remove(args: argparse.Namespace) -> int:
     return 0
 
 
-def in_ingresso(price: float, low: float | None, high: float | None) -> bool:
+def in_ingresso(
+    price: float,
+    low: float | None,
+    high: float | None,
+    day_low: float | None = None,
+    day_high: float | None = None,
+) -> bool:
     if low is None:
         return False
     if high is None or high == low:
         tol = max(0.01, abs(low) * SINGLE_TOUCH_PCT)
-        return abs(price - low) <= tol
-    return low <= price <= high
+        if abs(price - low) <= tol:
+            return True
+        if day_low is not None and day_high is not None:
+            return day_low <= low + tol and day_high >= low - tol
+        return False
+    if low <= price <= high:
+        return True
+    if day_low is not None and day_high is not None:
+        return day_low <= high and day_high >= low
+    return False
 
 
 def fetch_price(ticker: str) -> float | None:
@@ -686,6 +700,35 @@ def fetch_price(ticker: str) -> float | None:
 
 def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
     return {t: fetch_price(t) for t in tickers}
+
+
+def fetch_day_range(ticker: str) -> tuple[float, float] | None:
+    try:
+        hist = yf.Ticker(to_yahoo(ticker)).history(period="1d", interval="1m")
+        if hist is None or hist.empty:
+            return None
+        return (float(hist["Low"].min()), float(hist["High"].max()))
+    except Exception:
+        return None
+
+
+def fetch_day_ranges(tickers: list[str]) -> dict[str, tuple[float, float] | None]:
+    return {t: fetch_day_range(t) for t in tickers}
+
+
+def _day_bounds(
+    ranges: dict[str, tuple[float, float] | None], ticker: str
+) -> tuple[float | None, float | None]:
+    raw = ranges.get(ticker)
+    if not isinstance(raw, tuple) or len(raw) != 2:
+        return None, None
+    return raw[0], raw[1]
+
+
+def _intraday_note(spot: bool, hit: bool, price: float) -> str:
+    if hit and not spot:
+        return f" (toccato in giornata, ora {price:.2f})"
+    return ""
 
 
 def telegram_api(method: str, payload: dict[str, Any] | None = None, timeout: int = 20) -> Any:
@@ -996,10 +1039,12 @@ def cycle(
     expire_sent_alerts(state_path)
     tickers = list(dict.fromkeys(it["ticker"] for it in items if it.get("ticker")))
     prices = fetch_prices(tickers)
+    ranges = fetch_day_ranges(tickers)
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     for it in items:
         ticker = it["ticker"]
         price = prices.get(ticker)
+        day_low, day_high = _day_bounds(ranges, ticker)
         px = f"{price:.2f}" if price is not None else "n/d"
         print(
             f"{now}  {ticker:<6} {px:>8}  "
@@ -1014,11 +1059,15 @@ def cycle(
         suffix = f"  · {motivo}" if motivo else ""
 
         lo, hi = it.get("ingresso_low"), it.get("ingresso_high")
-        in_band = in_ingresso(price, lo, hi)
+        spot_in = in_ingresso(price, lo, hi)
+        in_band = in_ingresso(price, lo, hi, day_low, day_high)
         maybe_alert(
             it,
             "ingresso",
-            f"ALERT {ticker} ingresso {price:.2f} ({fmt_ingresso(it)}){suffix}",
+            (
+                f"ALERT {ticker} ingresso {price:.2f} ({fmt_ingresso(it)})"
+                f"{_intraday_note(spot_in, in_band, price)}{suffix}"
+            ),
             in_band,
             fired,
             state_path,
@@ -1026,22 +1075,34 @@ def cycle(
 
         stop = it.get("stop")
         if stop is not None:
+            stop_lv = float(stop)
+            spot_stop = price <= stop_lv
+            hit_stop = spot_stop or (day_low is not None and day_low <= stop_lv)
             maybe_alert(
                 it,
                 "stop",
-                f"ALERT {ticker} stop {price:.2f} (<= {fmt_level(stop)}){suffix}",
-                price <= float(stop),
+                (
+                    f"ALERT {ticker} stop {price:.2f} (<= {fmt_level(stop)})"
+                    f"{_intraday_note(spot_stop, hit_stop, price)}{suffix}"
+                ),
+                hit_stop,
                 fired,
                 state_path,
             )
 
         target = it.get("target")
         if target is not None:
+            target_lv = float(target)
+            spot_tgt = price >= target_lv
+            hit_tgt = spot_tgt or (day_high is not None and day_high >= target_lv)
             maybe_alert(
                 it,
                 "target",
-                f"ALERT {ticker} target {price:.2f} (>= {fmt_level(target)}){suffix}",
-                price >= float(target),
+                (
+                    f"ALERT {ticker} target {price:.2f} (>= {fmt_level(target)})"
+                    f"{_intraday_note(spot_tgt, hit_tgt, price)}{suffix}"
+                ),
+                hit_tgt,
                 fired,
                 state_path,
             )
