@@ -23,7 +23,8 @@
     "NOK||ingresso": true
   },
   "sent_alerts": [],
-  "summary_message_id": 129,
-  "last_daily_summary": "2026-09-13",
-  "screener_message_id": 130
+  "summary_message_id": 131,
+  "last_daily_summary": "2026-09-14",
+  "screener_message_id": 132,
+  "last_screener_run": "2026-09-14"
 }
