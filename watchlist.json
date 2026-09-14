@@ -2,92 +2,92 @@
   {
     "ticker": "AMD",
     "tf": "",
-    "ingresso_low": 486.46,
-    "ingresso_high": 500.47,
-    "stop": 466.45,
-    "target": 536.48,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 485.34,
+    "ingresso_high": 499.34,
+    "stop": 465.33,
+    "target": 535.35,
+    "motivo": "⚠️"
   },
   {
     "ticker": "BE",
     "tf": "",
-    "ingresso_low": 251.12,
-    "ingresso_high": 263.12,
-    "stop": 233.98,
-    "target": 293.98,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 250.33,
+    "ingresso_high": 262.33,
+    "stop": 233.19,
+    "target": 293.19,
+    "motivo": "⚠️"
   },
   {
     "ticker": "TSLA",
     "tf": "",
-    "ingresso_low": 353.22,
-    "ingresso_high": 362.99,
-    "stop": 339.25,
-    "target": 388.13,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 352.77,
+    "ingresso_high": 362.54,
+    "stop": 338.8,
+    "target": 387.68,
+    "motivo": "⚠️"
   },
   {
     "ticker": "HOOD",
     "tf": "",
-    "ingresso_low": 110.71,
-    "ingresso_high": 115.24,
-    "stop": 104.24,
-    "target": 126.9,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 110.93,
+    "ingresso_high": 115.46,
+    "stop": 104.46,
+    "target": 127.12,
+    "motivo": "⚠️"
   },
   {
     "ticker": "APP",
     "tf": "",
-    "ingresso_low": 325.4,
-    "ingresso_high": 335.45,
-    "stop": 311.04,
-    "target": 361.28,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 325.57,
+    "ingresso_high": 335.62,
+    "stop": 311.22,
+    "target": 361.46,
+    "motivo": "⚠️"
   },
   {
     "ticker": "SBET",
     "tf": "",
-    "ingresso_low": 8.79,
-    "ingresso_high": 9.2,
-    "stop": 8.2,
-    "target": 10.27,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 8.8,
+    "ingresso_high": 9.21,
+    "stop": 8.21,
+    "target": 10.28,
+    "motivo": "⚠️"
   },
   {
     "ticker": "BMNR",
     "tf": "",
-    "ingresso_low": 24.62,
-    "ingresso_high": 25.9,
-    "stop": 22.8,
-    "target": 29.18,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 24.66,
+    "ingresso_high": 25.93,
+    "stop": 22.84,
+    "target": 29.21,
+    "motivo": "⚠️"
   },
   {
     "ticker": "MARA",
     "tf": "",
-    "ingresso_low": 11.06,
-    "ingresso_high": 11.66,
-    "stop": 10.19,
-    "target": 13.22,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 11.08,
+    "ingresso_high": 11.69,
+    "stop": 10.21,
+    "target": 13.25,
+    "motivo": "⚠️"
   },
   {
     "ticker": "IBIT",
     "tf": "",
-    "ingresso_low": 44.11,
-    "ingresso_high": 45.03,
-    "stop": 42.81,
-    "target": 47.37,
-    "motivo": "Screener automatico (2/4 ⚠️) — RSI 40-65 in salita, entro 5% da max10"
+    "ingresso_low": 44.15,
+    "ingresso_high": 45.07,
+    "stop": 42.85,
+    "target": 47.41,
+    "motivo": "⚠️"
   },
   {
     "ticker": "ETHA",
     "tf": "",
-    "ingresso_low": 18.82,
-    "ingresso_high": 19.26,
-    "stop": 18.19,
-    "target": 20.39,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 18.84,
+    "ingresso_high": 19.28,
+    "stop": 18.21,
+    "target": 20.41,
+    "motivo": "⚠️"
   },
   {
     "ticker": "KOSPI",
@@ -101,74 +101,74 @@
   {
     "ticker": "SPCX",
     "tf": "",
-    "ingresso_low": 146.78,
-    "ingresso_high": 151.11,
-    "stop": 140.6,
-    "target": 162.23,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 146.98,
+    "ingresso_high": 151.31,
+    "stop": 140.8,
+    "target": 162.43,
+    "motivo": "⚠️"
   },
   {
     "ticker": "INTC",
     "tf": "",
-    "ingresso_low": 95.86,
-    "ingresso_high": 99.24,
-    "stop": 91.03,
-    "target": 107.93,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 95.54,
+    "ingresso_high": 98.92,
+    "stop": 90.71,
+    "target": 107.61,
+    "motivo": "⚠️"
   },
   {
     "ticker": "META",
     "tf": "",
-    "ingresso_low": 654.52,
-    "ingresso_high": 669.72,
-    "stop": 632.81,
-    "target": 708.81,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 654.81,
+    "ingresso_high": 670.01,
+    "stop": 633.1,
+    "target": 709.1,
+    "motivo": "⚠️"
   },
   {
     "ticker": "AAPL",
     "tf": "",
-    "ingresso_low": 330.65,
-    "ingresso_high": 336.15,
-    "stop": 322.8,
-    "target": 351.31,
-    "motivo": "Screener automatico (1/4 ⚠️) — entro 5% da max10"
+    "ingresso_low": 331.38,
+    "ingresso_high": 336.88,
+    "stop": 323.52,
+    "target": 352.07,
+    "motivo": "⚠️"
   },
   {
     "ticker": "IWM",
     "tf": "",
-    "ingresso_low": 286.94,
-    "ingresso_high": 289.09,
-    "stop": 283.88,
-    "target": 302.9,
-    "motivo": "Screener automatico (1/4 ⚠️) — entro 5% da max10"
+    "ingresso_low": 287.02,
+    "ingresso_high": 289.17,
+    "stop": 283.96,
+    "target": 302.98,
+    "motivo": "⚠️"
   },
   {
     "ticker": "QCOM",
     "tf": "",
-    "ingresso_low": 177.27,
-    "ingresso_high": 182.28,
-    "stop": 170.11,
-    "target": 195.17,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 177.08,
+    "ingresso_high": 182.09,
+    "stop": 169.92,
+    "target": 194.98,
+    "motivo": "⚠️"
   },
   {
     "ticker": "NOK",
     "tf": "",
-    "ingresso_low": 9.53,
-    "ingresso_high": 9.86,
-    "stop": 9.06,
-    "target": 10.71,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, volume > 1.3x"
+    "ingresso_low": 9.5,
+    "ingresso_high": 9.83,
+    "stop": 9.03,
+    "target": 10.68,
+    "motivo": "⚠️"
   },
   {
     "ticker": "MSTR",
     "tf": "",
-    "ingresso_low": 131.26,
-    "ingresso_high": 137.87,
-    "stop": 121.81,
-    "target": 154.88,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 131.55,
+    "ingresso_high": 138.16,
+    "stop": 122.1,
+    "target": 155.17,
+    "motivo": "⚠️"
   },
   {
     "ticker": "IREN",
@@ -177,105 +177,114 @@
     "ingresso_high": 43.98,
     "stop": 38.98,
     "target": 49.27,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "motivo": "⚠️"
   },
   {
     "ticker": "TSM",
     "tf": "",
-    "ingresso_low": 418.4,
-    "ingresso_high": 425.49,
-    "stop": 408.27,
-    "target": 444.63,
-    "motivo": "Screener automatico (1/4 ⚠️) — entro 5% da max10"
+    "ingresso_low": 417.87,
+    "ingresso_high": 424.96,
+    "stop": 407.74,
+    "target": 444.08,
+    "motivo": "⚠️"
   },
   {
     "ticker": "MU",
     "tf": "",
-    "ingresso_low": 907.22,
-    "ingresso_high": 937.8,
-    "stop": 863.53,
-    "target": 1016.43,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 905.25,
+    "ingresso_high": 935.83,
+    "stop": 861.56,
+    "target": 1014.46,
+    "motivo": "⚠️"
   },
   {
     "ticker": "MRVL",
     "tf": "",
-    "ingresso_low": 215.47,
-    "ingresso_high": 225.04,
-    "stop": 201.81,
-    "target": 249.63,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 214.91,
+    "ingresso_high": 224.47,
+    "stop": 201.25,
+    "target": 249.06,
+    "motivo": "⚠️"
   },
   {
     "ticker": "SNDK",
     "tf": "",
-    "ingresso_low": 1513.11,
-    "ingresso_high": 1581.52,
-    "stop": 1415.38,
-    "target": 1757.42,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 1508.86,
+    "ingresso_high": 1577.27,
+    "stop": 1411.13,
+    "target": 1753.17,
+    "motivo": "⚠️"
   },
   {
     "ticker": "NBIS",
     "tf": "",
-    "ingresso_low": 206.78,
-    "ingresso_high": 216.52,
-    "stop": 192.88,
-    "target": 241.55,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 206.53,
+    "ingresso_high": 216.26,
+    "stop": 192.62,
+    "target": 241.29,
+    "motivo": "⚠️"
   },
   {
     "ticker": "DRAM",
     "tf": "",
-    "ingresso_low": 54.29,
-    "ingresso_high": 55.92,
-    "stop": 51.95,
-    "target": 60.13,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 54.2,
+    "ingresso_high": 55.84,
+    "stop": 51.86,
+    "target": 60.05,
+    "motivo": "⚠️"
   },
   {
     "ticker": "GLXY",
     "tf": "",
-    "ingresso_low": 23.07,
-    "ingresso_high": 24.3,
-    "stop": 21.3,
-    "target": 27.49,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 23.15,
+    "ingresso_high": 24.38,
+    "stop": 21.38,
+    "target": 27.57,
+    "motivo": "⚠️"
   },
   {
     "ticker": "SKHY",
     "tf": "",
-    "ingresso_low": 171.73,
-    "ingresso_high": 177.76,
-    "stop": 163.13,
-    "target": 193.25,
-    "motivo": "Screener automatico (1/4 ⚠️) — ATR% 3-15"
+    "ingresso_low": 171.26,
+    "ingresso_high": 177.28,
+    "stop": 162.65,
+    "target": 192.77,
+    "motivo": "⚠️"
   },
   {
     "ticker": "CRCL",
     "tf": "",
-    "ingresso_low": 91.64,
-    "ingresso_high": 96.58,
-    "stop": 84.59,
-    "target": 109.27,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, RSI 40-65 in salita"
+    "ingresso_low": 92.0,
+    "ingresso_high": 96.94,
+    "stop": 84.95,
+    "target": 109.64,
+    "motivo": "⚠️"
   },
   {
     "ticker": "OSCR",
     "tf": "",
-    "ingresso_low": 33.52,
-    "ingresso_high": 34.74,
-    "stop": 31.77,
-    "target": 37.88,
-    "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, RSI 40-65 in salita, entro 5% da max10"
+    "ingresso_low": 33.57,
+    "ingresso_high": 34.79,
+    "stop": 31.83,
+    "target": 37.94,
+    "motivo": "✅"
   },
   {
     "ticker": "ASST",
     "tf": "",
-    "ingresso_low": 27.82,
-    "ingresso_high": 29.42,
-    "stop": 25.53,
-    "target": 33.54,
-    "motivo": "Screener automatico (2/4 ⚠️) — ATR% 3-15, entro 5% da max10"
+    "ingresso_low": 27.94,
+    "ingresso_high": 29.54,
+    "stop": 25.65,
+    "target": 33.66,
+    "motivo": "⚠️"
+  },
+  {
+    "ticker": "ABCL",
+    "tf": "",
+    "ingresso_low": 10.67,
+    "ingresso_high": 11.16,
+    "stop": 9.98,
+    "target": 12.4,
+    "motivo": "⚠️"
   }
 ]
