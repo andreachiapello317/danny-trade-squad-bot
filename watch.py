@@ -273,6 +273,20 @@ def upsert_if_changed(
     return upsert(items, ticket), True
 
 
+def merge_ticket(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for field in ("ingresso_low", "ingresso_high", "stop", "target"):
+        value = incoming.get(field)
+        if value is not None:
+            merged[field] = value
+    motivo = incoming.get("motivo")
+    if isinstance(motivo, str) and motivo:
+        merged["motivo"] = motivo
+    merged["ticker"] = incoming["ticker"]
+    merged["tf"] = incoming.get("tf") or ""
+    return merged
+
+
 def refresh_watchlist_summary(watchlist_path: Path, state_path: Path) -> None:
     state = load_state(state_path)
     old_id = state.get("summary_message_id")
@@ -958,6 +972,13 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not is_valid_symbol(ticker):
             removed.append(f"{ticker} scartato (non è un'azione/ETF)")
             continue
+        key = (ticket["ticker"], ticket.get("tf") or "")
+        existing = next(
+            (it for it in items if (it.get("ticker"), it.get("tf") or "") == key),
+            None,
+        )
+        if existing is not None:
+            ticket = merge_ticket(existing, ticket)
         items, changed = upsert_if_changed(items, ticket)
         if changed:
             added.append(str(ticket["ticker"]))
@@ -1036,6 +1057,17 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                                             f"{ticker} scartato (non è un'azione/ETF)"
                                         )
                                         continue
+                                    key = (ticket["ticker"], ticket.get("tf") or "")
+                                    existing = next(
+                                        (
+                                            it
+                                            for it in items
+                                            if (it.get("ticker"), it.get("tf") or "") == key
+                                        ),
+                                        None,
+                                    )
+                                    if existing is not None:
+                                        ticket = merge_ticket(existing, ticket)
                                     items, changed = upsert_if_changed(items, ticket)
                                     if changed:
                                         added.append(str(ticket["ticker"]))
