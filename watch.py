@@ -296,7 +296,7 @@ def refresh_watchlist_summary(watchlist_path: Path, state_path: Path) -> None:
     if not items:
         body = "Watchlist vuota."
     else:
-        body = "\n".join(fmt_ticket_line_no_motivo(it) for it in items)
+        body = "\n".join(fmt_ticket_line(it) for it in items)
     new_id = send_telegram(body)
     if isinstance(new_id, int):
         state["summary_message_id"] = new_id
