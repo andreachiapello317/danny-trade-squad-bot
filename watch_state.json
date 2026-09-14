@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543079,
+  "telegram_offset": 236543081,
   "fired": {
     "VST||target": true,
     "ABCL||stop": true,
@@ -12,7 +12,6 @@
     "ETHA||ingresso": true,
     "AAPL||ingresso": true,
     "IWM||ingresso": true,
-    "QCOM||stop": true,
     "MARA||ingresso": true,
     "SPCX||ingresso": true,
     "META||ingresso": true,
@@ -73,8 +72,8 @@
       "sent_at": "2026-09-14T13:48:03.518608+00:00"
     }
   ],
-  "summary_message_id": 152,
+  "summary_message_id": 155,
   "last_daily_summary": "2026-09-14",
-  "screener_message_id": 151,
+  "screener_message_id": 156,
   "last_screener_run": "2026-09-14"
 }
