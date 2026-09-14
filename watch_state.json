@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543078,
+  "telegram_offset": 236543079,
   "fired": {
     "VST||target": true,
     "ABCL||stop": true,
@@ -12,15 +12,28 @@
     "ETHA||ingresso": true,
     "AAPL||ingresso": true,
     "IWM||ingresso": true,
-    "AMD||stop": true,
-    "INTC||stop": true,
     "QCOM||stop": true,
-    "NOK||stop": true,
-    "BE||stop": true,
     "MARA||ingresso": true,
     "SPCX||ingresso": true,
     "META||ingresso": true,
-    "QCOM||ingresso": true
+    "QCOM||ingresso": true,
+    "AMD||ingresso": true,
+    "BE||ingresso": true,
+    "IBIT||ingresso": true,
+    "INTC||ingresso": true,
+    "NOK||ingresso": true,
+    "MSTR||ingresso": true,
+    "IREN||ingresso": true,
+    "TSM||ingresso": true,
+    "MU||ingresso": true,
+    "MRVL||ingresso": true,
+    "SNDK||ingresso": true,
+    "NBIS||ingresso": true,
+    "DRAM||ingresso": true,
+    "GLXY||ingresso": true,
+    "SKHY||ingresso": true,
+    "CRCL||ingresso": true,
+    "OSCR||ingresso": true
   },
   "sent_alerts": [
     {
@@ -60,8 +73,8 @@
       "sent_at": "2026-09-14T13:48:03.518608+00:00"
     }
   ],
-  "summary_message_id": 144,
+  "summary_message_id": 152,
   "last_daily_summary": "2026-09-14",
-  "screener_message_id": 132,
+  "screener_message_id": 151,
   "last_screener_run": "2026-09-14"
 }
