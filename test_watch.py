@@ -305,6 +305,82 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(item["target"], 162.96)
             self.assertEqual(item["motivo"], "Screener automatico (4/4 ✅)")
 
+    def test_ingest_runs_screener_when_new_ticket_has_empty_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            updates = [{"update_id": 92, "message": _msg(text="$NVDA")}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "run_screener") as run,
+                patch.object(watch, "send_telegram", return_value=1) as send,
+            ):
+                def screen(*args: object, **kwargs: object) -> None:
+                    send.assert_not_called()
+
+                run.side_effect = screen
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 1)
+            run.assert_called_once_with(wpath, spath)
+            send.assert_called()
+            body = send.call_args[0][0]
+            self.assertIn("✅ NVDA aggiunto/aggiornato", body)
+
+    def test_ingest_skips_screener_when_new_ticket_has_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            updates = [{"update_id": 93, "message": _msg(text=TICKET)}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "run_screener") as run,
+                patch.object(watch, "send_telegram", return_value=1),
+            ):
+                watch.ingest_telegram(wpath, spath)
+            run.assert_not_called()
+
+    def test_ingest_skips_screener_when_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            updates = [{"update_id": 94, "message": _msg(text="$NVDA")}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "run_screener", None),
+                patch.object(watch, "send_telegram", return_value=1) as send,
+            ):
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 1)
+            send.assert_called()
+            self.assertEqual(watch.load_watchlist(wpath)[0]["ticker"], "NVDA")
+            self.assertIsNone(watch.load_watchlist(wpath)[0]["ingresso_low"])
+
+    def test_maybe_run_screener_only_if_added_has_empty_ingresso(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {"ticker": "NVDA", "tf": "", "ingresso_low": None, "stop": None, "target": None},
+                    {"ticker": "AMD", "tf": "daily", "ingresso_low": 130, "stop": 124, "target": 148},
+                ],
+            )
+            with patch.object(watch, "run_screener") as run:
+                watch.maybe_run_screener_for_empty_added(["AMD"], wpath, spath)
+            run.assert_not_called()
+            with patch.object(watch, "run_screener") as run:
+                watch.maybe_run_screener_for_empty_added(["NVDA"], wpath, spath)
+            run.assert_called_once_with(wpath, spath)
+            with patch.object(watch, "run_screener", None):
+                watch.maybe_run_screener_for_empty_added(["NVDA"], wpath, spath)
+
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -761,11 +837,13 @@ class TelegramExtractTests(unittest.TestCase):
                     patch.object(watch, "TelegramClient", FakeClient),
                     patch.object(watch, "StringSession", lambda s: s),
                     patch.object(watch, "is_valid_symbol", return_value=True),
+                    patch.object(watch, "run_screener") as run,
                     patch.object(watch, "send_telegram"),
                     patch.object(watch, "delete_telegram_message") as delete,
                 ):
                     n = watch.ingest_telegram_userbot(wpath, spath)
                     self.assertEqual(delete.call_args_list[0][0][0], 10)
+                    run.assert_not_called()
             finally:
                 os.environ.pop("TELEGRAM_API_ID", None)
                 os.environ.pop("TELEGRAM_API_HASH", None)
