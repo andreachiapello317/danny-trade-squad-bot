@@ -1,22 +1,12 @@
 {
-  "telegram_offset": 236543072,
+  "telegram_offset": 236543073,
   "fired": {
     "VST||target": true,
     "ABCL||stop": true,
-    "ABCL||ingresso": true,
-    "TSLA||ingresso": true,
-    "APP||ingresso": true,
-    "MARA||ingresso": true,
-    "SPCX||ingresso": true,
-    "INTC||ingresso": true,
-    "META||ingresso": true,
-    "AAPL||ingresso": true,
-    "IWM||ingresso": true,
-    "QCOM||ingresso": true,
-    "NOK||ingresso": true
+    "ABCL||ingresso": true
   },
   "sent_alerts": [],
-  "summary_message_id": 125,
+  "summary_message_id": 127,
   "last_daily_summary": "2026-09-13",
   "screener_message_id": 121
 }
