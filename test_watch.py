@@ -482,7 +482,7 @@ class TelegramExtractTests(unittest.TestCase):
                         "ingresso_high": 134,
                         "stop": 124,
                         "target": 148,
-                        "motivo": "Screener automatico (4/4 ✅) — ATR% 3-15",
+                        "motivo": "✅",
                     }
                 ],
             )
@@ -498,8 +498,10 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertIn("ing 130-134", body)
             self.assertIn("stop 124", body)
             self.assertIn("tgt 148", body)
+            self.assertTrue(body.rstrip().endswith("✅"))
             self.assertNotIn("Screener automatico", body)
-            self.assertNotIn("motivo", body)
+            self.assertNotIn("ATR", body)
+            self.assertNotIn("RSI", body)
             self.assertNotIn("📊 Screener tecnico", body)
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["summary_message_id"], 22)

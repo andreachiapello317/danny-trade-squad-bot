@@ -190,21 +190,13 @@ class RunScreenerTests(unittest.TestCase):
             with (
                 patch.object(screener, "compute_metrics", side_effect=fake_metrics),
                 patch.object(watch, "refresh_watchlist_summary") as refresh,
+                patch.object(watch, "send_telegram") as send,
                 patch.object(watch, "delete_telegram_message") as delete,
-                patch.object(watch, "send_telegram", return_value=55) as send,
             ):
                 self.assertIsNone(screener.run_screener(wpath, spath))
             refresh.assert_called_once_with(wpath, spath)
+            send.assert_not_called()
             delete.assert_not_called()
-            send.assert_called_once()
-            body = send.call_args[0][0]
-            self.assertTrue(body.startswith("📊 Screener tecnico"))
-            self.assertIn("✅ AMD  (4/4)", body)
-            self.assertIn("ATR 8.2%", body)
-            self.assertNotIn("ing ", body)
-            self.assertNotIn("stop ", body)
-            self.assertNotIn("tgt ", body)
-            self.assertIn("HOOD: dati non disponibili", body)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             amd = next(it for it in items if it["ticker"] == "AMD")
             hood = next(it for it in items if it["ticker"] == "HOOD")
@@ -212,10 +204,7 @@ class RunScreenerTests(unittest.TestCase):
             self.assertEqual(amd["ingresso_high"], 142.3)
             self.assertEqual(amd["stop"], 122.78)
             self.assertEqual(amd["target"], 162.96)
-            self.assertEqual(
-                amd["motivo"],
-                "Screener automatico (4/4 ✅) — ATR% 3-15, volume > 1.3x, RSI 40-65 in salita, entro 5% da max10",
-            )
+            self.assertEqual(amd["motivo"], "✅")
             self.assertEqual(hood["ingresso_low"], 10)
             self.assertEqual(hood["motivo"], "keep")
             state = json.loads(spath.read_text(encoding="utf-8"))
@@ -223,9 +212,9 @@ class RunScreenerTests(unittest.TestCase):
             self.assertNotIn("AMD|daily|stop", state["fired"])
             self.assertNotIn("AMD|daily|target", state["fired"])
             self.assertNotIn("HOOD|weekly|ingresso", state["fired"])
-            self.assertEqual(state["screener_message_id"], 55)
+            self.assertNotIn("screener_message_id", state)
 
-    def test_replaces_screener_message_keeps_summary_id(self) -> None:
+    def test_does_not_send_technical_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -257,19 +246,24 @@ class RunScreenerTests(unittest.TestCase):
                 patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
                 patch.object(watch, "refresh_watchlist_summary"),
                 patch.object(watch, "delete_telegram_message") as delete,
-                patch.object(watch, "send_telegram", return_value=44) as send,
+                patch.object(watch, "send_telegram") as send,
             ):
                 screener.run_screener(wpath, spath)
-            delete.assert_called_once_with(33)
-            send.assert_called_once()
-            body = send.call_args[0][0]
-            self.assertTrue(body.startswith("📊 Screener tecnico"))
-            self.assertIn("✅ AMD  (4/4)", body)
-            self.assertNotIn("ing ", body)
-            self.assertNotIn("stop ", body)
-            self.assertNotIn("tgt ", body)
+            delete.assert_not_called()
+            send.assert_not_called()
+            item = json.loads(wpath.read_text(encoding="utf-8"))[0]
+            self.assertEqual(item["motivo"], "✅")
+            line = watch.fmt_ticket_line(item)
+            self.assertIn("AMD", line)
+            self.assertIn("ing 134.26-142.3", line)
+            self.assertIn("stop 122.78", line)
+            self.assertIn("tgt 162.96", line)
+            self.assertTrue(line.rstrip().endswith("✅"))
+            self.assertNotIn("ATR", line)
+            self.assertNotIn("RSI", line)
+            self.assertNotIn("Screener automatico", line)
             state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["screener_message_id"], 44)
+            self.assertEqual(state["screener_message_id"], 33)
             self.assertEqual(state["summary_message_id"], 11)
             self.assertEqual(state["telegram_offset"], 4)
             self.assertTrue(state["fired"]["AMD|daily|ingresso"])
