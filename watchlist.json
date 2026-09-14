@@ -160,5 +160,104 @@
     "stop": 10.52,
     "target": 11.94,
     "motivo": "Screener automatico (3/4 ✅) — ATR% 3-15, RSI 40-65 in salita, entro 5% da max10"
+  },
+  {
+    "ticker": "MSTR",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "IREN",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "TSM",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "MU",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "MRVL",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "SNDK",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "NBIS",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "DRAM",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "GLXY",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "SKHY",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
+  },
+  {
+    "ticker": "CRCL",
+    "tf": "",
+    "ingresso_low": null,
+    "ingresso_high": null,
+    "stop": null,
+    "target": null,
+    "motivo": ""
   }
 ]
