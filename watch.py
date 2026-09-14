@@ -353,14 +353,14 @@ def fmt_ingresso(item: dict[str, Any]) -> str:
 
 
 def fmt_ticket_line(item: dict[str, Any]) -> str:
-    tf = item.get("tf") or "—"
     motivo = (item.get("motivo") or "").strip()
-    extra = f"  {motivo}" if motivo else ""
+    extra = f" {motivo}" if motivo else ""
     return (
-        f"{item['ticker']:<6} {tf:<9}  "
-        f"ing {fmt_ingresso(item):<12} "
-        f"stop {fmt_level(item.get('stop')):<8} "
-        f"tgt {fmt_level(item.get('target'))}{extra}"
+        f"{item['ticker']} "
+        f"i {fmt_ingresso(item)} "
+        f"s {fmt_level(item.get('stop'))} "
+        f"t {fmt_level(item.get('target'))}"
+        f"{extra}"
     )
 
 
@@ -530,14 +530,10 @@ def apply_telegram_clean(text: str, state_path: Path) -> bool:
     return True
 
 
-def apply_telegram_list(text: str, watchlist_path: Path) -> bool:
+def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
     if not LIST_RE.match(text.strip()):
         return False
-    items = load_watchlist(watchlist_path)
-    if not items:
-        send_telegram("Watchlist vuota.")
-    else:
-        send_telegram("\n".join(fmt_ticket_line(it) for it in items))
+    refresh_watchlist_summary(watchlist_path, state_path)
     return True
 
 
@@ -945,7 +941,7 @@ def process_single_message(
         pass
     elif apply_telegram_clean(text, state_path):
         pass
-    elif apply_telegram_list(text, watchlist_path):
+    elif apply_telegram_list(text, watchlist_path, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
@@ -1071,7 +1067,7 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                 pass
             elif apply_telegram_clean(text, state_path):
                 pass
-            elif apply_telegram_list(text, watchlist_path):
+            elif apply_telegram_list(text, watchlist_path, state_path):
                 pass
             else:
                 cleared = apply_telegram_clear(text, watchlist_path)

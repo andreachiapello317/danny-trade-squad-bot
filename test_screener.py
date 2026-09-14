@@ -254,11 +254,7 @@ class RunScreenerTests(unittest.TestCase):
             item = json.loads(wpath.read_text(encoding="utf-8"))[0]
             self.assertEqual(item["motivo"], "✅")
             line = watch.fmt_ticket_line(item)
-            self.assertIn("AMD", line)
-            self.assertIn("ing 134.26-142.3", line)
-            self.assertIn("stop 122.78", line)
-            self.assertIn("tgt 162.96", line)
-            self.assertTrue(line.rstrip().endswith("✅"))
+            self.assertEqual(line, "AMD i 134.26-142.3 s 122.78 t 162.96 ✅")
             self.assertNotIn("ATR", line)
             self.assertNotIn("RSI", line)
             self.assertNotIn("Screener automatico", line)

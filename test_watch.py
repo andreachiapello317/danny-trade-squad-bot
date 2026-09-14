@@ -170,6 +170,27 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
+class FmtTicketLineTests(unittest.TestCase):
+    def test_compact_line_with_emoji_and_missing(self) -> None:
+        self.assertEqual(
+            watch.fmt_ticket_line(
+                {
+                    "ticker": "AMD",
+                    "ingresso_low": 485.34,
+                    "ingresso_high": 499.34,
+                    "stop": 465.33,
+                    "target": 535.35,
+                    "motivo": "⚠️",
+                }
+            ),
+            "AMD i 485.34-499.34 s 465.33 t 535.35 ⚠️",
+        )
+        self.assertEqual(
+            watch.fmt_ticket_line({"ticker": "HOOD"}),
+            "HOOD i — s — t —",
+        )
+
+
 class TelegramExtractTests(unittest.TestCase):
     def test_caption_beats_empty_text(self) -> None:
         msg = _msg(caption=TICKET)
@@ -210,7 +231,7 @@ class TelegramExtractTests(unittest.TestCase):
             body = send.call_args[0][0]
             self.assertIn("✅ AMD aggiunto/aggiornato", body)
             self.assertIn("AMD", body)
-            self.assertIn("ing 130-134", body)
+            self.assertIn("i 130-134", body)
             self.assertEqual(n, 1)
             items = json.loads(wpath.read_text(encoding="utf-8"))
             self.assertEqual(items[0]["ticker"], "AMD")
@@ -422,16 +443,38 @@ class TelegramExtractTests(unittest.TestCase):
     def test_list_sends_and_returns_true(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
-            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
-            with patch.object(watch, "send_telegram") as send:
-                self.assertTrue(watch.apply_telegram_list("/list", wpath))
-                self.assertTrue(watch.apply_telegram_list("/WATCHLIST", wpath))
-                self.assertFalse(watch.apply_telegram_list("/rm AMD", wpath))
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {
+                        "ticker": "AMD",
+                        "tf": "daily",
+                        "ingresso_low": 130,
+                        "ingresso_high": 134,
+                        "stop": 124,
+                        "target": 148,
+                        "motivo": "⚠️",
+                    }
+                ],
+            )
+            watch.save_state(spath, {"summary_message_id": 11})
+            with (
+                patch.object(watch, "delete_telegram_message") as delete,
+                patch.object(watch, "send_telegram", return_value=22) as send,
+            ):
+                self.assertTrue(watch.apply_telegram_list("/list", wpath, spath))
+                self.assertTrue(watch.apply_telegram_list("/WATCHLIST", wpath, spath))
+                self.assertFalse(watch.apply_telegram_list("/rm AMD", wpath, spath))
             self.assertEqual(send.call_count, 2)
-            self.assertIn("AMD", send.call_args_list[0][0][0])
+            self.assertEqual(delete.call_count, 2)
+            body = send.call_args_list[0][0][0]
+            self.assertEqual(body, "AMD i 130-134 s 124 t 148 ⚠️")
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertEqual(state["summary_message_id"], 22)
             watch.save_watchlist(wpath, [])
-            with patch.object(watch, "send_telegram") as send:
-                watch.apply_telegram_list("/list", wpath)
+            with patch.object(watch, "send_telegram", return_value=33) as send:
+                watch.apply_telegram_list("/list", wpath, spath)
             send.assert_called_with("Watchlist vuota.")
 
     def test_scan_runs_screener_without_extra_message(self) -> None:
@@ -525,10 +568,13 @@ class TelegramExtractTests(unittest.TestCase):
             delete.assert_called_once_with(11)
             body = send.call_args[0][0]
             self.assertIn("AMD", body)
-            self.assertIn("ing 130-134", body)
-            self.assertIn("stop 124", body)
-            self.assertIn("tgt 148", body)
+            self.assertIn("i 130-134", body)
+            self.assertIn("s 124", body)
+            self.assertIn("t 148", body)
             self.assertTrue(body.rstrip().endswith("✅"))
+            self.assertNotIn(" ing ", body)
+            self.assertNotIn("stop ", body)
+            self.assertNotIn("tgt ", body)
             self.assertNotIn("Screener automatico", body)
             self.assertNotIn("ATR", body)
             self.assertNotIn("RSI", body)
