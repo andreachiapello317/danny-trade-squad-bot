@@ -15,7 +15,12 @@
     "AMD||stop": true,
     "INTC||stop": true,
     "QCOM||stop": true,
-    "NOK||stop": true
+    "NOK||stop": true,
+    "BE||stop": true,
+    "MARA||ingresso": true,
+    "SPCX||ingresso": true,
+    "META||ingresso": true,
+    "QCOM||ingresso": true
   },
   "sent_alerts": [
     {
@@ -33,6 +38,26 @@
     {
       "message_id": 137,
       "sent_at": "2026-09-14T13:31:30.896637+00:00"
+    },
+    {
+      "message_id": 138,
+      "sent_at": "2026-09-14T13:48:02.269863+00:00"
+    },
+    {
+      "message_id": 139,
+      "sent_at": "2026-09-14T13:48:02.574985+00:00"
+    },
+    {
+      "message_id": 140,
+      "sent_at": "2026-09-14T13:48:02.907502+00:00"
+    },
+    {
+      "message_id": 141,
+      "sent_at": "2026-09-14T13:48:03.225464+00:00"
+    },
+    {
+      "message_id": 142,
+      "sent_at": "2026-09-14T13:48:03.518608+00:00"
     }
   ],
   "summary_message_id": 131,
