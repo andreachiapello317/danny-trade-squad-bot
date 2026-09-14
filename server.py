@@ -62,7 +62,7 @@ def price_loop() -> None:
                     maybe_send_daily_summary(items, STATE_PATH)
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
-        time.sleep(300)
+        time.sleep(60)
 
 
 def start_price_loop() -> None:

@@ -112,7 +112,7 @@ class WebhookTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 server.price_loop()
         self.assertEqual(calls["n"], 2)
-        time_mod.sleep.assert_called_with(300)
+        time_mod.sleep.assert_called_with(60)
 
 
 if __name__ == "__main__":
