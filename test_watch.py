@@ -111,6 +111,55 @@ class ParseTicketTests(unittest.TestCase):
         self.assertIn("Red candle", item["motivo"])
 
 
+class MergeTicketTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.existing = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 134.26,
+            "ingresso_high": 142.3,
+            "stop": 122.78,
+            "target": 162.96,
+            "motivo": "Screener automatico (4/4 ✅)",
+        }
+
+    def test_keeps_levels_and_motivo_when_incoming_empty(self) -> None:
+        incoming = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": None,
+            "ingresso_high": None,
+            "stop": None,
+            "target": None,
+            "motivo": "",
+        }
+        merged = watch.merge_ticket(self.existing, incoming)
+        self.assertEqual(merged["ingresso_low"], 134.26)
+        self.assertEqual(merged["ingresso_high"], 142.3)
+        self.assertEqual(merged["stop"], 122.78)
+        self.assertEqual(merged["target"], 162.96)
+        self.assertEqual(merged["motivo"], "Screener automatico (4/4 ✅)")
+        self.assertEqual(merged["ticker"], "AMD")
+        self.assertEqual(merged["tf"], "daily")
+        self.assertEqual(self.existing["ingresso_low"], 134.26)
+
+    def test_overwrites_only_provided_fields(self) -> None:
+        incoming = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": None,
+            "ingresso_high": None,
+            "stop": 120.0,
+            "target": None,
+            "motivo": "Danny: nuovo motivo",
+        }
+        merged = watch.merge_ticket(self.existing, incoming)
+        self.assertEqual(merged["ingresso_low"], 134.26)
+        self.assertEqual(merged["stop"], 120.0)
+        self.assertEqual(merged["target"], 162.96)
+        self.assertEqual(merged["motivo"], "Danny: nuovo motivo")
+
+
 class ShouldDeleteChatMessageTests(unittest.TestCase):
     def test_keeps_bot_digests(self) -> None:
         self.assertFalse(watch.should_delete_chat_message("📋 AMD  ing 130-134"))
@@ -186,6 +235,75 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertIn("❌ KOSPI scartato (non è un'azione/ETF)", body)
             self.assertNotIn("rimosso", body)
             self.assertNotIn("✅ KOSPI", body)
+
+    def test_ingest_keeps_existing_levels_on_ticker_only_ticket(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {
+                        "ticker": "AMD",
+                        "tf": "daily",
+                        "ingresso_low": 134.26,
+                        "ingresso_high": 142.3,
+                        "stop": 122.78,
+                        "target": 162.96,
+                        "motivo": "Screener automatico (4/4 ✅)",
+                    }
+                ],
+            )
+            updates = [{"update_id": 90, "message": _msg(text="$AMD · daily")}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 1)
+            send.assert_not_called()
+            item = watch.load_watchlist(wpath)[0]
+            self.assertEqual(item["ingresso_low"], 134.26)
+            self.assertEqual(item["ingresso_high"], 142.3)
+            self.assertEqual(item["stop"], 122.78)
+            self.assertEqual(item["target"], 162.96)
+            self.assertEqual(item["motivo"], "Screener automatico (4/4 ✅)")
+
+    def test_ingest_merges_only_incoming_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {
+                        "ticker": "AMD",
+                        "tf": "daily",
+                        "ingresso_low": 134.26,
+                        "ingresso_high": 142.3,
+                        "stop": 122.78,
+                        "target": 162.96,
+                        "motivo": "Screener automatico (4/4 ✅)",
+                    }
+                ],
+            )
+            updates = [{"update_id": 91, "message": _msg(text="$AMD · daily\nstop 120")}]
+            with (
+                patch.object(watch, "telegram_token", return_value="123:abc"),
+                patch.object(watch, "telegram_get_updates", return_value=updates),
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                n = watch.ingest_telegram(wpath, spath)
+            self.assertEqual(n, 1)
+            send.assert_called_once()
+            item = watch.load_watchlist(wpath)[0]
+            self.assertEqual(item["ingresso_low"], 134.26)
+            self.assertEqual(item["stop"], 120.0)
+            self.assertEqual(item["target"], 162.96)
+            self.assertEqual(item["motivo"], "Screener automatico (4/4 ✅)")
 
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
