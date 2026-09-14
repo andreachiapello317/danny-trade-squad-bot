@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543068,
+  "telegram_offset": 236543069,
   "fired": {
     "VST||target": true,
     "TSLA||stop": true,
@@ -18,7 +18,7 @@
     "CRCL||ingresso": true
   },
   "sent_alerts": [],
-  "summary_message_id": 116,
+  "summary_message_id": 118,
   "last_daily_summary": "2026-09-13",
   "screener_message_id": 110
 }
