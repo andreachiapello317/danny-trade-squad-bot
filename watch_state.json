@@ -1,5 +1,5 @@
 {
-  "telegram_offset": 236543082,
+  "telegram_offset": 236543083,
   "fired": {
     "VST||target": true,
     "ABCL||stop": true,
@@ -32,7 +32,8 @@
     "GLXY||ingresso": true,
     "SKHY||ingresso": true,
     "CRCL||ingresso": true,
-    "OSCR||ingresso": true
+    "OSCR||ingresso": true,
+    "ASST||ingresso": true
   },
   "sent_alerts": [
     {
@@ -72,8 +73,8 @@
       "sent_at": "2026-09-14T13:48:03.518608+00:00"
     }
   ],
-  "summary_message_id": 158,
+  "summary_message_id": 163,
   "last_daily_summary": "2026-09-14",
-  "screener_message_id": 159,
+  "screener_message_id": 162,
   "last_screener_run": "2026-09-14"
 }
