@@ -77,9 +77,11 @@ def start_price_loop() -> None:
 def webhook() -> tuple[str, int]:
     try:
         update = request.get_json(silent=True) or {}
+        print(f"DEBUG webhook update: {update}", file=sys.stderr)
         if not isinstance(update, dict):
             return "ok", 200
         msg = update_payload(update)
+        print(f"DEBUG msg: {msg}, chat_id atteso: {telegram_chat_id()}", file=sys.stderr)
         if not msg or not chat_matches(msg.get("chat"), telegram_chat_id()):
             return "ok", 200
         text = payload_text(msg)
