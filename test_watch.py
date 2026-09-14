@@ -432,6 +432,76 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(removed, ["KOSPI scartato (non è un'azione/ETF)"])
             self.assertEqual(watch.load_watchlist(wpath), [])
 
+    def test_apply_telegram_balance_sends_ledger(self) -> None:
+        def fake_get(path: str):
+            if path.endswith("/accounts"):
+                return [{"accountId": "U123"}]
+            return {
+                "BASE": {
+                    "cashbalance": 1000.5,
+                    "netliquidationvalue": 5000.25,
+                    "currency": "USD",
+                }
+            }
+
+        with (
+            patch.object(watch, "ibkr_get", side_effect=fake_get),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_balance("/saldo"))
+            self.assertTrue(watch.apply_telegram_balance("/SALDO"))
+            self.assertFalse(watch.apply_telegram_balance("/list"))
+        self.assertEqual(send.call_count, 2)
+        body = send.call_args_list[0][0][0]
+        self.assertIn("💰 Conto U123", body)
+        self.assertIn("Contanti: 1000.5 USD", body)
+        self.assertIn("Valore netto: 5000.25 USD", body)
+
+    def test_apply_telegram_balance_uses_first_currency_without_base(self) -> None:
+        with (
+            patch.object(
+                watch,
+                "ibkr_get",
+                side_effect=[
+                    [{"accountId": "U9"}],
+                    {"EUR": {"cashbalance": 10, "netliquidationvalue": 20, "currency": "EUR"}},
+                ],
+            ),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_balance("/saldo"))
+        send.assert_called_once_with(
+            "💰 Conto U9\nContanti: 10 EUR\nValore netto: 20 EUR"
+        )
+
+    def test_apply_telegram_balance_errors(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_balance("/saldo"))
+        send.assert_called_with("⚠️ Impossibile leggere il conto IBKR al momento.")
+        with (
+            patch.object(watch, "ibkr_get", side_effect=[[{"accountId": "U1"}], None]),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_balance("/saldo"))
+        send.assert_called_with("⚠️ Impossibile leggere il saldo al momento.")
+
+    def test_process_single_message_runs_saldo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_balance", return_value=True) as bal,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message("/saldo", 12, wpath, spath)
+            self.assertEqual(added, [])
+            self.assertEqual(removed, [])
+            bal.assert_called_once_with("/saldo")
+            delete.assert_called_once_with(12)
+
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

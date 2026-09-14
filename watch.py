@@ -43,6 +43,7 @@ DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
 DEFAULT_CHAT_ID = "-1004312726798"
+IBKR_BASE_URL = "https://danny-ibeam:5000"
 SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
@@ -90,6 +91,7 @@ SET_FIELD_RE = re.compile(
 )
 SCAN_RE = re.compile(r"^/scan\s*$", re.I)
 CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
+BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -537,6 +539,59 @@ def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bo
     return True
 
 
+def ibkr_get(path: str) -> dict[str, Any] | list[Any] | None:
+    try:
+        import requests
+    except ImportError:
+        return None
+    try:
+        response = requests.get(IBKR_BASE_URL + path, verify=False, timeout=10)
+    except Exception:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    if isinstance(data, (dict, list)):
+        return data
+    return None
+
+
+def apply_telegram_balance(text: str) -> bool:
+    if not BALANCE_RE.match(text.strip()):
+        return False
+    accounts = ibkr_get("/v1/api/portfolio/accounts")
+    if not isinstance(accounts, list) or not accounts:
+        send_telegram("⚠️ Impossibile leggere il conto IBKR al momento.")
+        return True
+    first = accounts[0]
+    if not isinstance(first, dict) or not first.get("accountId"):
+        send_telegram("⚠️ Impossibile leggere il conto IBKR al momento.")
+        return True
+    account_id = first["accountId"]
+    ledger = ibkr_get(f"/v1/api/portfolio/{account_id}/ledger")
+    if not isinstance(ledger, dict):
+        send_telegram("⚠️ Impossibile leggere il saldo al momento.")
+        return True
+    raw = ledger.get("BASE")
+    if not isinstance(raw, dict):
+        raw = next(iter(ledger.values()), None)
+    if not isinstance(raw, dict):
+        send_telegram("⚠️ Impossibile leggere il saldo al momento.")
+        return True
+    cashbalance = raw.get("cashbalance", "—")
+    netliquidationvalue = raw.get("netliquidationvalue", "—")
+    currency = raw.get("currency", "")
+    send_telegram(
+        f"💰 Conto {account_id}\n"
+        f"Contanti: {cashbalance} {currency}\n"
+        f"Valore netto: {netliquidationvalue} {currency}"
+    )
+    return True
+
+
 def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     if not CLEAR_RE.match(text.strip()):
         return None
@@ -962,6 +1017,8 @@ def process_single_message(
     elif apply_telegram_clean(text, state_path):
         pass
     elif apply_telegram_list(text, watchlist_path, state_path):
+        pass
+    elif apply_telegram_balance(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
