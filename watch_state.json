@@ -4,25 +4,37 @@
     "VST||target": true,
     "ABCL||stop": true,
     "ABCL||ingresso": true,
-    "AMD||ingresso": true,
-    "BE||ingresso": true,
     "TSLA||ingresso": true,
     "HOOD||ingresso": true,
     "APP||ingresso": true,
     "SBET||ingresso": true,
     "BMNR||ingresso": true,
-    "MARA||ingresso": true,
-    "IBIT||ingresso": true,
     "ETHA||ingresso": true,
-    "SPCX||ingresso": true,
-    "INTC||ingresso": true,
-    "META||ingresso": true,
     "AAPL||ingresso": true,
     "IWM||ingresso": true,
-    "QCOM||ingresso": true,
-    "NOK||ingresso": true
+    "AMD||stop": true,
+    "INTC||stop": true,
+    "QCOM||stop": true,
+    "NOK||stop": true
   },
-  "sent_alerts": [],
+  "sent_alerts": [
+    {
+      "message_id": 134,
+      "sent_at": "2026-09-14T13:31:29.355284+00:00"
+    },
+    {
+      "message_id": 135,
+      "sent_at": "2026-09-14T13:31:29.855666+00:00"
+    },
+    {
+      "message_id": 136,
+      "sent_at": "2026-09-14T13:31:30.374983+00:00"
+    },
+    {
+      "message_id": 137,
+      "sent_at": "2026-09-14T13:31:30.896637+00:00"
+    }
+  ],
   "summary_message_id": 131,
   "last_daily_summary": "2026-09-14",
   "screener_message_id": 132,
