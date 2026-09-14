@@ -381,6 +381,35 @@ class TelegramExtractTests(unittest.TestCase):
             with patch.object(watch, "run_screener", None):
                 watch.maybe_run_screener_for_empty_added(["NVDA"], wpath, spath)
 
+    def test_process_single_message_upserts_ticket_and_deletes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(TICKET, 77, wpath, spath)
+            self.assertEqual(added, ["AMD"])
+            self.assertEqual(removed, [])
+            delete.assert_called_once_with(77)
+            self.assertEqual(watch.load_watchlist(wpath)[0]["ticker"], "AMD")
+
+    def test_process_single_message_rejects_non_equity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "classify_ticker", return_value="INDEX"),
+                patch.object(watch, "delete_telegram_message"),
+            ):
+                added, removed = watch.process_single_message(
+                    TICKET.replace("$AMD", "$KOSPI"), 8, wpath, spath
+                )
+            self.assertEqual(added, [])
+            self.assertEqual(removed, ["KOSPI scartato (non è un'azione/ETF)"])
+            self.assertEqual(watch.load_watchlist(wpath), [])
+
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
