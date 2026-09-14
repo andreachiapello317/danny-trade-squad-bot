@@ -214,6 +214,40 @@ class RunScreenerTests(unittest.TestCase):
             self.assertNotIn("HOOD|weekly|ingresso", state["fired"])
             self.assertNotIn("screener_message_id", state)
 
+    def test_skips_locked_fields_and_still_updates_motivo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            wpath.write_text(
+                json.dumps(
+                    [
+                        {
+                            "ticker": "AMD",
+                            "tf": "daily",
+                            "ingresso_low": 1,
+                            "ingresso_high": 2,
+                            "stop": 99,
+                            "target": 3,
+                            "motivo": "old",
+                            "locked_fields": ["stop"],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
+                patch.object(watch, "refresh_watchlist_summary"),
+            ):
+                screener.run_screener(wpath, spath)
+            amd = json.loads(wpath.read_text(encoding="utf-8"))[0]
+            self.assertEqual(amd["ingresso_low"], 134.26)
+            self.assertEqual(amd["ingresso_high"], 142.3)
+            self.assertEqual(amd["stop"], 99)
+            self.assertEqual(amd["target"], 162.96)
+            self.assertEqual(amd["motivo"], "✅")
+            self.assertEqual(amd["locked_fields"], ["stop"])
+
     def test_does_not_send_technical_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

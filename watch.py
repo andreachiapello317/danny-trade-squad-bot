@@ -547,6 +547,14 @@ def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     return tickers
 
 
+def _add_locked_fields(ticket: dict[str, Any], *fields: str) -> None:
+    locked = list(ticket.get("locked_fields") or [])
+    for field in fields:
+        if field not in locked:
+            locked.append(field)
+    ticket["locked_fields"] = locked
+
+
 def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
     m = SET_RE.match(text.strip())
     if not m:
@@ -569,6 +577,9 @@ def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
             updated["ingresso_high"] = ingresso_high
             updated["stop"] = stop
             updated["target"] = target
+            _add_locked_fields(
+                updated, "ingresso_low", "ingresso_high", "stop", "target"
+            )
             next_items.append(updated)
             found = True
         else:
@@ -584,6 +595,9 @@ def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
                 "target": target,
                 "motivo": "",
             }
+        )
+        _add_locked_fields(
+            next_items[-1], "ingresso_low", "ingresso_high", "stop", "target"
         )
     save_watchlist(watchlist_path, next_items)
     print(f"Set  {ticker}  ing {ingresso_low:g}-{ingresso_high:g}  stop {stop:g}  tgt {target:g}", flush=True)
@@ -606,10 +620,13 @@ def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | None:
             if command == "setbuy":
                 updated["ingresso_low"] = price
                 updated["ingresso_high"] = price
+                _add_locked_fields(updated, "ingresso_low", "ingresso_high")
             elif command == "settarget":
                 updated["target"] = price
+                _add_locked_fields(updated, "target")
             else:
                 updated["stop"] = price
+                _add_locked_fields(updated, "stop")
             next_items.append(updated)
             found = True
         else:
@@ -627,10 +644,13 @@ def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | None:
         if command == "setbuy":
             blank["ingresso_low"] = price
             blank["ingresso_high"] = price
+            _add_locked_fields(blank, "ingresso_low", "ingresso_high")
         elif command == "settarget":
             blank["target"] = price
+            _add_locked_fields(blank, "target")
         else:
             blank["stop"] = price
+            _add_locked_fields(blank, "stop")
         next_items.append(blank)
     save_watchlist(watchlist_path, next_items)
     print(f"{command}  {ticker}  {price:g}", flush=True)

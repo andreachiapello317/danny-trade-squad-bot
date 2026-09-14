@@ -685,11 +685,19 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(item["ingresso_high"], 90.0)
             self.assertEqual(item["stop"], 70.0)
             self.assertEqual(item["target"], 103.0)
+            self.assertEqual(
+                item["locked_fields"],
+                ["ingresso_low", "ingresso_high", "stop", "target"],
+            )
             self.assertEqual(watch.apply_telegram_set("/set $hood 75 70 103", wpath), "HOOD")
             hood = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "HOOD")
             self.assertEqual(hood["ingresso_low"], 75.0)
             self.assertEqual(hood["ingresso_high"], 75.0)
             self.assertEqual(hood["tf"], "")
+            self.assertEqual(
+                hood["locked_fields"],
+                ["ingresso_low", "ingresso_high", "stop", "target"],
+            )
             self.assertIsNone(watch.apply_telegram_set("ciao", wpath))
 
     def test_set_field_updates_only_that_level(self) -> None:
@@ -716,17 +724,31 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(amd["stop"], 124.0)
             self.assertEqual(amd["target"], 148.0)
             self.assertEqual(amd["motivo"], "keep")
+            self.assertEqual(amd["locked_fields"], ["ingresso_low", "ingresso_high"])
             self.assertEqual(watch.apply_telegram_set_field("/settarget $amd 160", wpath), "AMD")
             amd = watch.load_watchlist(wpath)[0]
             self.assertEqual(amd["target"], 160.0)
             self.assertEqual(amd["ingresso_low"], 132.5)
+            self.assertEqual(amd["locked_fields"], ["ingresso_low", "ingresso_high", "target"])
             self.assertEqual(watch.apply_telegram_set_field("/SETSTOP AMD 120", wpath), "AMD")
             amd = watch.load_watchlist(wpath)[0]
             self.assertEqual(amd["stop"], 120.0)
+            amd = watch.load_watchlist(wpath)[0]
+            self.assertEqual(
+                amd["locked_fields"],
+                ["ingresso_low", "ingresso_high", "target", "stop"],
+            )
+            self.assertEqual(watch.apply_telegram_set_field("/setbuy AMD 132.5", wpath), "AMD")
+            amd = watch.load_watchlist(wpath)[0]
+            self.assertEqual(
+                amd["locked_fields"],
+                ["ingresso_low", "ingresso_high", "target", "stop"],
+            )
             self.assertEqual(watch.apply_telegram_set_field("/setbuy HOOD 75", wpath), "HOOD")
             hood = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "HOOD")
             self.assertEqual(hood["ingresso_low"], 75.0)
             self.assertEqual(hood["ingresso_high"], 75.0)
+            self.assertEqual(hood["locked_fields"], ["ingresso_low", "ingresso_high"])
             self.assertIsNone(hood["stop"])
             self.assertIsNone(hood["target"])
             self.assertIsNone(watch.apply_telegram_set_field("/set AMD", wpath))

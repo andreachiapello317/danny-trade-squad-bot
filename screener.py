@@ -213,10 +213,10 @@ def run_screener(watchlist_path: Path, state_path: Path) -> None:
             continue
         score, _reasons = score_ticker(metrics)
         levels = compute_levels(metrics)
-        ticket["ingresso_low"] = levels["ingresso_low"]
-        ticket["ingresso_high"] = levels["ingresso_high"]
-        ticket["stop"] = levels["stop"]
-        ticket["target"] = levels["target"]
+        locked = ticket.get("locked_fields") or []
+        for field in ("ingresso_low", "ingresso_high", "stop", "target"):
+            if field not in locked:
+                ticket[field] = levels[field]
         ticket["motivo"] = _score_emoji(score)
         updated.append(ticket)
     save_watchlist(path, items)
