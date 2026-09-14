@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -989,6 +990,46 @@ class DayRangeTests(unittest.TestCase):
             self.assertTrue(any("ingresso" in t and "toccato in giornata, ora 140.00" in t for t in texts))
             self.assertTrue(any("stop" in t and "toccato in giornata, ora 140.00" in t for t in texts))
             self.assertFalse(any("target" in t for t in texts))
+
+    def test_cycle_fetches_without_holding_lock(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 130.0,
+            "ingresso_high": 134.0,
+            "stop": 124.0,
+            "target": 148.0,
+            "motivo": "",
+        }
+        lock = threading.Lock()
+        held_during_fetch: list[bool] = []
+        held_during_send: list[bool] = []
+
+        def fake_prices(tickers: list[str]) -> dict[str, float | None]:
+            held_during_fetch.append(lock.locked())
+            return {"AMD": 132.0}
+
+        def fake_ranges(tickers: list[str]) -> dict[str, tuple[float, float] | None]:
+            held_during_fetch.append(lock.locked())
+            return {"AMD": None}
+
+        def fake_send(text: str, chat_id_override: str | None = None) -> int | None:
+            held_during_send.append(lock.locked())
+            return 1
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            fired: dict[tuple[str, str, str], bool] = {}
+            with (
+                patch.object(watch, "fetch_prices", side_effect=fake_prices),
+                patch.object(watch, "fetch_day_ranges", side_effect=fake_ranges),
+                patch.object(watch, "send_telegram", side_effect=fake_send),
+                patch.object(watch, "expire_sent_alerts"),
+            ):
+                watch.cycle([item], fired, spath, lock=lock)
+        self.assertEqual(held_during_fetch, [False, False])
+        self.assertTrue(held_during_send)
+        self.assertTrue(all(held_during_send))
 
     def test_cycle_falls_back_to_spot_when_range_missing(self) -> None:
         item = {

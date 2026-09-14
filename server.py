@@ -54,10 +54,12 @@ def price_loop() -> None:
                 with STATE_LOCK:
                     items = load_watchlist(WATCHLIST_PATH)
                     fired = load_fired(load_state(STATE_PATH))
-                    if items:
-                        cycle(items, fired, STATE_PATH)
-                    maybe_send_daily_summary(items, STATE_PATH)
+                if items:
+                    cycle(items, fired, STATE_PATH, lock=STATE_LOCK)
+                with STATE_LOCK:
                     persist_fired(STATE_PATH, fired)
+                    items = load_watchlist(WATCHLIST_PATH)
+                    maybe_send_daily_summary(items, STATE_PATH)
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
         time.sleep(300)

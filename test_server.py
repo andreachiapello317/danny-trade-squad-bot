@@ -92,6 +92,7 @@ class WebhookTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     server.price_loop()
             cyc.assert_called_once()
+            self.assertEqual(cyc.call_args.kwargs.get("lock"), server.STATE_LOCK)
             daily.assert_called_once()
 
     def test_price_loop_keeps_going_after_error(self) -> None:
