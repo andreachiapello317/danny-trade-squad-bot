@@ -915,6 +915,22 @@ def telegram_get_updates(offset: int | None) -> list[dict[str, Any]]:
     return [u for u in result if isinstance(u, dict)]
 
 
+def maybe_run_screener_for_empty_added(
+    added: list[str],
+    watchlist_path: Path,
+    state_path: Path,
+) -> None:
+    if run_screener is None or not added:
+        return
+    wanted = {str(name).upper() for name in added}
+    items = load_watchlist(watchlist_path)
+    if any(
+        str(it.get("ticker") or "").upper() in wanted and it.get("ingresso_low") is None
+        for it in items
+    ):
+        run_screener(watchlist_path, state_path)
+
+
 def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
     """Legge i ticket nuovi dal gruppo. Offset persistito. Ritorna quanti ticket ha preso."""
     if not telegram_token():
@@ -985,6 +1001,7 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
             print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
     if tickets:
         save_watchlist(watchlist_path, items)
+    maybe_run_screener_for_empty_added(added, watchlist_path, state_path)
     send_watchlist_summary(added, removed, watchlist_path, state_path)
     return len(tickets)
 
@@ -1077,6 +1094,7 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                 delete_telegram_message(mid)
         if added or count:
             save_watchlist(watchlist_path, items)
+        maybe_run_screener_for_empty_added(added, watchlist_path, state_path)
         send_watchlist_summary(added, removed, watchlist_path, state_path)
         if max_seen:
             state = load_state(state_path)
