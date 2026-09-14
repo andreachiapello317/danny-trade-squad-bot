@@ -931,6 +931,68 @@ def maybe_run_screener_for_empty_added(
         run_screener(watchlist_path, state_path)
 
 
+def process_single_message(
+    text: str,
+    message_id: int | None,
+    watchlist_path: Path,
+    state_path: Path,
+) -> tuple[list[str], list[str]]:
+    added: list[str] = []
+    removed: list[str] = []
+    if apply_telegram_scan(text, watchlist_path, state_path):
+        pass
+    elif apply_telegram_clean(text, state_path):
+        pass
+    elif apply_telegram_list(text, watchlist_path):
+        pass
+    else:
+        cleared = apply_telegram_clear(text, watchlist_path)
+        if cleared is not None:
+            removed.extend(cleared)
+        else:
+            set_ticker = apply_telegram_set(text, watchlist_path)
+            if set_ticker:
+                added.append(set_ticker)
+            else:
+                field_ticker = apply_telegram_set_field(text, watchlist_path)
+                if field_ticker:
+                    added.append(field_ticker)
+                else:
+                    gone = apply_telegram_remove(text, watchlist_path)
+                    if gone:
+                        removed.append(gone)
+                    elif not is_noise_text(text):
+                        tickets = parse_tickets(text)
+                        items = load_watchlist(watchlist_path)
+                        for ticket in tickets:
+                            ticker = str(ticket.get("ticker") or "").upper()
+                            if not is_valid_symbol(ticker):
+                                removed.append(
+                                    f"{ticker} scartato (non è un'azione/ETF)"
+                                )
+                                continue
+                            key = (ticket["ticker"], ticket.get("tf") or "")
+                            existing = next(
+                                (
+                                    it
+                                    for it in items
+                                    if (it.get("ticker"), it.get("tf") or "") == key
+                                ),
+                                None,
+                            )
+                            if existing is not None:
+                                ticket = merge_ticket(existing, ticket)
+                            items, changed = upsert_if_changed(items, ticket)
+                            if changed:
+                                added.append(str(ticket["ticker"]))
+                                print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
+                        if tickets:
+                            save_watchlist(watchlist_path, items)
+    if should_delete_chat_message(text) and isinstance(message_id, int):
+        delete_telegram_message(message_id)
+    return added, removed
+
+
 def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
     """Legge i ticket nuovi dal gruppo. Offset persistito. Ritorna quanti ticket ha preso."""
     if not telegram_token():
@@ -951,56 +1013,20 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         if not msg or not chat_matches(msg.get("chat"), chat_id):
             continue
         text = payload_text(msg)
-        if apply_telegram_scan(text, watchlist_path, state_path):
-            pass
-        elif apply_telegram_clean(text, state_path):
-            pass
-        elif apply_telegram_list(text, watchlist_path):
-            pass
-        else:
-            cleared = apply_telegram_clear(text, watchlist_path)
-            if cleared is not None:
-                removed.extend(cleared)
-            else:
-                set_ticker = apply_telegram_set(text, watchlist_path)
-                if set_ticker:
-                    added.append(set_ticker)
-                else:
-                    field_ticker = apply_telegram_set_field(text, watchlist_path)
-                    if field_ticker:
-                        added.append(field_ticker)
-                    else:
-                        gone = apply_telegram_remove(text, watchlist_path)
-                        if gone:
-                            removed.append(gone)
-        if should_delete_chat_message(text):
-            mid = msg.get("message_id")
-            if isinstance(mid, int):
-                delete_telegram_message(mid)
+        mid = msg.get("message_id")
+        one_added, one_removed = process_single_message(
+            text,
+            mid if isinstance(mid, int) else None,
+            watchlist_path,
+            state_path,
+        )
+        added.extend(one_added)
+        removed.extend(one_removed)
     tickets, max_id = tickets_from_updates(updates, chat_id)
     if max_id is not None:
         state = load_state(state_path)
         state["telegram_offset"] = max_id + 1
         save_state(state_path, state)
-    items = load_watchlist(watchlist_path)
-    for ticket in tickets:
-        ticker = str(ticket.get("ticker") or "").upper()
-        if not is_valid_symbol(ticker):
-            removed.append(f"{ticker} scartato (non è un'azione/ETF)")
-            continue
-        key = (ticket["ticker"], ticket.get("tf") or "")
-        existing = next(
-            (it for it in items if (it.get("ticker"), it.get("tf") or "") == key),
-            None,
-        )
-        if existing is not None:
-            ticket = merge_ticket(existing, ticket)
-        items, changed = upsert_if_changed(items, ticket)
-        if changed:
-            added.append(str(ticket["ticker"]))
-            print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-    if tickets:
-        save_watchlist(watchlist_path, items)
     maybe_run_screener_for_empty_added(added, watchlist_path, state_path)
     send_watchlist_summary(added, removed, watchlist_path, state_path)
     return len(tickets)
