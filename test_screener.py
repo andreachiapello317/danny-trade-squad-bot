@@ -248,6 +248,79 @@ class RunScreenerTests(unittest.TestCase):
             self.assertEqual(amd["motivo"], "✅")
             self.assertEqual(amd["locked_fields"], ["stop"])
 
+    def test_entry_only_updates_ingresso_not_stop_or_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            wpath.write_text(
+                json.dumps(
+                    [
+                        {
+                            "ticker": "AMD",
+                            "tf": "daily",
+                            "ingresso_low": 1,
+                            "ingresso_high": 2,
+                            "stop": 99,
+                            "target": 3,
+                            "motivo": "old",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
+                patch.object(watch, "refresh_watchlist_summary") as refresh,
+            ):
+                self.assertIsNone(screener.run_screener_entry_only(wpath, spath))
+            refresh.assert_called_once_with(wpath, spath)
+            amd = json.loads(wpath.read_text(encoding="utf-8"))[0]
+            self.assertEqual(amd["ingresso_low"], 134.26)
+            self.assertEqual(amd["ingresso_high"], 142.3)
+            self.assertEqual(amd["stop"], 99)
+            self.assertEqual(amd["target"], 3)
+            self.assertEqual(amd["motivo"], "✅")
+            state = json.loads(spath.read_text(encoding="utf-8"))
+            self.assertTrue(state["fired"]["AMD|daily|ingresso"])
+            self.assertNotIn("AMD|daily|stop", state["fired"])
+            self.assertNotIn("AMD|daily|target", state["fired"])
+
+    def test_entry_only_skips_locked_ingresso(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            wpath.write_text(
+                json.dumps(
+                    [
+                        {
+                            "ticker": "AMD",
+                            "tf": "daily",
+                            "ingresso_low": 1,
+                            "ingresso_high": 2,
+                            "stop": 99,
+                            "target": 3,
+                            "motivo": "old",
+                            "locked_fields": ["ingresso_low", "ingresso_high"],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(screener, "compute_metrics", return_value=_metrics(ticker="AMD")),
+                patch.object(watch, "refresh_watchlist_summary"),
+            ):
+                screener.run_screener_entry_only(wpath, spath)
+            amd = json.loads(wpath.read_text(encoding="utf-8"))[0]
+            self.assertEqual(amd["ingresso_low"], 1)
+            self.assertEqual(amd["ingresso_high"], 2)
+            self.assertEqual(amd["stop"], 99)
+            self.assertEqual(amd["target"], 3)
+            self.assertEqual(amd["motivo"], "✅")
+            self.assertEqual(
+                amd["locked_fields"], ["ingresso_low", "ingresso_high"]
+            )
+
     def test_does_not_send_technical_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

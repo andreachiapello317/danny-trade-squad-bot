@@ -226,3 +226,41 @@ def run_screener(watchlist_path: Path, state_path: Path) -> None:
         fired[alert_key(ticket, "ingresso")] = True
     persist_fired(state_path, fired)
     refresh_watchlist_summary(path, state_path)
+
+
+def run_screener_entry_only(watchlist_path: Path, state_path: Path) -> None:
+    from watch import (
+        alert_key,
+        load_fired,
+        load_state,
+        load_watchlist,
+        persist_fired,
+        refresh_watchlist_summary,
+        save_watchlist,
+    )
+
+    path = Path(watchlist_path)
+    items = load_watchlist(path)
+    updated: list[dict[str, Any]] = []
+    for ticket in items:
+        ticker = str(ticket.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        metrics = compute_metrics(ticker)
+        if metrics is None:
+            continue
+        score, _reasons = score_ticker(metrics)
+        levels = compute_levels(metrics)
+        locked = ticket.get("locked_fields") or []
+        for field in ("ingresso_low", "ingresso_high"):
+            if field not in locked:
+                ticket[field] = levels[field]
+        ticket["motivo"] = _score_emoji(score)
+        updated.append(ticket)
+    save_watchlist(path, items)
+    state = load_state(state_path)
+    fired = load_fired(state)
+    for ticket in updated:
+        fired[alert_key(ticket, "ingresso")] = True
+    persist_fired(state_path, fired)
+    refresh_watchlist_summary(path, state_path)

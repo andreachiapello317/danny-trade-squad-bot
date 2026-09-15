@@ -34,10 +34,11 @@ except ImportError:  # pragma: no cover
     StringSession = None
 
 try:
-    from screener import SCREENER_CHAT_ID, run_screener
+    from screener import SCREENER_CHAT_ID, run_screener, run_screener_entry_only
 except ImportError:  # pragma: no cover
     SCREENER_CHAT_ID = ""
     run_screener = None
+    run_screener_entry_only = None
 
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
@@ -92,6 +93,7 @@ SET_FIELD_RE = re.compile(
     re.I,
 )
 SCAN_RE = re.compile(r"^/scan\s*$", re.I)
+SCAN_ENTRY_RE = re.compile(r"^/scanin\s*$", re.I)
 CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
@@ -520,6 +522,18 @@ def apply_telegram_scan(
         print("Screener non disponibile.", flush=True)
         return True
     run_screener(watchlist_path, state_path)
+    return True
+
+
+def apply_telegram_scan_entry(
+    text: str, watchlist_path: Path, state_path: Path | None = None
+) -> bool:
+    if not SCAN_ENTRY_RE.match(text.strip()):
+        return False
+    if run_screener_entry_only is None:
+        print("Screener non disponibile.", flush=True)
+        return True
+    run_screener_entry_only(watchlist_path, state_path)
     return True
 
 
@@ -1129,6 +1143,8 @@ def process_single_message(
     added: list[str] = []
     removed: list[str] = []
     if apply_telegram_scan(text, watchlist_path, state_path):
+        pass
+    elif apply_telegram_scan_entry(text, watchlist_path, state_path):
         pass
     elif apply_telegram_clean(text, state_path):
         pass

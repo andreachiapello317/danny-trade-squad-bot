@@ -688,6 +688,40 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(run.call_args_list[0][0][0], wpath)
             send.assert_not_called()
 
+    def test_scanin_runs_entry_only_screener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "run_screener_entry_only") as run,
+                patch.object(watch, "run_screener") as full,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_scan_entry("/scanin", wpath, spath))
+                self.assertTrue(watch.apply_telegram_scan_entry("/SCANIN", wpath, spath))
+                self.assertFalse(watch.apply_telegram_scan_entry("/scan", wpath, spath))
+                self.assertFalse(watch.apply_telegram_scan("/scanin", wpath, spath))
+            self.assertEqual(run.call_count, 2)
+            run.assert_called_with(wpath, spath)
+            full.assert_not_called()
+            send.assert_not_called()
+
+    def test_process_single_message_runs_scanin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_scan_entry", return_value=True) as scanin,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/scanin", 14, wpath, spath
+                )
+            self.assertEqual(added, [])
+            self.assertEqual(removed, [])
+            scanin.assert_called_once_with("/scanin", wpath, spath)
+            delete.assert_called_once_with(14)
+
     def test_ingest_scan_deletes_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
