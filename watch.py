@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -61,6 +62,7 @@ WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
 WATCH_HOUR_END = 22  # inclusivo: 15:00–22:59 ora italiana
 ALERT_TTL = timedelta(hours=48)
+ORDER_MESSAGE_TTL = timedelta(seconds=60)
 MISSING_TOKEN_MSG = (
     "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
     "al gruppo (Group Privacy OFF su @BotFather). Poi gira da solo."
@@ -113,6 +115,9 @@ BUY_RE = re.compile(
 )
 SELL_RE = re.compile(
     r"^/vendi\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
+)
+SELL_ALL_RE = re.compile(
+    r"^/venditutto\s+\$?([A-Za-z]{1,8})(?:\s+([\d.]+))?\s*$", re.I
 )
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
@@ -877,7 +882,7 @@ def ibkr_place_order(
     )
 
 
-def apply_telegram_buy(text: str) -> bool:
+def apply_telegram_buy(text: str, state_path: Path) -> bool:
     m = BUY_RE.match(text.strip())
     if not m:
         return False
@@ -885,11 +890,11 @@ def apply_telegram_buy(text: str) -> bool:
     quantity = int(m.group(2))
     raw_price = m.group(3)
     price = float(raw_price) if raw_price is not None else None
-    send_telegram(ibkr_place_order(ticker, quantity, "BUY", price))
+    _send_order_message(state_path, ibkr_place_order(ticker, quantity, "BUY", price))
     return True
 
 
-def apply_telegram_sell(text: str) -> bool:
+def apply_telegram_sell(text: str, state_path: Path) -> bool:
     m = SELL_RE.match(text.strip())
     if not m:
         return False
@@ -897,7 +902,47 @@ def apply_telegram_sell(text: str) -> bool:
     quantity = int(m.group(2))
     raw_price = m.group(3)
     price = float(raw_price) if raw_price is not None else None
-    send_telegram(ibkr_place_order(ticker, quantity, "SELL", price))
+    _send_order_message(state_path, ibkr_place_order(ticker, quantity, "SELL", price))
+    return True
+
+
+def ibkr_sell_all(ticker: str, price: float | None) -> str:
+    ticker = ticker.strip().upper()
+    positions = ibkr_get_positions()
+    if not positions:
+        return f"⚠️ Nessuna posizione aperta per {ticker}."
+    found: dict[str, Any] | None = None
+    for pos in positions:
+        if not isinstance(pos, dict):
+            continue
+        if str(pos.get("ticker") or "").upper() == ticker:
+            found = pos
+            break
+    if found is None:
+        return f"⚠️ Nessuna posizione aperta per {ticker}."
+    try:
+        qty = abs(float(found.get("position") or 0))
+    except (TypeError, ValueError):
+        qty = 0.0
+    quantity = math.floor(qty)
+    if quantity < 1:
+        return f"⚠️ Nessuna posizione aperta per {ticker}."
+    if price is None:
+        spot = ibkr_get_price(ticker)
+        if spot is None:
+            return "⚠️ Impossibile determinare un prezzo per la vendita."
+        price = round(spot * 0.995, 2)
+    return ibkr_place_order(ticker, quantity, "SELL", price)
+
+
+def apply_telegram_sell_all(text: str, state_path: Path) -> bool:
+    m = SELL_ALL_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    raw_price = m.group(2)
+    price = float(raw_price) if raw_price is not None else None
+    _send_order_message(state_path, ibkr_sell_all(ticker, price))
     return True
 
 
@@ -1003,18 +1048,19 @@ def _fmt_position_line(pos: dict[str, Any]) -> str:
     )
 
 
-def apply_telegram_positions(text: str) -> bool:
+def apply_telegram_positions(text: str, state_path: Path) -> bool:
     if not POSITIONS_RE.match(text.strip()):
         return False
     positions = ibkr_get_positions()
     if positions is None:
-        send_telegram("⚠️ Impossibile leggere le posizioni al momento.")
-        return True
-    if not positions:
-        send_telegram("📭 Nessuna posizione aperta.")
+        _send_replacing_message(
+            state_path,
+            "positions_message_id",
+            "⚠️ Impossibile leggere le posizioni al momento.",
+        )
         return True
     lines = ["📊 Posizioni aperte:", ""]
-    for pos in positions:
+    for pos in positions or []:
         if not isinstance(pos, dict):
             continue
         try:
@@ -1025,9 +1071,13 @@ def apply_telegram_positions(text: str) -> bool:
             continue
         lines.append(_fmt_position_line(pos))
     if len(lines) <= 2:
-        send_telegram("📭 Nessuna posizione aperta.")
+        _send_replacing_message(
+            state_path,
+            "positions_message_id",
+            "📭 Nessuna posizione aperta.",
+        )
         return True
-    send_telegram("\n".join(lines))
+    _send_replacing_message(state_path, "positions_message_id", "\n".join(lines))
     return True
 
 
@@ -1077,11 +1127,13 @@ def check_order_fills(state_path: Path) -> None:
         if known.get(order_id) != "Filled" and status == "Filled":
             fee = _commission_from_trades(order, order_id)
             avg = order.get("avgPrice", order.get("price", "n/d"))
-            send_telegram(
+            _send_order_message(
+                state_path,
                 f"✅ ESEGUITO: {order.get('side')} {order.get('filledQuantity')} "
-                f"{order.get('ticker')} @ {avg} · fee: {fee}"
+                f"{order.get('ticker')} @ {avg} · fee: {fee}",
             )
         known[order_id] = status
+    state = load_state(state_path)
     state["known_order_status"] = known
     save_state(state_path, state)
 
@@ -1511,13 +1563,15 @@ def process_single_message(
         pass
     elif apply_telegram_price(text, state_path):
         pass
-    elif apply_telegram_buy(text):
+    elif apply_telegram_buy(text, state_path):
         pass
-    elif apply_telegram_sell(text):
+    elif apply_telegram_sell(text, state_path):
+        pass
+    elif apply_telegram_sell_all(text, state_path):
         pass
     elif apply_telegram_cancel_order(text):
         pass
-    elif apply_telegram_positions(text):
+    elif apply_telegram_positions(text, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
@@ -1759,6 +1813,58 @@ def expire_sent_alerts(state_path: Path, now: datetime | None = None) -> None:
         else:
             kept.append(entry)
     state["sent_alerts"] = kept
+    save_state(state_path, state)
+
+
+def record_order_message(state_path: Path, message_id: int) -> None:
+    state = load_state(state_path)
+    messages = list(state.get("order_messages") or [])
+    messages.append(
+        {
+            "message_id": message_id,
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    state["order_messages"] = messages
+    save_state(state_path, state)
+
+
+def _send_order_message(state_path: Path, text: str) -> None:
+    mid = send_telegram(text)
+    if isinstance(mid, int):
+        record_order_message(state_path, mid)
+
+
+def expire_order_messages(state_path: Path, now: datetime | None = None) -> None:
+    """Cancella i messaggi di ordine Telegram più vecchi di 60 secondi."""
+    state = load_state(state_path)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    kept: list[Any] = []
+    for entry in state.get("order_messages") or []:
+        if not isinstance(entry, dict):
+            continue
+        expired = False
+        sent_at_raw = entry.get("sent_at")
+        if isinstance(sent_at_raw, str):
+            try:
+                sent_at = datetime.fromisoformat(sent_at_raw.replace("Z", "+00:00"))
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=timezone.utc)
+                expired = now - sent_at > ORDER_MESSAGE_TTL
+            except ValueError:
+                expired = False
+        if expired:
+            mid = entry.get("message_id")
+            if isinstance(mid, int):
+                delete_telegram_message(mid)
+        else:
+            kept.append(entry)
+    state["order_messages"] = kept
     save_state(state_path, state)
 
 
