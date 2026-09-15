@@ -167,6 +167,9 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("📊 Screener tecnico"))
         self.assertFalse(watch.should_delete_chat_message("ALERT AMD ingresso 131"))
         self.assertFalse(watch.should_delete_chat_message("Watchlist vuota."))
+        self.assertFalse(watch.should_delete_chat_message("💰 Conto U123"))
+        self.assertFalse(watch.should_delete_chat_message("📈 AMD (IBKR): 148.20"))
+        self.assertFalse(watch.should_delete_chat_message("⚠️ Prezzo IBKR non disponibile per NVDA."))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -444,49 +447,90 @@ class TelegramExtractTests(unittest.TestCase):
                 }
             }
 
-        with (
-            patch.object(watch, "ibkr_get", side_effect=fake_get),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_balance("/saldo"))
-            self.assertTrue(watch.apply_telegram_balance("/SALDO"))
-            self.assertFalse(watch.apply_telegram_balance("/list"))
-        self.assertEqual(send.call_count, 2)
-        body = send.call_args_list[0][0][0]
-        self.assertIn("💰 Conto U123", body)
-        self.assertIn("Contanti: 1000.5 USD", body)
-        self.assertIn("Valore netto: 5000.25 USD", body)
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get", side_effect=fake_get),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
+                self.assertTrue(watch.apply_telegram_balance("/SALDO", spath))
+                self.assertFalse(watch.apply_telegram_balance("/list", spath))
+            self.assertEqual(send.call_count, 2)
+            body = send.call_args_list[0][0][0]
+            self.assertIn("💰 Conto U123", body)
+            self.assertIn("Contanti: 1000.5 USD", body)
+            self.assertIn("Valore netto: 5000.25 USD", body)
 
     def test_apply_telegram_balance_uses_first_currency_without_base(self) -> None:
-        with (
-            patch.object(
-                watch,
-                "ibkr_get",
-                side_effect=[
-                    [{"accountId": "U9"}],
-                    {"EUR": {"cashbalance": 10, "netliquidationvalue": 20, "currency": "EUR"}},
-                ],
-            ),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_balance("/saldo"))
-        send.assert_called_once_with(
-            "💰 Conto U9\nContanti: 10 EUR\nValore netto: 20 EUR"
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_get",
+                    side_effect=[
+                        [{"accountId": "U9"}],
+                        {
+                            "EUR": {
+                                "cashbalance": 10,
+                                "netliquidationvalue": 20,
+                                "currency": "EUR",
+                            }
+                        },
+                    ],
+                ),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
+            send.assert_called_once_with(
+                "💰 Conto U9\nContanti: 10 EUR\nValore netto: 20 EUR"
+            )
 
     def test_apply_telegram_balance_errors(self) -> None:
-        with (
-            patch.object(watch, "ibkr_get", return_value=None),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_balance("/saldo"))
-        send.assert_called_with("⚠️ Impossibile leggere il conto IBKR al momento.")
-        with (
-            patch.object(watch, "ibkr_get", side_effect=[[{"accountId": "U1"}], None]),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_balance("/saldo"))
-        send.assert_called_with("⚠️ Impossibile leggere il saldo al momento.")
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get", return_value=None),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
+            send.assert_called_with("⚠️ Impossibile leggere il conto IBKR al momento.")
+            with (
+                patch.object(
+                    watch, "ibkr_get", side_effect=[[{"accountId": "U1"}], None]
+                ),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
+            send.assert_called_with("⚠️ Impossibile leggere il saldo al momento.")
+
+    def test_apply_telegram_balance_replaces_previous_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"balance_message_id": 99})
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_get",
+                    side_effect=[
+                        [{"accountId": "U123"}],
+                        {
+                            "BASE": {
+                                "cashbalance": 1,
+                                "netliquidationvalue": 2,
+                                "currency": "USD",
+                            }
+                        },
+                    ],
+                ),
+                patch.object(watch, "send_telegram", return_value=101) as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
+            delete.assert_called_once_with(99)
+            send.assert_called_once()
+            self.assertEqual(watch.load_state(spath)["balance_message_id"], 101)
 
     def test_process_single_message_runs_saldo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -499,7 +543,7 @@ class TelegramExtractTests(unittest.TestCase):
                 added, removed = watch.process_single_message("/saldo", 12, wpath, spath)
             self.assertEqual(added, [])
             self.assertEqual(removed, [])
-            bal.assert_called_once_with("/saldo")
+            bal.assert_called_once_with("/saldo", spath)
             delete.assert_called_once_with(12)
 
     def test_ibkr_lookup_conid_caches(self) -> None:
@@ -535,19 +579,35 @@ class TelegramExtractTests(unittest.TestCase):
             yahoo.assert_called_once_with("AMD")
 
     def test_apply_telegram_price_command(self) -> None:
-        with (
-            patch.object(watch, "ibkr_get_price", return_value=148.2),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_price("/prezzo $amd"))
-            self.assertFalse(watch.apply_telegram_price("/saldo"))
-        send.assert_called_once_with("📈 AMD (IBKR): 148.20")
-        with (
-            patch.object(watch, "ibkr_get_price", return_value=None),
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_price("/prezzo NVDA"))
-        send.assert_called_once_with("⚠️ Prezzo IBKR non disponibile per NVDA.")
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=148.2),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_price("/prezzo $amd", spath))
+                self.assertFalse(watch.apply_telegram_price("/saldo", spath))
+            send.assert_called_once_with("📈 AMD (IBKR): 148.20")
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=None),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_price("/prezzo NVDA", spath))
+            send.assert_called_once_with("⚠️ Prezzo IBKR non disponibile per NVDA.")
+
+    def test_apply_telegram_price_replaces_previous_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"price_message_id": 44})
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=10.5),
+                patch.object(watch, "send_telegram", return_value=55) as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                self.assertTrue(watch.apply_telegram_price("/prezzo AMD", spath))
+            delete.assert_called_once_with(44)
+            send.assert_called_once_with("📈 AMD (IBKR): 10.50")
+            self.assertEqual(watch.load_state(spath)["price_message_id"], 55)
 
     def test_process_single_message_runs_prezzo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -562,7 +622,7 @@ class TelegramExtractTests(unittest.TestCase):
                 )
             self.assertEqual(added, [])
             self.assertEqual(removed, [])
-            price.assert_called_once_with("/prezzo AMD")
+            price.assert_called_once_with("/prezzo AMD", spath)
             delete.assert_called_once_with(13)
 
     def test_set_ignores_symbol_filter(self) -> None:

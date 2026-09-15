@@ -616,49 +616,86 @@ def ibkr_get_price(ticker: str) -> float | None:
         return None
 
 
-def apply_telegram_balance(text: str) -> bool:
+def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:
+    state = load_state(state_path)
+    old_id = state.get(id_key)
+    if old_id is not None:
+        delete_telegram_message(old_id)
+    new_id = send_telegram(text)
+    if isinstance(new_id, int):
+        state[id_key] = new_id
+        save_state(state_path, state)
+
+
+def apply_telegram_balance(text: str, state_path: Path) -> bool:
     if not BALANCE_RE.match(text.strip()):
         return False
     accounts = ibkr_get("/v1/api/portfolio/accounts")
     if not isinstance(accounts, list) or not accounts:
-        send_telegram("⚠️ Impossibile leggere il conto IBKR al momento.")
+        _send_replacing_message(
+            state_path,
+            "balance_message_id",
+            "⚠️ Impossibile leggere il conto IBKR al momento.",
+        )
         return True
     first = accounts[0]
     if not isinstance(first, dict) or not first.get("accountId"):
-        send_telegram("⚠️ Impossibile leggere il conto IBKR al momento.")
+        _send_replacing_message(
+            state_path,
+            "balance_message_id",
+            "⚠️ Impossibile leggere il conto IBKR al momento.",
+        )
         return True
     account_id = first["accountId"]
     ledger = ibkr_get(f"/v1/api/portfolio/{account_id}/ledger")
     if not isinstance(ledger, dict):
-        send_telegram("⚠️ Impossibile leggere il saldo al momento.")
+        _send_replacing_message(
+            state_path,
+            "balance_message_id",
+            "⚠️ Impossibile leggere il saldo al momento.",
+        )
         return True
     raw = ledger.get("BASE")
     if not isinstance(raw, dict):
         raw = next(iter(ledger.values()), None)
     if not isinstance(raw, dict):
-        send_telegram("⚠️ Impossibile leggere il saldo al momento.")
+        _send_replacing_message(
+            state_path,
+            "balance_message_id",
+            "⚠️ Impossibile leggere il saldo al momento.",
+        )
         return True
     cashbalance = raw.get("cashbalance", "—")
     netliquidationvalue = raw.get("netliquidationvalue", "—")
     currency = raw.get("currency", "")
-    send_telegram(
+    _send_replacing_message(
+        state_path,
+        "balance_message_id",
         f"💰 Conto {account_id}\n"
         f"Contanti: {cashbalance} {currency}\n"
-        f"Valore netto: {netliquidationvalue} {currency}"
+        f"Valore netto: {netliquidationvalue} {currency}",
     )
     return True
 
 
-def apply_telegram_price(text: str) -> bool:
+def apply_telegram_price(text: str, state_path: Path) -> bool:
     m = PRICE_RE.match(text.strip())
     if not m:
         return False
     ticker = m.group(1).upper()
     price = ibkr_get_price(ticker)
     if price is None:
-        send_telegram(f"⚠️ Prezzo IBKR non disponibile per {ticker}.")
+        _send_replacing_message(
+            state_path,
+            "price_message_id",
+            f"⚠️ Prezzo IBKR non disponibile per {ticker}.",
+        )
     else:
-        send_telegram(f"📈 {ticker} (IBKR): {price:.2f}")
+        _send_replacing_message(
+            state_path,
+            "price_message_id",
+            f"📈 {ticker} (IBKR): {price:.2f}",
+        )
     return True
 
 
@@ -1047,6 +1084,8 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("✅") or stripped.startswith("❌"):
         return False
+    if stripped.startswith("💰") or stripped.startswith("📈") or stripped.startswith("⚠️"):
+        return False
     if stripped == "Watchlist vuota.":
         return False
     return True
@@ -1095,9 +1134,9 @@ def process_single_message(
         pass
     elif apply_telegram_list(text, watchlist_path, state_path):
         pass
-    elif apply_telegram_balance(text):
+    elif apply_telegram_balance(text, state_path):
         pass
-    elif apply_telegram_price(text):
+    elif apply_telegram_price(text, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
