@@ -44,6 +44,8 @@ DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
 DEFAULT_CHAT_ID = "-1004312726798"
 IBKR_BASE_URL = "https://danny-ibeam:5000"
+_CONID_CACHE: dict[str, str] = {}
+_IBKR_PRICE_RE = re.compile(r"-?\d+(?:\.\d+)?")
 SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
@@ -92,6 +94,7 @@ SET_FIELD_RE = re.compile(
 SCAN_RE = re.compile(r"^/scan\s*$", re.I)
 CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
+PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -559,6 +562,60 @@ def ibkr_get(path: str) -> dict[str, Any] | list[Any] | None:
     return None
 
 
+def ibkr_lookup_conid(ticker: str) -> str | None:
+    key = ticker.strip().upper()
+    if not key:
+        return None
+    cached = _CONID_CACHE.get(key)
+    if cached:
+        return cached
+    data = ibkr_get(f"/v1/api/trsrv/stocks?symbols={key}")
+    if not data:
+        return None
+    try:
+        if not isinstance(data, dict):
+            return None
+        rows = data.get(key)
+        if not isinstance(rows, list) or not rows:
+            rows = next(
+                (v for k, v in data.items() if str(k).upper() == key),
+                None,
+            )
+        if not isinstance(rows, list) or not rows:
+            return None
+        conid = rows[0]["contracts"][0]["conid"]
+        out = str(conid)
+        _CONID_CACHE[key] = out
+        return out
+    except Exception:
+        return None
+
+
+def ibkr_get_price(ticker: str) -> float | None:
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return None
+    path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields=31"
+    ibkr_get(path)
+    time.sleep(1)
+    snap = ibkr_get(path)
+    if not isinstance(snap, list) or not snap:
+        return None
+    first = snap[0]
+    if not isinstance(first, dict):
+        return None
+    raw = first.get("31")
+    if raw is None:
+        return None
+    match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
 def apply_telegram_balance(text: str) -> bool:
     if not BALANCE_RE.match(text.strip()):
         return False
@@ -589,6 +646,19 @@ def apply_telegram_balance(text: str) -> bool:
         f"Contanti: {cashbalance} {currency}\n"
         f"Valore netto: {netliquidationvalue} {currency}"
     )
+    return True
+
+
+def apply_telegram_price(text: str) -> bool:
+    m = PRICE_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    price = ibkr_get_price(ticker)
+    if price is None:
+        send_telegram(f"⚠️ Prezzo IBKR non disponibile per {ticker}.")
+    else:
+        send_telegram(f"📈 {ticker} (IBKR): {price:.2f}")
     return True
 
 
@@ -833,7 +903,7 @@ def in_ingresso(
     return False
 
 
-def fetch_price(ticker: str) -> float | None:
+def _fetch_price_yahoo(ticker: str) -> float | None:
     if yf is None:
         return None
     sym = to_yahoo(ticker)
@@ -864,6 +934,13 @@ def fetch_price(ticker: str) -> float | None:
     except Exception:
         pass
     return None
+
+
+def fetch_price(ticker: str) -> float | None:
+    px = ibkr_get_price(ticker)
+    if px is not None:
+        return px
+    return _fetch_price_yahoo(ticker)
 
 
 def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
@@ -1019,6 +1096,8 @@ def process_single_message(
     elif apply_telegram_list(text, watchlist_path, state_path):
         pass
     elif apply_telegram_balance(text):
+        pass
+    elif apply_telegram_price(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
