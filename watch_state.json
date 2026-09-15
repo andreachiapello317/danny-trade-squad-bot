@@ -25,7 +25,9 @@
     "GLXY||ingresso": true,
     "OSCR||ingresso": true,
     "ASST||ingresso": true,
-    "ETHA||stop": true
+    "ETHA||stop": true,
+    "IBIT||stop": true,
+    "SKHY||ingresso": true
   },
   "sent_alerts": [
     {
@@ -67,6 +69,14 @@
     {
       "message_id": 267,
       "sent_at": "2026-09-15T14:44:49.603761+00:00"
+    },
+    {
+      "message_id": 270,
+      "sent_at": "2026-09-15T14:57:35.954349+00:00"
+    },
+    {
+      "message_id": 271,
+      "sent_at": "2026-09-15T14:57:36.414412+00:00"
     }
   ],
   "summary_message_id": 257,
