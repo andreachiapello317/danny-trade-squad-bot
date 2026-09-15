@@ -34,11 +34,19 @@ except ImportError:  # pragma: no cover
     StringSession = None
 
 try:
-    from screener import SCREENER_CHAT_ID, run_screener, run_screener_entry_only
+    from screener import (
+        SCREENER_CHAT_ID,
+        run_screener,
+        run_screener_entry_only,
+        run_screener_entry_only_single,
+        run_screener_single,
+    )
 except ImportError:  # pragma: no cover
     SCREENER_CHAT_ID = ""
     run_screener = None
     run_screener_entry_only = None
+    run_screener_entry_only_single = None
+    run_screener_single = None
 
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
@@ -93,8 +101,10 @@ SET_FIELD_RE = re.compile(
     rf"^/(setbuy|settarget|setstop)\s+\$?([A-Za-z]{{1,8}})\s+{NUM}",
     re.I,
 )
-SCAN_RE = re.compile(r"^/scan\s*$", re.I)
-SCAN_ENTRY_RE = re.compile(r"^/scanin\s*$", re.I)
+SCAN_SINGLE_RE = re.compile(r"^/scan\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+SCAN_ALL_RE = re.compile(r"^/scanall\s*$", re.I)
+SCAN_ENTRY_SINGLE_RE = re.compile(r"^/scanin\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+SCAN_ENTRY_ALL_RE = re.compile(r"^/scanallin\s*$", re.I)
 CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
@@ -524,25 +534,36 @@ def chat_matches(chat: Any, want: str) -> bool:
 def apply_telegram_scan(
     text: str, watchlist_path: Path, state_path: Path | None = None
 ) -> bool:
-    if not SCAN_RE.match(text.strip()):
-        return False
-    if run_screener is None:
-        print("Screener non disponibile.", flush=True)
+    stripped = text.strip()
+    if SCAN_ALL_RE.match(stripped):
+        if run_screener is None:
+            print("Screener non disponibile.", flush=True)
+            return True
+        run_screener(watchlist_path, state_path)
         return True
-    run_screener(watchlist_path, state_path)
-    return True
-
-
-def apply_telegram_scan_entry(
-    text: str, watchlist_path: Path, state_path: Path | None = None
-) -> bool:
-    if not SCAN_ENTRY_RE.match(text.strip()):
-        return False
-    if run_screener_entry_only is None:
-        print("Screener non disponibile.", flush=True)
+    match = SCAN_SINGLE_RE.match(stripped)
+    if match:
+        if run_screener_single is None:
+            print("Screener non disponibile.", flush=True)
+            return True
+        run_screener_single(match.group(1).upper(), watchlist_path, state_path)
         return True
-    run_screener_entry_only(watchlist_path, state_path)
-    return True
+    if SCAN_ENTRY_ALL_RE.match(stripped):
+        if run_screener_entry_only is None:
+            print("Screener non disponibile.", flush=True)
+            return True
+        run_screener_entry_only(watchlist_path, state_path)
+        return True
+    match = SCAN_ENTRY_SINGLE_RE.match(stripped)
+    if match:
+        if run_screener_entry_only_single is None:
+            print("Screener non disponibile.", flush=True)
+            return True
+        run_screener_entry_only_single(
+            match.group(1).upper(), watchlist_path, state_path
+        )
+        return True
+    return False
 
 
 def apply_telegram_clean(text: str, state_path: Path) -> bool:
@@ -1335,22 +1356,6 @@ def telegram_get_updates(offset: int | None) -> list[dict[str, Any]]:
     return [u for u in result if isinstance(u, dict)]
 
 
-def maybe_run_screener_for_empty_added(
-    added: list[str],
-    watchlist_path: Path,
-    state_path: Path,
-) -> None:
-    if run_screener is None or not added:
-        return
-    wanted = {str(name).upper() for name in added}
-    items = load_watchlist(watchlist_path)
-    if any(
-        str(it.get("ticker") or "").upper() in wanted and it.get("ingresso_low") is None
-        for it in items
-    ):
-        run_screener(watchlist_path, state_path)
-
-
 def process_single_message(
     text: str,
     message_id: int | None,
@@ -1360,8 +1365,6 @@ def process_single_message(
     added: list[str] = []
     removed: list[str] = []
     if apply_telegram_scan(text, watchlist_path, state_path):
-        pass
-    elif apply_telegram_scan_entry(text, watchlist_path, state_path):
         pass
     elif apply_telegram_clean(text, state_path):
         pass
@@ -1459,7 +1462,6 @@ def ingest_telegram(watchlist_path: Path, state_path: Path) -> int:
         state = load_state(state_path)
         state["telegram_offset"] = max_id + 1
         save_state(state_path, state)
-    maybe_run_screener_for_empty_added(added, watchlist_path, state_path)
     send_watchlist_summary(added, removed, watchlist_path, state_path)
     return len(tickets)
 
@@ -1552,7 +1554,6 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                 delete_telegram_message(mid)
         if added or count:
             save_watchlist(watchlist_path, items)
-        maybe_run_screener_for_empty_added(added, watchlist_path, state_path)
         send_watchlist_summary(added, removed, watchlist_path, state_path)
         if max_seen:
             state = load_state(state_path)

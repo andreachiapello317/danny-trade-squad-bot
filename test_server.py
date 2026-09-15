@@ -55,7 +55,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(watch, "is_valid_symbol", return_value=True),
                 patch.object(watch, "delete_telegram_message"),
-                patch.object(server, "maybe_run_screener_for_empty_added") as screen,
+                patch.object(watch, "run_screener") as run,
                 patch.object(server, "send_watchlist_summary") as summary,
             ):
                 resp = client.post("/webhook", json=payload)
@@ -63,7 +63,7 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(resp.get_data(as_text=True), "ok")
             items = json.loads(wpath.read_text(encoding="utf-8"))
             self.assertEqual(items[0]["ticker"], "AMD")
-            screen.assert_called_once_with(["AMD"], wpath, spath)
+            run.assert_not_called()
             summary.assert_called_once()
             self.assertEqual(summary.call_args[0][0], ["AMD"])
 

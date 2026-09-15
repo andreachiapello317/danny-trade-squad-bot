@@ -20,7 +20,6 @@ from watch import (
     load_fired,
     load_state,
     load_watchlist,
-    maybe_run_screener_for_empty_added,
     maybe_send_daily_summary,
     payload_text,
     persist_fired,
@@ -94,7 +93,6 @@ def webhook() -> tuple[str, int]:
                 STATE_PATH,
             )
             if added or removed:
-                maybe_run_screener_for_empty_added(added, WATCHLIST_PATH, STATE_PATH)
                 send_watchlist_summary(added, removed, WATCHLIST_PATH, STATE_PATH)
     except Exception as exc:
         print(f"Webhook: {exc}", file=sys.stderr)
