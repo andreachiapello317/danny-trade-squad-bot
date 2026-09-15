@@ -951,13 +951,25 @@ def apply_telegram_cancel_order(text: str) -> bool:
     return True
 
 
+def _ibkr_positions_need_retry(data: Any) -> bool:
+    if not data:
+        return True
+    if not isinstance(data, list) or not data:
+        return False
+    first = data[0]
+    if not isinstance(first, dict):
+        return True
+    ticker = first.get("ticker")
+    return not isinstance(ticker, str) or not ticker.strip()
+
+
 def ibkr_get_positions() -> list[Any] | None:
     account_id = ibkr_get_account_id()
     if not account_id:
         return None
     path = f"/v1/api/portfolio/{account_id}/positions/0"
     data = ibkr_get(path)
-    if not data:
+    if _ibkr_positions_need_retry(data):
         time.sleep(1)
         data = ibkr_get(path)
     if data is None:
@@ -1003,8 +1015,15 @@ def apply_telegram_positions(text: str) -> bool:
         return True
     lines = ["📊 Posizioni aperte:", ""]
     for pos in positions:
-        if isinstance(pos, dict):
-            lines.append(_fmt_position_line(pos))
+        if not isinstance(pos, dict):
+            continue
+        try:
+            qty = float(pos.get("position") or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty == 0:
+            continue
+        lines.append(_fmt_position_line(pos))
     if len(lines) <= 2:
         send_telegram("📭 Nessuna posizione aperta.")
         return True

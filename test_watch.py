@@ -915,6 +915,24 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
         get.assert_called_with("/v1/api/portfolio/U123/positions/0")
 
+    def test_ibkr_get_positions_retries_when_first_lacks_ticker(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch,
+                "ibkr_get",
+                side_effect=[[{"conid": 1}], [{"ticker": "AMD", "position": 2}]],
+            ) as get,
+            patch.object(watch, "time") as time_mod,
+        ):
+            time_mod.sleep.return_value = None
+            self.assertEqual(
+                watch.ibkr_get_positions(),
+                [{"ticker": "AMD", "position": 2}],
+            )
+        time_mod.sleep.assert_called_once_with(1)
+        self.assertEqual(get.call_count, 2)
+
     def test_apply_telegram_positions(self) -> None:
         rows = [
             {
@@ -950,6 +968,38 @@ class TelegramExtractTests(unittest.TestCase):
         ):
             self.assertTrue(watch.apply_telegram_positions("/posizioni"))
         send.assert_called_once_with("⚠️ Impossibile leggere le posizioni al momento.")
+        with (
+            patch.object(
+                watch,
+                "ibkr_get_positions",
+                return_value=[
+                    {"ticker": "AMD", "position": 0, "avgCost": 1, "mktValue": 0},
+                    {"ticker": "NVDA", "position": None},
+                ],
+            ),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_positions("/posizioni"))
+        send.assert_called_once_with("📭 Nessuna posizione aperta.")
+        mixed = [
+            {"ticker": "CASH", "position": 0, "avgCost": 0, "mktValue": 0, "currency": "USD", "unrealizedPnl": 0},
+            {
+                "ticker": "AMD",
+                "position": 10,
+                "avgCost": 100.5,
+                "mktValue": 1100.25,
+                "currency": "USD",
+                "unrealizedPnl": 95.0,
+            },
+        ]
+        with (
+            patch.object(watch, "ibkr_get_positions", return_value=mixed),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_positions("/posizioni"))
+        body = send.call_args[0][0]
+        self.assertIn("AMD: 10 @ 100.50", body)
+        self.assertNotIn("CASH", body)
 
     def test_process_single_message_runs_posizioni(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
