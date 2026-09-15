@@ -839,16 +839,25 @@ def ibkr_place_order(
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    auto_price = price is None
+    if price is None:
+        spot = ibkr_get_price(ticker)
+        if spot is None:
+            return f"⚠️ Impossibile determinare un prezzo per {ticker}."
+        if side == "BUY":
+            price = spot * 1.005
+        else:
+            price = spot * 0.995
+        price = round(price, 2)
     order: dict[str, Any] = {
         "conid": conid_int,
-        "orderType": "MKT" if price is None else "LMT",
+        "orderType": "LMT",
         "side": side,
         "quantity": quantity,
+        "price": price,
         "tif": "DAY",
         "outsideRTH": True,
     }
-    if price is not None:
-        order["price"] = price
     result: dict[str, Any] | list[Any] | None = ibkr_post(
         f"/v1/api/iserver/account/{account_id}/orders",
         {"orders": [order]},
@@ -875,8 +884,12 @@ def ibkr_place_order(
             break
         break
     if confirmed:
-        kind = "a mercato" if price is None else f"@ {price}"
-        return f"✅ Ordine {side} {quantity} {ticker} {kind} inviato."
+        if auto_price:
+            return (
+                f"✅ Ordine {side} {quantity} {ticker} @ {price:.2f} "
+                f"(auto, ~mercato) inviato."
+            )
+        return f"✅ Ordine {side} {quantity} {ticker} @ {price} inviato."
     return (
         f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
     )

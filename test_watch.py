@@ -646,22 +646,27 @@ class TelegramExtractTests(unittest.TestCase):
         get.assert_called_once_with("/v1/api/portfolio/accounts")
         watch._ACCOUNT_ID_CACHE = None
 
-    def test_ibkr_place_order_market_and_limit(self) -> None:
+    def test_ibkr_place_order_auto_limit_and_manual(self) -> None:
         watch._ACCOUNT_ID_CACHE = None
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get_price", return_value=100.0),
             patch.object(
                 watch, "ibkr_post", return_value=[{"order_id": 77}]
             ) as post,
         ):
             self.assertEqual(
                 watch.ibkr_place_order("AMD", 2, "BUY", None),
-                "✅ Ordine BUY 2 AMD a mercato inviato.",
+                "✅ Ordine BUY 2 AMD @ 100.50 (auto, ~mercato) inviato.",
             )
             self.assertEqual(
                 watch.ibkr_place_order("AMD", 3, "SELL", 10.5),
                 "✅ Ordine SELL 3 AMD @ 10.5 inviato.",
+            )
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 1, "SELL", None),
+                "✅ Ordine SELL 1 AMD @ 99.50 (auto, ~mercato) inviato.",
             )
         self.assertEqual(
             post.call_args_list[0][0],
@@ -671,9 +676,10 @@ class TelegramExtractTests(unittest.TestCase):
                     "orders": [
                         {
                             "conid": 4391,
-                            "orderType": "MKT",
+                            "orderType": "LMT",
                             "side": "BUY",
                             "quantity": 2,
+                            "price": 100.5,
                             "tif": "DAY",
                             "outsideRTH": True,
                         }
@@ -702,6 +708,7 @@ class TelegramExtractTests(unittest.TestCase):
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get_price", return_value=20.0),
             patch.object(
                 watch,
                 "ibkr_post",
@@ -712,7 +719,9 @@ class TelegramExtractTests(unittest.TestCase):
             ) as post,
         ):
             msg = watch.ibkr_place_order("BE", 1, "BUY", None)
-        self.assertEqual(msg, "✅ Ordine BUY 1 BE a mercato inviato.")
+        self.assertEqual(
+            msg, "✅ Ordine BUY 1 BE @ 20.10 (auto, ~mercato) inviato."
+        )
         self.assertEqual(
             post.call_args_list[1][0],
             ("/v1/api/iserver/reply/q1", {"confirmed": True}),
@@ -735,6 +744,16 @@ class TelegramExtractTests(unittest.TestCase):
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="1"),
             patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(watch, "ibkr_get_price", return_value=None),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 1, "BUY", None),
+                "⚠️ Impossibile determinare un prezzo per AMD.",
+            )
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(watch, "ibkr_get_price", return_value=10.0),
             patch.object(watch, "ibkr_post", return_value=None),
         ):
             self.assertEqual(
