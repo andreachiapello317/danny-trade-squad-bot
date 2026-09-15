@@ -115,6 +115,7 @@ SELL_RE = re.compile(
     r"^/vendi\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
 )
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -950,6 +951,122 @@ def apply_telegram_cancel_order(text: str) -> bool:
     return True
 
 
+def ibkr_get_positions() -> list[Any] | None:
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return None
+    path = f"/v1/api/portfolio/{account_id}/positions/0"
+    data = ibkr_get(path)
+    if not data:
+        time.sleep(1)
+        data = ibkr_get(path)
+    if data is None:
+        return None
+    if isinstance(data, dict):
+        data = data.get("positions")
+    if not isinstance(data, list):
+        return None
+    return data
+
+
+def _fmt_position_line(pos: dict[str, Any]) -> str:
+    ticker = pos.get("ticker") or "?"
+    qty = pos.get("position", 0)
+    try:
+        avg = float(pos.get("avgCost") or 0)
+    except (TypeError, ValueError):
+        avg = 0.0
+    try:
+        mkt = float(pos.get("mktValue") or 0)
+    except (TypeError, ValueError):
+        mkt = 0.0
+    currency = pos.get("currency", "") or ""
+    try:
+        pnl = float(pos.get("unrealizedPnl") or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    return (
+        f"{ticker}: {qty} @ {avg:.2f} "
+        f"(valore: {mkt:.2f} {currency}, P&L: {pnl:+.2f})"
+    )
+
+
+def apply_telegram_positions(text: str) -> bool:
+    if not POSITIONS_RE.match(text.strip()):
+        return False
+    positions = ibkr_get_positions()
+    if positions is None:
+        send_telegram("⚠️ Impossibile leggere le posizioni al momento.")
+        return True
+    if not positions:
+        send_telegram("📭 Nessuna posizione aperta.")
+        return True
+    lines = ["📊 Posizioni aperte:", ""]
+    for pos in positions:
+        if isinstance(pos, dict):
+            lines.append(_fmt_position_line(pos))
+    if len(lines) <= 2:
+        send_telegram("📭 Nessuna posizione aperta.")
+        return True
+    send_telegram("\n".join(lines))
+    return True
+
+
+def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
+    try:
+        trades_data = ibkr_get("/v1/api/iserver/account/trades")
+        trades: Any = trades_data
+        if isinstance(trades_data, dict):
+            trades = trades_data.get("trades") or trades_data.get("orders") or []
+        if not isinstance(trades, list):
+            return "n/d"
+        order_conid = order.get("conid")
+        for trade in trades:
+            if not isinstance(trade, dict):
+                continue
+            trade_oid = str(trade.get("order_id") or trade.get("orderId") or "")
+            same_order = trade_oid == order_id
+            same_conid = (
+                order_conid is not None and trade.get("conid") == order_conid
+            )
+            if not (same_order or same_conid):
+                continue
+            fee = trade.get("commission", trade.get("comm", trade.get("fee")))
+            if fee is None:
+                return "n/d"
+            return str(fee)
+    except Exception:
+        return "n/d"
+    return "n/d"
+
+
+def check_order_fills(state_path: Path) -> None:
+    data = ibkr_get("/v1/api/iserver/account/orders")
+    if data is None:
+        return
+    orders = data.get("orders") if isinstance(data, dict) else None
+    if not isinstance(orders, list):
+        return
+    state = load_state(state_path)
+    raw_known = state.get("known_order_status")
+    known: dict[str, Any] = dict(raw_known) if isinstance(raw_known, dict) else {}
+    for order in orders:
+        if not isinstance(order, dict) or order.get("orderId") is None:
+            continue
+        order_id = str(order["orderId"])
+        status = order.get("status")
+        if known.get(order_id) != "Filled" and status == "Filled":
+            fee = _commission_from_trades(order, order_id)
+            avg = order.get("avgPrice", order.get("price", "n/d"))
+            send_telegram(
+                f"✅ ESEGUITO: {order.get('side')} {order.get('filledQuantity')} "
+                f"{order.get('ticker')} @ {avg} · fee: {fee}"
+            )
+        known[order_id] = status
+    state["known_order_status"] = known
+    save_state(state_path, state)
+
+
 def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     if not CLEAR_RE.match(text.strip()):
         return None
@@ -1337,7 +1454,7 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("💰") or stripped.startswith("📈") or stripped.startswith("⚠️"):
         return False
-    if stripped.startswith("🚫"):
+    if stripped.startswith("🚫") or stripped.startswith("📭"):
         return False
     if stripped == "Watchlist vuota.":
         return False
@@ -1380,6 +1497,8 @@ def process_single_message(
     elif apply_telegram_sell(text):
         pass
     elif apply_telegram_cancel_order(text):
+        pass
+    elif apply_telegram_positions(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)

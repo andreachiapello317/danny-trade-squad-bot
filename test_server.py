@@ -86,6 +86,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "in_scheduled_window", return_value=True),
                 patch.object(server, "cycle") as cyc,
                 patch.object(server, "maybe_send_daily_summary") as daily,
+                patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "time") as time_mod,
             ):
                 time_mod.sleep.side_effect = KeyboardInterrupt()
@@ -94,6 +95,7 @@ class WebhookTests(unittest.TestCase):
             cyc.assert_called_once()
             self.assertEqual(cyc.call_args.kwargs.get("lock"), server.STATE_LOCK)
             daily.assert_called_once()
+            fills.assert_called_once_with(spath)
 
     def test_price_loop_keeps_going_after_error(self) -> None:
         calls = {"n": 0}

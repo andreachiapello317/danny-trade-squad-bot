@@ -171,6 +171,7 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("📈 AMD (IBKR): 148.20"))
         self.assertFalse(watch.should_delete_chat_message("⚠️ Prezzo IBKR non disponibile per NVDA."))
         self.assertFalse(watch.should_delete_chat_message("🚫 Ordine per AMD annullato."))
+        self.assertFalse(watch.should_delete_chat_message("📭 Nessuna posizione aperta."))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -898,6 +899,105 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual((added, removed), ([], []))
             cancel.assert_called_once_with("/annulla AMD")
             delete.assert_called_once_with(23)
+
+    def test_ibkr_get_positions_retries_when_empty(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get", side_effect=[[], [{"ticker": "AMD"}]]) as get,
+            patch.object(watch, "time") as time_mod,
+        ):
+            time_mod.sleep.return_value = None
+            self.assertEqual(
+                watch.ibkr_get_positions(),
+                [{"ticker": "AMD"}],
+            )
+        time_mod.sleep.assert_called_once_with(1)
+        self.assertEqual(get.call_count, 2)
+        get.assert_called_with("/v1/api/portfolio/U123/positions/0")
+
+    def test_apply_telegram_positions(self) -> None:
+        rows = [
+            {
+                "ticker": "AMD",
+                "position": 10,
+                "avgCost": 100.5,
+                "mktValue": 1100.25,
+                "currency": "USD",
+                "unrealizedPnl": 95.0,
+            }
+        ]
+        with (
+            patch.object(watch, "ibkr_get_positions", return_value=rows),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_positions("/posizioni"))
+            self.assertTrue(watch.apply_telegram_positions("/POSIZIONI"))
+            self.assertFalse(watch.apply_telegram_positions("/saldo"))
+        body = send.call_args_list[0][0][0]
+        self.assertIn("📊 Posizioni aperte:", body)
+        self.assertIn("AMD: 10 @ 100.50", body)
+        self.assertIn("valore: 1100.25 USD", body)
+        self.assertIn("P&L: +95.00", body)
+        with (
+            patch.object(watch, "ibkr_get_positions", return_value=[]),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_positions("/posizioni"))
+        send.assert_called_once_with("📭 Nessuna posizione aperta.")
+        with (
+            patch.object(watch, "ibkr_get_positions", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_positions("/posizioni"))
+        send.assert_called_once_with("⚠️ Impossibile leggere le posizioni al momento.")
+
+    def test_process_single_message_runs_posizioni(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch, "apply_telegram_positions", return_value=True
+                ) as pos,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/posizioni", 24, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            pos.assert_called_once_with("/posizioni")
+            delete.assert_called_once_with(24)
+
+    def test_check_order_fills_notifies_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            payload = {
+                "orders": [
+                    {
+                        "orderId": 77,
+                        "status": "Filled",
+                        "side": "BUY",
+                        "filledQuantity": 2,
+                        "ticker": "AMD",
+                        "avgPrice": 148.2,
+                        "conid": 4391,
+                    }
+                ]
+            }
+            trades = [{"order_id": "77", "commission": 1.05}]
+            with (
+                patch.object(
+                    watch, "ibkr_get", side_effect=[payload, trades, payload, trades]
+                ),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_order_fills(spath)
+                watch.check_order_fills(spath)
+            send.assert_called_once_with(
+                "✅ ESEGUITO: BUY 2 AMD @ 148.2 · fee: 1.05"
+            )
+            state = watch.load_state(spath)
+            self.assertEqual(state["known_order_status"]["77"], "Filled")
 
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
