@@ -29,7 +29,8 @@
     "IBIT||stop": true,
     "SKHY||ingresso": true,
     "SBET||stop": true,
-    "CRCL||stop": true
+    "CRCL||stop": true,
+    "BMNR||stop": true
   },
   "sent_alerts": [
     {
@@ -87,6 +88,10 @@
     {
       "message_id": 286,
       "sent_at": "2026-09-15T18:45:12.380150+00:00"
+    },
+    {
+      "message_id": 294,
+      "sent_at": "2026-09-15T18:57:31.949538+00:00"
     }
   ],
   "summary_message_id": 257,
