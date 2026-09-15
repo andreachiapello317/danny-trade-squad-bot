@@ -1043,6 +1043,68 @@ class TelegramExtractTests(unittest.TestCase):
             pos.assert_called_once_with("/posizioni", spath)
             delete.assert_called_once_with(24)
 
+    def test_ibkr_get_active_orders_filters_closed(self) -> None:
+        payload = {
+            "orders": [
+                {"ticker": "AMD", "status": "Submitted", "orderId": 1},
+                {"ticker": "NVDA", "status": "Filled", "orderId": 2},
+                {"ticker": "BE", "status": "cancelled", "orderId": 3},
+                {"ticker": "HOOD", "status": "PreSubmitted", "orderId": 4},
+            ]
+        }
+        with patch.object(watch, "ibkr_get", return_value=payload):
+            active = watch.ibkr_get_active_orders()
+        self.assertEqual([o["ticker"] for o in active], ["AMD", "HOOD"])
+        with patch.object(watch, "ibkr_get", return_value=None):
+            self.assertIsNone(watch.ibkr_get_active_orders())
+
+    def test_apply_telegram_orders_replaces_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"orders_message_id": 11})
+            orders = [
+                {
+                    "ticker": "AMD",
+                    "side": "BUY",
+                    "remainingQuantity": 2,
+                    "price": 100.5,
+                    "status": "Submitted",
+                }
+            ]
+            with (
+                patch.object(watch, "ibkr_get_active_orders", return_value=orders),
+                patch.object(watch, "send_telegram", return_value=22) as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                self.assertTrue(watch.apply_telegram_orders("/ordini", spath))
+                self.assertFalse(watch.apply_telegram_orders("/posizioni", spath))
+            delete.assert_called_once_with(11)
+            body = send.call_args[0][0]
+            self.assertIn("📋 Ordini attivi:", body)
+            self.assertIn("AMD BUY 2 @ 100.5 · Submitted", body)
+            self.assertEqual(watch.load_state(spath)["orders_message_id"], 22)
+            with (
+                patch.object(watch, "ibkr_get_active_orders", return_value=[]),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_orders("/ORDINI", spath))
+            send.assert_called_with("📭 Nessun ordine attivo.")
+
+    def test_process_single_message_runs_ordini(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_orders", return_value=True) as orders,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/ordini", 26, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            orders.assert_called_once_with("/ordini", spath)
+            delete.assert_called_once_with(26)
+
     def test_check_order_fills_notifies_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"

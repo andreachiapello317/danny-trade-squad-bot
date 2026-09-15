@@ -121,6 +121,7 @@ SELL_ALL_RE = re.compile(
 )
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
+ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -1094,6 +1095,54 @@ def apply_telegram_positions(text: str, state_path: Path) -> bool:
     return True
 
 
+def ibkr_get_active_orders() -> list[Any] | None:
+    data = ibkr_get("/v1/api/iserver/account/orders")
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        return None
+    orders = data.get("orders")
+    if not isinstance(orders, list):
+        return []
+    closed = {"filled", "cancelled", "canceled"}
+    active: list[Any] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        status = str(order.get("status") or "").lower()
+        if status in closed:
+            continue
+        active.append(order)
+    return active
+
+
+def _fmt_order_line(order: dict[str, Any]) -> str:
+    qty = order.get("remainingQuantity", order.get("totalSize", "?"))
+    price = order.get("price") or order.get("avgPrice") or "MKT"
+    return (
+        f"{order.get('ticker', '?')} {order.get('side', '?')} "
+        f"{qty} @ {price} · {order.get('status', '?')}"
+    )
+
+
+def apply_telegram_orders(text: str, state_path: Path) -> bool:
+    if not ORDERS_RE.match(text.strip()):
+        return False
+    orders = ibkr_get_active_orders()
+    if orders is None:
+        body = "⚠️ Impossibile leggere gli ordini al momento."
+    elif not orders:
+        body = "📭 Nessun ordine attivo."
+    else:
+        lines = [_fmt_order_line(o) for o in orders if isinstance(o, dict)]
+        if not lines:
+            body = "📭 Nessun ordine attivo."
+        else:
+            body = "📋 Ordini attivi:\n\n" + "\n".join(lines)
+    _send_replacing_message(state_path, "orders_message_id", body)
+    return True
+
+
 def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     try:
         trades_data = ibkr_get("/v1/api/iserver/account/trades")
@@ -1585,6 +1634,8 @@ def process_single_message(
     elif apply_telegram_cancel_order(text):
         pass
     elif apply_telegram_positions(text, state_path):
+        pass
+    elif apply_telegram_orders(text, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
