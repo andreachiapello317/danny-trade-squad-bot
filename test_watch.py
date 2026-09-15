@@ -502,6 +502,69 @@ class TelegramExtractTests(unittest.TestCase):
             bal.assert_called_once_with("/saldo")
             delete.assert_called_once_with(12)
 
+    def test_ibkr_lookup_conid_caches(self) -> None:
+        watch._CONID_CACHE.clear()
+        payload = {"AMD": [{"contracts": [{"conid": 4391}]}]}
+        with patch.object(watch, "ibkr_get", return_value=payload) as get:
+            self.assertEqual(watch.ibkr_lookup_conid("amd"), "4391")
+            self.assertEqual(watch.ibkr_lookup_conid("AMD"), "4391")
+        get.assert_called_once_with("/v1/api/trsrv/stocks?symbols=AMD")
+
+    def test_ibkr_get_price_parses_prefixed_field(self) -> None:
+        watch._CONID_CACHE["AMD"] = "4391"
+        with (
+            patch.object(watch, "ibkr_get", return_value=[{"31": "C148.25"}]),
+            patch.object(watch, "time") as time_mod,
+        ):
+            time_mod.sleep.return_value = None
+            self.assertEqual(watch.ibkr_get_price("AMD"), 148.25)
+            time_mod.sleep.assert_called_once_with(1)
+
+    def test_fetch_price_uses_ibkr_then_yahoo(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get_price", return_value=11.5),
+            patch.object(watch, "_fetch_price_yahoo") as yahoo,
+        ):
+            self.assertEqual(watch.fetch_price("AMD"), 11.5)
+            yahoo.assert_not_called()
+        with (
+            patch.object(watch, "ibkr_get_price", return_value=None),
+            patch.object(watch, "_fetch_price_yahoo", return_value=10.0) as yahoo,
+        ):
+            self.assertEqual(watch.fetch_price("AMD"), 10.0)
+            yahoo.assert_called_once_with("AMD")
+
+    def test_apply_telegram_price_command(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get_price", return_value=148.2),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_price("/prezzo $amd"))
+            self.assertFalse(watch.apply_telegram_price("/saldo"))
+        send.assert_called_once_with("📈 AMD (IBKR): 148.20")
+        with (
+            patch.object(watch, "ibkr_get_price", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_price("/prezzo NVDA"))
+        send.assert_called_once_with("⚠️ Prezzo IBKR non disponibile per NVDA.")
+
+    def test_process_single_message_runs_prezzo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_price", return_value=True) as price,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/prezzo AMD", 13, wpath, spath
+                )
+            self.assertEqual(added, [])
+            self.assertEqual(removed, [])
+            price.assert_called_once_with("/prezzo AMD")
+            delete.assert_called_once_with(13)
+
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
