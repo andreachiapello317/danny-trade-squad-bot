@@ -170,6 +170,7 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("💰 Conto U123"))
         self.assertFalse(watch.should_delete_chat_message("📈 AMD (IBKR): 148.20"))
         self.assertFalse(watch.should_delete_chat_message("⚠️ Prezzo IBKR non disponibile per NVDA."))
+        self.assertFalse(watch.should_delete_chat_message("🚫 Ordine per AMD annullato."))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -816,6 +817,104 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual((added, removed), ([], []))
             sell.assert_called_once_with("/vendi AMD 1 10")
             delete.assert_called_once_with(22)
+
+    def test_ibkr_cancel_order_one_and_many(self) -> None:
+        payload = {
+            "orders": [
+                {"ticker": "amd", "status": "Submitted", "orderId": 11},
+                {"ticker": "AMD", "status": "Filled", "orderId": 12},
+                {"ticker": "NVDA", "status": "Submitted", "orderId": 13},
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
+        ):
+            self.assertEqual(
+                watch.ibkr_cancel_order("AMD"),
+                "🚫 Ordine per AMD annullato.",
+            )
+        delete.assert_called_once_with("/v1/api/iserver/account/U123/order/11")
+
+        payload["orders"].append(
+            {"ticker": "AMD", "status": "PreSubmitted", "orderId": 14}
+        )
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
+        ):
+            self.assertEqual(
+                watch.ibkr_cancel_order("amd"),
+                "🚫 2 ordini per AMD annullati.",
+            )
+        self.assertEqual(
+            [c.args[0] for c in delete.call_args_list],
+            [
+                "/v1/api/iserver/account/U123/order/11",
+                "/v1/api/iserver/account/U123/order/14",
+            ],
+        )
+
+    def test_ibkr_cancel_order_errors(self) -> None:
+        with patch.object(watch, "ibkr_get", return_value=None):
+            self.assertEqual(
+                watch.ibkr_cancel_order("AMD"),
+                "⚠️ Impossibile leggere gli ordini aperti.",
+            )
+        with patch.object(watch, "ibkr_get", return_value={"orders": []}):
+            self.assertEqual(
+                watch.ibkr_cancel_order("AMD"),
+                "⚠️ Nessun ordine aperto trovato per AMD.",
+            )
+        with (
+            patch.object(
+                watch,
+                "ibkr_get",
+                return_value={
+                    "orders": [
+                        {"ticker": "AMD", "status": "Submitted", "orderId": 9}
+                    ]
+                },
+            ),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(watch, "ibkr_delete", return_value=None),
+        ):
+            self.assertEqual(
+                watch.ibkr_cancel_order("AMD"),
+                "⚠️ Errore nell'annullamento dell'ordine per AMD.",
+            )
+
+    def test_apply_telegram_cancel_order(self) -> None:
+        with (
+            patch.object(
+                watch, "ibkr_cancel_order", return_value="🚫 Ordine per AMD annullato."
+            ) as cancel,
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_cancel_order("/annulla $amd"))
+            self.assertTrue(watch.apply_telegram_cancel_order("/ANNULLA NVDA"))
+            self.assertFalse(watch.apply_telegram_cancel_order("/vendi AMD 1"))
+        self.assertEqual([c.args[0] for c in cancel.call_args_list], ["AMD", "NVDA"])
+        self.assertEqual(send.call_count, 2)
+
+    def test_process_single_message_runs_annulla(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch, "apply_telegram_cancel_order", return_value=True
+                ) as cancel,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/annulla AMD", 23, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            cancel.assert_called_once_with("/annulla AMD")
+            delete.assert_called_once_with(23)
 
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

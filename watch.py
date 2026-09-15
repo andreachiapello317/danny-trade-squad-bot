@@ -104,6 +104,7 @@ BUY_RE = re.compile(
 SELL_RE = re.compile(
     r"^/vendi\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
 )
+CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -605,6 +606,28 @@ def ibkr_post(path: str, body: dict[str, Any]) -> dict[str, Any] | list[Any] | N
     return None
 
 
+def ibkr_delete(path: str) -> dict[str, Any] | list[Any] | None:
+    try:
+        import requests
+    except ImportError:
+        return None
+    try:
+        response = requests.delete(
+            IBKR_BASE_URL + path, verify=False, timeout=15
+        )
+    except Exception:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    if isinstance(data, (dict, list)):
+        return data
+    return None
+
+
 def ibkr_get_account_id() -> str | None:
     global _ACCOUNT_ID_CACHE
     if _ACCOUNT_ID_CACHE:
@@ -852,6 +875,56 @@ def apply_telegram_sell(text: str) -> bool:
     raw_price = m.group(3)
     price = float(raw_price) if raw_price is not None else None
     send_telegram(ibkr_place_order(ticker, quantity, "SELL", price))
+    return True
+
+
+def ibkr_cancel_order(ticker: str) -> str:
+    ticker = ticker.strip().upper()
+    data = ibkr_get("/v1/api/iserver/account/orders")
+    if data is None:
+        return "⚠️ Impossibile leggere gli ordini aperti."
+    orders = data.get("orders") if isinstance(data, dict) else None
+    if not isinstance(orders, list):
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    closed = {"filled", "cancelled", "canceled"}
+    open_ids: list[Any] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("ticker") or "").upper() != ticker:
+            continue
+        status = str(order.get("status") or "").lower()
+        if status in closed:
+            continue
+        order_id = order.get("orderId")
+        if order_id is None:
+            continue
+        open_ids.append(order_id)
+    if not open_ids:
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return "⚠️ Impossibile leggere l'account IBKR."
+    cancelled = 0
+    for order_id in open_ids:
+        result = ibkr_delete(
+            f"/v1/api/iserver/account/{account_id}/order/{order_id}"
+        )
+        if result is not None:
+            cancelled += 1
+    if cancelled == 0:
+        return f"⚠️ Errore nell'annullamento dell'ordine per {ticker}."
+    if cancelled == 1:
+        return f"🚫 Ordine per {ticker} annullato."
+    return f"🚫 {cancelled} ordini per {ticker} annullati."
+
+
+def apply_telegram_cancel_order(text: str) -> bool:
+    m = CANCEL_ORDER_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    send_telegram(ibkr_cancel_order(ticker))
     return True
 
 
@@ -1242,6 +1315,8 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("💰") or stripped.startswith("📈") or stripped.startswith("⚠️"):
         return False
+    if stripped.startswith("🚫"):
+        return False
     if stripped == "Watchlist vuota.":
         return False
     return True
@@ -1299,6 +1374,8 @@ def process_single_message(
     elif apply_telegram_buy(text):
         pass
     elif apply_telegram_sell(text):
+        pass
+    elif apply_telegram_cancel_order(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
