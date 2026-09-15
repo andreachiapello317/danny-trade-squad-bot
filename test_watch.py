@@ -674,6 +674,7 @@ class TelegramExtractTests(unittest.TestCase):
                             "side": "BUY",
                             "quantity": 2,
                             "tif": "DAY",
+                            "outsideRTH": True,
                         }
                     ]
                 },
@@ -690,6 +691,7 @@ class TelegramExtractTests(unittest.TestCase):
                         "quantity": 3,
                         "price": 10.5,
                         "tif": "DAY",
+                        "outsideRTH": True,
                     }
                 ]
             },

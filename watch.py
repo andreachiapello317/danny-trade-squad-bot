@@ -839,6 +839,7 @@ def ibkr_place_order(
         "side": side,
         "quantity": quantity,
         "tif": "DAY",
+        "outsideRTH": True,
     }
     if price is not None:
         order["price"] = price
