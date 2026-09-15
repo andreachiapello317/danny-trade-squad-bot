@@ -24,7 +24,8 @@
     "DRAM||ingresso": true,
     "GLXY||ingresso": true,
     "OSCR||ingresso": true,
-    "ASST||ingresso": true
+    "ASST||ingresso": true,
+    "ETHA||stop": true
   },
   "sent_alerts": [
     {
@@ -62,6 +63,10 @@
     {
       "message_id": 142,
       "sent_at": "2026-09-14T13:48:03.518608+00:00"
+    },
+    {
+      "message_id": 267,
+      "sent_at": "2026-09-15T14:44:49.603761+00:00"
     }
   ],
   "summary_message_id": 257,
