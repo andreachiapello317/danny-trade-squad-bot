@@ -554,6 +554,34 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(watch.ibkr_lookup_conid("AMD"), "4391")
         get.assert_called_once_with("/v1/api/trsrv/stocks?symbols=AMD")
 
+    def test_ibkr_lookup_conid_prefers_us_contract(self) -> None:
+        watch._CONID_CACHE.clear()
+        payload = {
+            "BE": [
+                {
+                    "name": "BELEAVE INC",
+                    "contracts": [{"conid": 111, "isUS": False}],
+                },
+                {
+                    "name": "BLOOM ENERGY CORP",
+                    "contracts": [{"conid": 222, "isUS": True}],
+                },
+            ]
+        }
+        with patch.object(watch, "ibkr_get", return_value=payload):
+            self.assertEqual(watch.ibkr_lookup_conid("BE"), "222")
+
+    def test_ibkr_lookup_conid_falls_back_without_us(self) -> None:
+        watch._CONID_CACHE.clear()
+        payload = {
+            "XYZ": [
+                {"contracts": [{"conid": 10, "isUS": False}]},
+                {"contracts": [{"conid": 20, "isUS": False}]},
+            ]
+        }
+        with patch.object(watch, "ibkr_get", return_value=payload):
+            self.assertEqual(watch.ibkr_lookup_conid("XYZ"), "10")
+
     def test_ibkr_get_price_parses_prefixed_field(self) -> None:
         watch._CONID_CACHE["AMD"] = "4391"
         with (

@@ -597,8 +597,28 @@ def ibkr_lookup_conid(ticker: str) -> str | None:
             )
         if not isinstance(rows, list) or not rows:
             return None
-        conid = rows[0]["contracts"][0]["conid"]
-        out = str(conid)
+        fallback: Any = None
+        us_conid: Any = None
+        for company in rows:
+            if not isinstance(company, dict):
+                continue
+            contracts = company.get("contracts")
+            if not isinstance(contracts, list):
+                continue
+            for contract in contracts:
+                if not isinstance(contract, dict):
+                    continue
+                conid = contract.get("conid")
+                if conid is None:
+                    continue
+                if fallback is None:
+                    fallback = conid
+                if us_conid is None and contract.get("isUS") is True:
+                    us_conid = conid
+        chosen = us_conid if us_conid is not None else fallback
+        if chosen is None:
+            return None
+        out = str(chosen)
         _CONID_CACHE[key] = out
         return out
     except Exception:
