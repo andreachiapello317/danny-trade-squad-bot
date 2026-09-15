@@ -46,6 +46,7 @@ DEFAULT_INTERVAL = 60
 DEFAULT_CHAT_ID = "-1004312726798"
 IBKR_BASE_URL = "https://danny-ibeam:5000"
 _CONID_CACHE: dict[str, str] = {}
+_ACCOUNT_ID_CACHE: str | None = None
 _IBKR_PRICE_RE = re.compile(r"-?\d+(?:\.\d+)?")
 SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
@@ -97,6 +98,12 @@ SCAN_ENTRY_RE = re.compile(r"^/scanin\s*$", re.I)
 CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+BUY_RE = re.compile(
+    r"^/compra\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
+)
+SELL_RE = re.compile(
+    r"^/vendi\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
+)
 
 
 def parse_num(raw: str) -> float:
@@ -576,6 +583,42 @@ def ibkr_get(path: str) -> dict[str, Any] | list[Any] | None:
     return None
 
 
+def ibkr_post(path: str, body: dict[str, Any]) -> dict[str, Any] | list[Any] | None:
+    try:
+        import requests
+    except ImportError:
+        return None
+    try:
+        response = requests.post(
+            IBKR_BASE_URL + path, json=body, verify=False, timeout=15
+        )
+    except Exception:
+        return None
+    if response.status_code not in (200, 201):
+        return None
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    if isinstance(data, (dict, list)):
+        return data
+    return None
+
+
+def ibkr_get_account_id() -> str | None:
+    global _ACCOUNT_ID_CACHE
+    if _ACCOUNT_ID_CACHE:
+        return _ACCOUNT_ID_CACHE
+    accounts = ibkr_get("/v1/api/portfolio/accounts")
+    if not isinstance(accounts, list) or not accounts:
+        return None
+    first = accounts[0]
+    if not isinstance(first, dict) or not first.get("accountId"):
+        return None
+    _ACCOUNT_ID_CACHE = str(first["accountId"])
+    return _ACCOUNT_ID_CACHE
+
+
 def ibkr_lookup_conid(ticker: str) -> str | None:
     key = ticker.strip().upper()
     if not key:
@@ -730,6 +773,85 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
             "price_message_id",
             f"📈 {ticker} (IBKR): {price:.2f}",
         )
+    return True
+
+
+def ibkr_place_order(
+    ticker: str, quantity: int, side: str, price: float | None
+) -> str:
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return "⚠️ Impossibile leggere l'account IBKR."
+    try:
+        conid_int = int(conid)
+    except (TypeError, ValueError):
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    order: dict[str, Any] = {
+        "conid": conid_int,
+        "orderType": "MKT" if price is None else "LMT",
+        "side": side,
+        "quantity": quantity,
+        "tif": "DAY",
+    }
+    if price is not None:
+        order["price"] = price
+    result: dict[str, Any] | list[Any] | None = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/orders",
+        {"orders": [order]},
+    )
+    if result is None:
+        return "⚠️ Errore nell'invio dell'ordine."
+    confirmed = False
+    for _ in range(5):
+        if isinstance(result, dict):
+            result = [result]
+        if not isinstance(result, list) or not result:
+            break
+        first = result[0]
+        if not isinstance(first, dict):
+            break
+        if first.get("id") is not None and first.get("message") is not None:
+            result = ibkr_post(
+                f"/v1/api/iserver/reply/{first['id']}",
+                {"confirmed": True},
+            )
+            continue
+        if first.get("order_id") is not None or first.get("orderId") is not None:
+            confirmed = True
+            break
+        break
+    if confirmed:
+        kind = "a mercato" if price is None else f"@ {price}"
+        return f"✅ Ordine {side} {quantity} {ticker} {kind} inviato."
+    return (
+        f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
+    )
+
+
+def apply_telegram_buy(text: str) -> bool:
+    m = BUY_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    quantity = int(m.group(2))
+    raw_price = m.group(3)
+    price = float(raw_price) if raw_price is not None else None
+    send_telegram(ibkr_place_order(ticker, quantity, "BUY", price))
+    return True
+
+
+def apply_telegram_sell(text: str) -> bool:
+    m = SELL_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    quantity = int(m.group(2))
+    raw_price = m.group(3)
+    price = float(raw_price) if raw_price is not None else None
+    send_telegram(ibkr_place_order(ticker, quantity, "SELL", price))
     return True
 
 
@@ -1173,6 +1295,10 @@ def process_single_message(
     elif apply_telegram_balance(text, state_path):
         pass
     elif apply_telegram_price(text, state_path):
+        pass
+    elif apply_telegram_buy(text):
+        pass
+    elif apply_telegram_sell(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)

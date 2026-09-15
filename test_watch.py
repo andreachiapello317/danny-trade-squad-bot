@@ -653,6 +653,170 @@ class TelegramExtractTests(unittest.TestCase):
             price.assert_called_once_with("/prezzo AMD", spath)
             delete.assert_called_once_with(13)
 
+    def test_ibkr_get_account_id_caches(self) -> None:
+        watch._ACCOUNT_ID_CACHE = None
+        with patch.object(
+            watch, "ibkr_get", return_value=[{"accountId": "U123"}]
+        ) as get:
+            self.assertEqual(watch.ibkr_get_account_id(), "U123")
+            self.assertEqual(watch.ibkr_get_account_id(), "U123")
+        get.assert_called_once_with("/v1/api/portfolio/accounts")
+        watch._ACCOUNT_ID_CACHE = None
+
+    def test_ibkr_place_order_market_and_limit(self) -> None:
+        watch._ACCOUNT_ID_CACHE = None
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"order_id": 77}]
+            ) as post,
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 2, "BUY", None),
+                "✅ Ordine BUY 2 AMD a mercato inviato.",
+            )
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 3, "SELL", 10.5),
+                "✅ Ordine SELL 3 AMD @ 10.5 inviato.",
+            )
+        self.assertEqual(
+            post.call_args_list[0][0],
+            (
+                "/v1/api/iserver/account/U123/orders",
+                {
+                    "orders": [
+                        {
+                            "conid": 4391,
+                            "orderType": "MKT",
+                            "side": "BUY",
+                            "quantity": 2,
+                            "tif": "DAY",
+                        }
+                    ]
+                },
+            ),
+        )
+        self.assertEqual(
+            post.call_args_list[1][0][1],
+            {
+                "orders": [
+                    {
+                        "conid": 4391,
+                        "orderType": "LMT",
+                        "side": "SELL",
+                        "quantity": 3,
+                        "price": 10.5,
+                        "tif": "DAY",
+                    }
+                ]
+            },
+        )
+
+    def test_ibkr_place_order_confirms_questions(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                side_effect=[
+                    [{"id": "q1", "message": ["Confirm?"]}],
+                    [{"orderId": 88}],
+                ],
+            ) as post,
+        ):
+            msg = watch.ibkr_place_order("BE", 1, "BUY", None)
+        self.assertEqual(msg, "✅ Ordine BUY 1 BE a mercato inviato.")
+        self.assertEqual(
+            post.call_args_list[1][0],
+            ("/v1/api/iserver/reply/q1", {"confirmed": True}),
+        )
+
+    def test_ibkr_place_order_errors(self) -> None:
+        with patch.object(watch, "ibkr_lookup_conid", return_value=None):
+            self.assertEqual(
+                watch.ibkr_place_order("ZZZ", 1, "BUY", None),
+                "⚠️ Impossibile trovare ZZZ su IBKR.",
+            )
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value=None),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 1, "BUY", None),
+                "⚠️ Impossibile leggere l'account IBKR.",
+            )
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(watch, "ibkr_post", return_value=None),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 1, "BUY", None),
+                "⚠️ Errore nell'invio dell'ordine.",
+            )
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"id": "q", "message": "x"}]
+            ),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("AMD", 1, "SELL", 9),
+                "⚠️ Ordine non confermato per AMD, controlla manualmente su IBKR.",
+            )
+
+    def test_apply_telegram_buy_and_sell(self) -> None:
+        with (
+            patch.object(
+                watch, "ibkr_place_order", return_value="✅ ok"
+            ) as place,
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_buy("/compra $amd 2"))
+            self.assertTrue(watch.apply_telegram_buy("/compra NVDA 1 148.2"))
+            self.assertFalse(watch.apply_telegram_buy("/vendi AMD 1"))
+            self.assertTrue(watch.apply_telegram_sell("/vendi AMD 3"))
+            self.assertTrue(watch.apply_telegram_sell("/vendi $be 2 22.5"))
+            self.assertFalse(watch.apply_telegram_sell("/compra AMD 1"))
+        self.assertEqual(
+            [c.args for c in place.call_args_list],
+            [
+                ("AMD", 2, "BUY", None),
+                ("NVDA", 1, "BUY", 148.2),
+                ("AMD", 3, "SELL", None),
+                ("BE", 2, "SELL", 22.5),
+            ],
+        )
+        self.assertEqual(send.call_count, 4)
+
+    def test_process_single_message_runs_compra_vendi(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_buy", return_value=True) as buy,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/compra AMD 1", 21, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            buy.assert_called_once_with("/compra AMD 1")
+            delete.assert_called_once_with(21)
+            with (
+                patch.object(watch, "apply_telegram_sell", return_value=True) as sell,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/vendi AMD 1 10", 22, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            sell.assert_called_once_with("/vendi AMD 1 10")
+            delete.assert_called_once_with(22)
+
     def test_set_ignores_symbol_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
