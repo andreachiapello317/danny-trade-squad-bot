@@ -33,58 +33,7 @@
   ],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-16",
-  "order_messages": [
-    {
-      "message_id": 1283,
-      "sent_at": "2026-09-16T23:08:36.171084+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1284,
-      "sent_at": "2026-09-16T23:08:36.450162+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1285,
-      "sent_at": "2026-09-16T23:08:36.633909+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1286,
-      "sent_at": "2026-09-16T23:08:36.867410+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1287,
-      "sent_at": "2026-09-16T23:08:37.056003+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1288,
-      "sent_at": "2026-09-16T23:08:41.301740+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1289,
-      "sent_at": "2026-09-16T23:08:41.467820+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1290,
-      "sent_at": "2026-09-16T23:08:41.641324+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1291,
-      "sent_at": "2026-09-16T23:08:41.805015+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1292,
-      "sent_at": "2026-09-16T23:08:41.994610+00:00",
-      "ttl_seconds": 60
-    }
-  ],
+  "order_messages": [],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
