@@ -1571,6 +1571,109 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertIsNone(watch.apply_telegram_set_field("/set AMD", wpath))
             self.assertIsNone(watch.apply_telegram_set_field("ciao", wpath))
 
+    def test_set_multi_applies_each_valid_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            text = "/set\nAMD 500 480 550\nTSLA 350 330 380\n"
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertEqual(
+                    watch.apply_telegram_set(text, wpath),
+                    ["AMD", "TSLA"],
+                )
+            send.assert_called_once_with("✅ Impostati: AMD, TSLA")
+            items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
+            self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
+            self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
+            self.assertEqual(items["AMD"]["stop"], 480.0)
+            self.assertEqual(items["AMD"]["target"], 550.0)
+            self.assertEqual(
+                items["AMD"]["locked_fields"],
+                ["ingresso_low", "ingresso_high", "stop", "target"],
+            )
+            self.assertEqual(items["TSLA"]["ingresso_low"], 350.0)
+            self.assertEqual(items["TSLA"]["stop"], 330.0)
+            self.assertEqual(items["TSLA"]["target"], 380.0)
+
+    def test_set_multi_skips_bad_rows_and_keeps_single_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            text = "/set\nAMD 500 480 550\nNOT A TICKER\nTSLA 350 330 380\nBAD\n"
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertEqual(
+                    watch.apply_telegram_set(text, wpath),
+                    ["AMD", "TSLA"],
+                )
+            send.assert_called_once_with(
+                "✅ Impostati: AMD, TSLA\n⚠️ Errori: NOT, BAD"
+            )
+            tickers = [it["ticker"] for it in watch.load_watchlist(wpath)]
+            self.assertEqual(tickers, ["AMD", "TSLA"])
+            self.assertEqual(
+                watch.apply_telegram_set("/set CRCL 75-90 70 103", wpath),
+                "CRCL",
+            )
+            crcl = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "CRCL")
+            self.assertEqual(crcl["ingresso_low"], 75.0)
+            self.assertEqual(crcl["ingresso_high"], 90.0)
+
+    def test_setbuy_multi_and_other_fields_stay_single(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            text = "/setbuy\nAMD 500\nTSLA 350\nFOO\n"
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertEqual(
+                    watch.apply_telegram_set_field(text, wpath),
+                    ["AMD", "TSLA"],
+                )
+            send.assert_called_once_with("✅ Impostati: AMD, TSLA\n⚠️ Errori: FOO")
+            items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
+            self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
+            self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
+            self.assertEqual(items["AMD"]["locked_fields"], ["ingresso_low", "ingresso_high"])
+            self.assertEqual(items["TSLA"]["ingresso_low"], 350.0)
+            with patch.object(watch, "send_telegram") as send:
+                self.assertIsNone(
+                    watch.apply_telegram_set_field("/settarget\nAMD 160\nTSLA 400\n", wpath)
+                )
+                self.assertIsNone(
+                    watch.apply_telegram_set_field("/setstop\nAMD 120\nTSLA 300\n", wpath)
+                )
+                send.assert_not_called()
+            self.assertIsNone(watch.load_watchlist(wpath)[0].get("target"))
+            self.assertEqual(
+                watch.apply_telegram_set_field("/settarget AMD 160", wpath),
+                "AMD",
+            )
+            self.assertEqual(watch.load_watchlist(wpath)[0]["target"], 160.0)
+
+    def test_process_single_message_handles_set_multi_without_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            text = "/set\nAMD 500 480 550\nTSLA 350 330 380\n"
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "delete_telegram_message"),
+            ):
+                added, removed = watch.process_single_message(text, 9, wpath, spath)
+            self.assertEqual(added, [])
+            self.assertEqual(removed, [])
+            send.assert_called_once_with("✅ Impostati: AMD, TSLA")
+            self.assertEqual(
+                [it["ticker"] for it in watch.load_watchlist(wpath)],
+                ["AMD", "TSLA"],
+            )
+
     def test_remove_returns_ticker_or_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"

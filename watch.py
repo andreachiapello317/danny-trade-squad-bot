@@ -91,6 +91,15 @@ SET_FIELD_RE = re.compile(
     rf"^/(setbuy|settarget|setstop)\s+\$?([A-Za-z]{{1,8}})\s+{NUM}",
     re.I,
 )
+SET_LINE_RE = re.compile(
+    rf"^\$?([A-Za-z]{{1,8}})\s+({NUM}(?:{RANGE_SEP}{NUM})?)\s+"
+    rf"{NUM}\s+{NUM}\s*$",
+    re.I,
+)
+SETBUY_LINE_RE = re.compile(
+    rf"^\$?([A-Za-z]{{1,8}})\s+{NUM}\s*$",
+    re.I,
+)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 BUY_RE = re.compile(
@@ -1512,18 +1521,61 @@ def _add_locked_fields(ticket: dict[str, Any], *fields: str) -> None:
     ticket["locked_fields"] = locked
 
 
-def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
-    m = SET_RE.match(text.strip())
-    if not m:
+def _multiline_command_lines(text: str, command: str) -> list[str] | None:
+    """Body lines if the first line is only /command and more lines follow."""
+    stripped = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not stripped:
         return None
-    ticker = m.group(1).upper()
-    ingresso_low = parse_num(m.group(3))
-    high_raw = m.group(4)
-    ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
-    if ingresso_low > ingresso_high:
-        ingresso_low, ingresso_high = ingresso_high, ingresso_low
-    stop = parse_num(m.group(5))
-    target = parse_num(m.group(6))
+    lines = stripped.split("\n")
+    first = lines[0].strip()
+    rest_of_first = re.sub(rf"^/{re.escape(command)}\b", "", first, flags=re.I).strip()
+    if rest_of_first or len(lines) < 2:
+        return None
+    return [ln.strip() for ln in lines[1:] if ln.strip()]
+
+
+def _line_error_label(line: str) -> str:
+    token = line.split(None, 1)[0] if line.split() else line
+    return token.lstrip("$").upper()
+
+
+def _send_set_summary(ok: list[str], err: list[str]) -> None:
+    parts: list[str] = []
+    if ok:
+        parts.append(f"✅ Impostati: {', '.join(ok)}")
+    if err:
+        parts.append(f"⚠️ Errori: {', '.join(err)}")
+    if parts:
+        send_telegram("\n".join(parts))
+
+
+def _parse_set_levels(
+    match: re.Match[str],
+) -> tuple[str, float, float, float, float] | None:
+    try:
+        ticker = match.group(1).upper()
+        if not is_valid_symbol(ticker):
+            return None
+        ingresso_low = parse_num(match.group(3))
+        high_raw = match.group(4)
+        ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
+        if ingresso_low > ingresso_high:
+            ingresso_low, ingresso_high = ingresso_high, ingresso_low
+        stop = parse_num(match.group(5))
+        target = parse_num(match.group(6))
+    except (TypeError, ValueError, IndexError):
+        return None
+    return ticker, ingresso_low, ingresso_high, stop, target
+
+
+def _upsert_set_levels(
+    watchlist_path: Path,
+    ticker: str,
+    ingresso_low: float,
+    ingresso_high: float,
+    stop: float,
+    target: float,
+) -> None:
     items = load_watchlist(watchlist_path)
     found = False
     next_items: list[dict[str, Any]] = []
@@ -1557,28 +1609,114 @@ def apply_telegram_set(text: str, watchlist_path: Path) -> str | None:
             next_items[-1], "ingresso_low", "ingresso_high", "stop", "target"
         )
     save_watchlist(watchlist_path, next_items)
-    print(f"Set  {ticker}  ing {ingresso_low:g}-{ingresso_high:g}  stop {stop:g}  tgt {target:g}", flush=True)
+    print(
+        f"Set  {ticker}  ing {ingresso_low:g}-{ingresso_high:g}  "
+        f"stop {stop:g}  tgt {target:g}",
+        flush=True,
+    )
+
+
+def apply_telegram_set(text: str, watchlist_path: Path) -> str | list[str] | None:
+    body = _multiline_command_lines(text, "set")
+    if body is not None:
+        ok: list[str] = []
+        err: list[str] = []
+        for line in body:
+            m = SET_LINE_RE.match(line)
+            parsed = _parse_set_levels(m) if m else None
+            if parsed is None:
+                err.append(_line_error_label(line))
+                continue
+            ticker, ingresso_low, ingresso_high, stop, target = parsed
+            _upsert_set_levels(
+                watchlist_path, ticker, ingresso_low, ingresso_high, stop, target
+            )
+            ok.append(ticker)
+        _send_set_summary(ok, err)
+        return ok
+    m = SET_RE.match(text.strip())
+    if not m:
+        return None
+    ticker = m.group(1).upper()
+    ingresso_low = parse_num(m.group(3))
+    high_raw = m.group(4)
+    ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
+    if ingresso_low > ingresso_high:
+        ingresso_low, ingresso_high = ingresso_high, ingresso_low
+    stop = parse_num(m.group(5))
+    target = parse_num(m.group(6))
+    _upsert_set_levels(watchlist_path, ticker, ingresso_low, ingresso_high, stop, target)
     return ticker
 
 
-def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | None:
-    m = SET_FIELD_RE.match(text.strip())
-    if not m:
-        return None
-    command = m.group(1).lower()
-    ticker = m.group(2).upper()
-    price = parse_num(m.group(3))
+def _upsert_setbuy(watchlist_path: Path, ticker: str, price: float) -> None:
     items = load_watchlist(watchlist_path)
     found = False
     next_items: list[dict[str, Any]] = []
     for it in items:
         if (it.get("ticker") or "").upper() == ticker:
             updated = dict(it)
-            if command == "setbuy":
-                updated["ingresso_low"] = price
-                updated["ingresso_high"] = price
-                _add_locked_fields(updated, "ingresso_low", "ingresso_high")
-            elif command == "settarget":
+            updated["ingresso_low"] = price
+            updated["ingresso_high"] = price
+            _add_locked_fields(updated, "ingresso_low", "ingresso_high")
+            next_items.append(updated)
+            found = True
+        else:
+            next_items.append(it)
+    if not found:
+        blank: dict[str, Any] = {
+            "ticker": ticker,
+            "tf": "",
+            "ingresso_low": price,
+            "ingresso_high": price,
+            "stop": None,
+            "target": None,
+            "motivo": "",
+        }
+        _add_locked_fields(blank, "ingresso_low", "ingresso_high")
+        next_items.append(blank)
+    save_watchlist(watchlist_path, next_items)
+    print(f"setbuy  {ticker}  {price:g}", flush=True)
+
+
+def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | list[str] | None:
+    body = _multiline_command_lines(text, "setbuy")
+    if body is not None:
+        ok: list[str] = []
+        err: list[str] = []
+        for line in body:
+            m = SETBUY_LINE_RE.match(line)
+            ticker = ""
+            price: float | None = None
+            if m:
+                ticker = m.group(1).upper()
+                try:
+                    price = parse_num(m.group(2))
+                except (TypeError, ValueError):
+                    price = None
+            if not m or not ticker or price is None or not is_valid_symbol(ticker):
+                err.append(_line_error_label(line))
+                continue
+            _upsert_setbuy(watchlist_path, ticker, price)
+            ok.append(ticker)
+        _send_set_summary(ok, err)
+        return ok
+    m = SET_FIELD_RE.match(text.strip())
+    if not m:
+        return None
+    command = m.group(1).lower()
+    ticker = m.group(2).upper()
+    price = parse_num(m.group(3))
+    if command == "setbuy":
+        _upsert_setbuy(watchlist_path, ticker, price)
+        return ticker
+    items = load_watchlist(watchlist_path)
+    found = False
+    next_items: list[dict[str, Any]] = []
+    for it in items:
+        if (it.get("ticker") or "").upper() == ticker:
+            updated = dict(it)
+            if command == "settarget":
                 updated["target"] = price
                 _add_locked_fields(updated, "target")
             else:
@@ -1598,11 +1736,7 @@ def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | None:
             "target": None,
             "motivo": "",
         }
-        if command == "setbuy":
-            blank["ingresso_low"] = price
-            blank["ingresso_high"] = price
-            _add_locked_fields(blank, "ingresso_low", "ingresso_high")
-        elif command == "settarget":
+        if command == "settarget":
             blank["target"] = price
             _add_locked_fields(blank, "target")
         else:
@@ -1966,12 +2100,14 @@ def process_single_message(
             removed.extend(cleared)
         else:
             set_ticker = apply_telegram_set(text, watchlist_path)
-            if set_ticker:
-                added.append(set_ticker)
+            if set_ticker is not None:
+                if isinstance(set_ticker, str):
+                    added.append(set_ticker)
             else:
                 field_ticker = apply_telegram_set_field(text, watchlist_path)
-                if field_ticker:
-                    added.append(field_ticker)
+                if field_ticker is not None:
+                    if isinstance(field_ticker, str):
+                        added.append(field_ticker)
                 else:
                     gone = apply_telegram_remove(text, watchlist_path)
                     if gone:
@@ -2088,13 +2224,15 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                     items = load_watchlist(watchlist_path)
                 else:
                     set_ticker = apply_telegram_set(text, watchlist_path)
-                    if set_ticker:
-                        added.append(set_ticker)
+                    if set_ticker is not None:
+                        if isinstance(set_ticker, str):
+                            added.append(set_ticker)
                         items = load_watchlist(watchlist_path)
                     else:
                         field_ticker = apply_telegram_set_field(text, watchlist_path)
-                        if field_ticker:
-                            added.append(field_ticker)
+                        if field_ticker is not None:
+                            if isinstance(field_ticker, str):
+                                added.append(field_ticker)
                             items = load_watchlist(watchlist_path)
                         else:
                             gone = apply_telegram_remove(text, watchlist_path)
