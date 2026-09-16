@@ -48,11 +48,6 @@
       "message_id": 1308,
       "sent_at": "2026-09-16T23:36:39.200531+00:00",
       "ttl_seconds": 120
-    },
-    {
-      "message_id": 1309,
-      "sent_at": "2026-09-16T23:37:21.684241+00:00",
-      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
