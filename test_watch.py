@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -2368,6 +2369,72 @@ class BuySellFlowTests(unittest.TestCase):
             pending.assert_called_once_with("AMD", spath)
             lst.assert_not_called()
             delete.assert_called_once_with(41)
+
+
+class GitSyncTests(unittest.TestCase):
+    def test_skips_without_token(self) -> None:
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": ""}, clear=False),
+            patch.object(watch.subprocess, "run") as run,
+        ):
+            watch.commit_state_to_git()
+        run.assert_not_called()
+
+    def test_no_changes_skips_commit_and_push(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "tok123"}, clear=False),
+            patch.object(watch.subprocess, "run", side_effect=fake_run),
+        ):
+            watch.commit_state_to_git()
+        self.assertTrue(any(c[:4] == ["git", "add", "-f", "watchlist.json"] for c in calls))
+        self.assertTrue(any("diff" in c and "--quiet" in c for c in calls))
+        self.assertFalse(any("commit" in c for c in calls))
+        self.assertFalse(any("push" in c for c in calls))
+
+    def test_commits_and_pushes_with_token_url(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(list(args))
+            if "diff" in args and "--quiet" in args:
+                return subprocess.CompletedProcess(args, 1, "", "")
+            if "diff" in args and "--name-only" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, "watchlist.json\nwatch_state.json\n", ""
+                )
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "tok123"}, clear=False),
+            patch.object(watch.subprocess, "run", side_effect=fake_run),
+        ):
+            watch.commit_state_to_git()
+        self.assertTrue(
+            any(
+                c[:3] == ["git", "commit", "-m"]
+                and "Aggiorna stato watchlist [skip ci]" in c
+                for c in calls
+            )
+        )
+        push = next(c for c in calls if c[:2] == ["git", "push"])
+        self.assertIn("x-access-token:tok123@", push[2])
+        self.assertTrue(push[2].endswith("danny-trade-squad-bot.git"))
+        self.assertEqual(push[3:], ["HEAD:main"])
+
+    def test_errors_do_not_raise(self) -> None:
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "tok123"}, clear=False),
+            patch.object(
+                watch.subprocess, "run", side_effect=RuntimeError("down")
+            ),
+        ):
+            watch.commit_state_to_git()
 
 
 if __name__ == "__main__":

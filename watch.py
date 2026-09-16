@@ -11,10 +11,12 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
@@ -2270,6 +2272,78 @@ def maybe_alert(
                 record_sent_alert(state_path, mid)
     else:
         fired[key] = False
+
+
+GIT_SYNC_REMOTE = (
+    "https://x-access-token:{token}@github.com/"
+    "andreachiapello317/danny-trade-squad-bot.git"
+)
+GIT_SYNC_FILES = ("watchlist.json", "watch_state.json")
+
+
+def commit_state_to_git() -> None:
+    """Best-effort: committa watchlist e stato su main. Non deve mai crashare."""
+    token = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    if not token:
+        print("Git sync: GITHUB_TOKEN assente, skip.", file=sys.stderr)
+        return
+    cwd = str(Path.cwd())
+    remote = GIT_SYNC_REMOTE.format(token=urllib.parse.quote(token, safe=""))
+
+    def run(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+
+    def redact(text: str) -> str:
+        return (text or "").replace(token, "***").strip()
+
+    try:
+        for cfg in (
+            ["git", "config", "user.name", "watch-bot"],
+            ["git", "config", "user.email", "watch-bot@users.noreply.github.com"],
+        ):
+            done = run(cfg)
+            if done.returncode != 0:
+                print(f"Git sync: {redact(done.stderr) or cfg}", file=sys.stderr)
+                return
+        added = run(["git", "add", "-f", *GIT_SYNC_FILES])
+        if added.returncode != 0:
+            print(f"Git sync: add fallito ({redact(added.stderr)})", file=sys.stderr)
+            return
+        diff = run(["git", "diff", "--staged", "--quiet"])
+        if diff.returncode == 0:
+            print("Git sync: nessuna modifica", flush=True)
+            return
+        if diff.returncode != 1:
+            print(f"Git sync: diff fallito ({redact(diff.stderr)})", file=sys.stderr)
+            return
+        names = run(["git", "diff", "--staged", "--name-only"])
+        n = len(
+            [line for line in (names.stdout or "").splitlines() if line.strip()]
+        )
+        commit = run(
+            ["git", "commit", "-m", "Aggiorna stato watchlist [skip ci]"]
+        )
+        if commit.returncode != 0:
+            print(
+                f"Git sync: commit fallito ({redact(commit.stderr)})",
+                file=sys.stderr,
+            )
+            return
+        print(f"Git sync: {n} modifiche committate", flush=True)
+        push = run(["git", "push", remote, "HEAD:main"], timeout=60)
+        if push.returncode != 0:
+            print(f"Git sync: push fallito ({redact(push.stderr)})", file=sys.stderr)
+    except Exception as exc:
+        print(f"Git sync: {exc}", file=sys.stderr)
 
 
 def cycle(

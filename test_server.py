@@ -57,6 +57,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(watch, "is_valid_symbol", return_value=True),
                 patch.object(watch, "delete_telegram_message"),
                 patch.object(server, "send_watchlist_summary") as summary,
+                patch.object(server, "commit_state_to_git") as sync,
             ):
                 resp = client.post("/webhook", json=payload)
             self.assertEqual(resp.status_code, 200)
@@ -65,6 +66,7 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(items[0]["ticker"], "AMD")
             summary.assert_called_once()
             self.assertEqual(summary.call_args[0][0], ["AMD"])
+            sync.assert_not_called()
 
     def test_processes_callback_query_and_skips_message_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +199,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "maybe_send_daily_summary") as daily,
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
             ):
                 time_mod.sleep.side_effect = KeyboardInterrupt()
@@ -207,6 +210,7 @@ class WebhookTests(unittest.TestCase):
             daily.assert_called_once()
             fills.assert_called_once_with(spath)
             expire.assert_called_once_with(spath)
+            sync.assert_called_once()
 
     def test_price_loop_keeps_going_after_error(self) -> None:
         calls = {"n": 0}
@@ -235,6 +239,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "in_scheduled_window", return_value=False),
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
             ):
                 time_mod.sleep.side_effect = KeyboardInterrupt()
@@ -242,6 +247,7 @@ class WebhookTests(unittest.TestCase):
                     server.price_loop()
             fills.assert_called_once_with(spath)
             expire.assert_called_once_with(spath)
+            sync.assert_called_once()
 
 
 class ResetWatchlistOnBootTests(unittest.TestCase):

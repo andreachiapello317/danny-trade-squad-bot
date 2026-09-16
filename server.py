@@ -19,6 +19,7 @@ from watch import (
     _send_flow_message,
     chat_matches,
     check_order_fills,
+    commit_state_to_git,
     cycle,
     expire_order_messages,
     ibkr_sell_all,
@@ -70,10 +71,12 @@ def price_loop() -> None:
                     maybe_send_daily_summary(items, STATE_PATH)
                     check_order_fills(STATE_PATH)
                     expire_order_messages(STATE_PATH)
+                    commit_state_to_git()
             else:
                 with STATE_LOCK:
                     check_order_fills(STATE_PATH)
                     expire_order_messages(STATE_PATH)
+                    commit_state_to_git()
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
         time.sleep(60)
