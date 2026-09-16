@@ -103,6 +103,9 @@ CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
+VWAP_ADD_RE = re.compile(r"^/vwapadd\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+VWAP_RM_RE = re.compile(r"^/vwaprm\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+VWAP_LIST_RE = re.compile(r"^/vwaplist\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -678,6 +681,31 @@ def ibkr_get_price(ticker: str) -> float | None:
         return None
 
 
+def ibkr_get_vwap(ticker: str) -> float | None:
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return None
+    path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields=31,7059"
+    ibkr_get(path)
+    time.sleep(1)
+    snap = ibkr_get(path)
+    if not isinstance(snap, list) or not snap:
+        return None
+    first = snap[0]
+    if not isinstance(first, dict):
+        return None
+    raw = first.get("7059")
+    if raw is None:
+        return None
+    match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except (TypeError, ValueError):
+        return None
+
+
 def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:
     state = load_state(state_path)
     old_id = state.get(id_key)
@@ -1175,6 +1203,88 @@ def apply_telegram_history(text: str) -> bool:
     return True
 
 
+def _vwap_tickers(state: dict[str, Any]) -> list[str]:
+    raw = state.get("vwap_tickers")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        ticker = item.strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        out.append(ticker)
+    return out
+
+
+def apply_telegram_vwap_add(text: str, state_path: Path) -> bool:
+    match = VWAP_ADD_RE.match(text.strip())
+    if not match:
+        return False
+    ticker = match.group(1).upper()
+    state = load_state(state_path)
+    tickers = _vwap_tickers(state)
+    if ticker in tickers:
+        send_telegram(f"✅ {ticker} è già nella lista VWAP.")
+        return True
+    tickers.append(ticker)
+    state["vwap_tickers"] = tickers
+    save_state(state_path, state)
+    send_telegram(f"✅ {ticker} aggiunto alla lista VWAP.")
+    return True
+
+
+def apply_telegram_vwap_rm(text: str, state_path: Path) -> bool:
+    match = VWAP_RM_RE.match(text.strip())
+    if not match:
+        return False
+    ticker = match.group(1).upper()
+    state = load_state(state_path)
+    tickers = _vwap_tickers(state)
+    if ticker not in tickers:
+        send_telegram(f"📭 {ticker} non era nella lista VWAP.")
+        return True
+    tickers = [t for t in tickers if t != ticker]
+    state["vwap_tickers"] = tickers
+    save_state(state_path, state)
+    send_telegram(f"✅ {ticker} rimosso dalla lista VWAP.")
+    return True
+
+
+def _fmt_vwap_line(ticker: str, prezzo: float | None, vwap: float | None) -> str:
+    p = f"{prezzo:.2f}" if prezzo is not None else "n/d"
+    v = f"{vwap:.2f}" if vwap is not None else "n/d"
+    dist = "n/d"
+    if prezzo is not None and vwap not in (None, 0):
+        dist = f"{((prezzo - vwap) / vwap * 100):+.2f}%"
+    return f"{ticker}: prezzo {p} · VWAP {v} · distanza {dist}"
+
+
+def apply_telegram_vwap_list(text: str, state_path: Path) -> bool:
+    if not VWAP_LIST_RE.match(text.strip()):
+        return False
+    tickers = _vwap_tickers(load_state(state_path))
+    if not tickers:
+        _send_replacing_message(
+            state_path,
+            "vwap_list_message_id",
+            "📭 Nessun ticker nella lista VWAP.",
+        )
+        return True
+    lines = ["📈 Lista VWAP:", ""]
+    for ticker in tickers:
+        lines.append(
+            _fmt_vwap_line(ticker, ibkr_get_price(ticker), ibkr_get_vwap(ticker))
+        )
+    _send_replacing_message(
+        state_path, "vwap_list_message_id", "\n".join(lines)
+    )
+    return True
+
+
 def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     try:
         trades_data = ibkr_get("/v1/api/iserver/account/trades")
@@ -1668,6 +1778,12 @@ def process_single_message(
     elif apply_telegram_orders(text, state_path):
         pass
     elif apply_telegram_history(text):
+        pass
+    elif apply_telegram_vwap_add(text, state_path):
+        pass
+    elif apply_telegram_vwap_rm(text, state_path):
+        pass
+    elif apply_telegram_vwap_list(text, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)

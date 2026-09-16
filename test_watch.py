@@ -1176,6 +1176,109 @@ class TelegramExtractTests(unittest.TestCase):
             hist.assert_called_once_with("/storico 7")
             delete.assert_called_once_with(27)
 
+    def test_ibkr_get_vwap_parses_field(self) -> None:
+        watch._CONID_CACHE["AMD"] = "4391"
+        with (
+            patch.object(watch, "ibkr_get", return_value=[{"7059": "V148.50"}]) as get,
+            patch.object(watch, "time") as time_mod,
+        ):
+            time_mod.sleep.return_value = None
+            self.assertEqual(watch.ibkr_get_vwap("AMD"), 148.5)
+            time_mod.sleep.assert_called_once_with(1)
+            self.assertEqual(get.call_count, 2)
+            get.assert_called_with(
+                "/v1/api/iserver/marketdata/snapshot?conids=4391&fields=31,7059"
+            )
+        with patch.object(watch, "ibkr_lookup_conid", return_value=None):
+            self.assertIsNone(watch.ibkr_get_vwap("NOPE"))
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get", return_value=[{"31": "10"}]),
+            patch.object(watch, "time") as time_mod,
+        ):
+            time_mod.sleep.return_value = None
+            self.assertIsNone(watch.ibkr_get_vwap("AMD"))
+
+    def test_apply_telegram_vwap_add_and_rm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram") as send:
+                self.assertTrue(watch.apply_telegram_vwap_add("/vwapadd $amd", spath))
+                self.assertTrue(watch.apply_telegram_vwap_add("/VWAPADD AMD", spath))
+                self.assertFalse(watch.apply_telegram_vwap_add("/vwaplist", spath))
+            self.assertEqual(watch.load_state(spath)["vwap_tickers"], ["AMD"])
+            send.assert_any_call("✅ AMD aggiunto alla lista VWAP.")
+            send.assert_any_call("✅ AMD è già nella lista VWAP.")
+            with patch.object(watch, "send_telegram") as send:
+                self.assertTrue(watch.apply_telegram_vwap_rm("/vwaprm amd", spath))
+                self.assertTrue(watch.apply_telegram_vwap_rm("/vwaprm NVDA", spath))
+            self.assertEqual(watch.load_state(spath)["vwap_tickers"], [])
+            send.assert_any_call("✅ AMD rimosso dalla lista VWAP.")
+            send.assert_any_call("📭 NVDA non era nella lista VWAP.")
+
+    def test_apply_telegram_vwap_list_replaces_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath, {"vwap_tickers": ["AMD", "NVDA"], "vwap_list_message_id": 11}
+            )
+
+            def fake_price(ticker: str) -> float | None:
+                return {"AMD": 150.0, "NVDA": None}.get(ticker)
+
+            def fake_vwap(ticker: str) -> float | None:
+                return {"AMD": 148.0, "NVDA": 120.0}.get(ticker)
+
+            with (
+                patch.object(watch, "ibkr_get_price", side_effect=fake_price),
+                patch.object(watch, "ibkr_get_vwap", side_effect=fake_vwap),
+                patch.object(watch, "send_telegram", return_value=22) as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                self.assertTrue(watch.apply_telegram_vwap_list("/vwaplist", spath))
+                self.assertFalse(watch.apply_telegram_vwap_list("/list", spath))
+            delete.assert_called_once_with(11)
+            body = send.call_args[0][0]
+            self.assertIn("📈 Lista VWAP:", body)
+            self.assertIn("AMD: prezzo 150.00 · VWAP 148.00 · distanza +1.35%", body)
+            self.assertIn("NVDA: prezzo n/d · VWAP 120.00 · distanza n/d", body)
+            self.assertEqual(watch.load_state(spath)["vwap_list_message_id"], 22)
+            with (
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.save_state(spath, {"vwap_tickers": []})
+                self.assertTrue(watch.apply_telegram_vwap_list("/VWAPLIST", spath))
+            send.assert_called_with("📭 Nessun ticker nella lista VWAP.")
+
+    def test_process_single_message_runs_vwap_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_vwap_add", return_value=True) as add,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/vwapadd AMD", 28, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            add.assert_called_once_with("/vwapadd AMD", spath)
+            delete.assert_called_once_with(28)
+            with (
+                patch.object(watch, "apply_telegram_vwap_rm", return_value=True) as rm,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                watch.process_single_message("/vwaprm AMD", 29, wpath, spath)
+            rm.assert_called_once_with("/vwaprm AMD", spath)
+            delete.assert_called_once_with(29)
+            with (
+                patch.object(watch, "apply_telegram_vwap_list", return_value=True) as lst,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                watch.process_single_message("/vwaplist", 30, wpath, spath)
+            lst.assert_called_once_with("/vwaplist", spath)
+            delete.assert_called_once_with(30)
+
     def test_check_order_fills_notifies_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
