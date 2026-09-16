@@ -122,6 +122,7 @@ SELL_ALL_RE = re.compile(
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
+HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
 
 
 def parse_num(raw: str) -> float:
@@ -1143,6 +1144,104 @@ def apply_telegram_orders(text: str, state_path: Path) -> bool:
     return True
 
 
+def ibkr_get_trades() -> list[Any] | None:
+    data = ibkr_get("/v1/api/iserver/account/trades")
+    if data is None:
+        return None
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        trades = data.get("trades")
+        if isinstance(trades, list):
+            return trades
+        if any(
+            key in data
+            for key in ("symbol", "ticker", "trade_time", "trade_time_r", "side")
+        ):
+            return [data]
+        return None
+    return None
+
+
+def _trade_timestamp(trade: dict[str, Any]) -> float:
+    raw_r = trade.get("trade_time_r")
+    if raw_r is not None:
+        try:
+            value = float(raw_r)
+            if value > 1e12:
+                value /= 1000.0
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+    raw = trade.get("trade_time")
+    if isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        for fmt in (
+            "%Y%m%d-%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+        ):
+            try:
+                dt = datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except ValueError:
+                continue
+        try:
+            iso = text.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            pass
+    return 0.0
+
+
+def apply_telegram_history(text: str) -> bool:
+    match = HISTORY_RE.match(text.strip())
+    if not match:
+        return False
+    days = int(match.group(1))
+    trades = ibkr_get_trades()
+    if trades is None:
+        send_telegram("⚠️ Impossibile leggere lo storico ordini al momento.")
+        return True
+    now = time.time()
+    soglia = now - (days * 86400)
+    filtered: list[dict[str, Any]] = []
+    for trade in trades:
+        if not isinstance(trade, dict):
+            continue
+        ts = _trade_timestamp(trade)
+        if ts == 0.0 or ts < soglia:
+            continue
+        filtered.append(trade)
+    if not filtered:
+        send_telegram(f"📭 Nessun ordine eseguito negli ultimi {days} giorni.")
+        return True
+    lines: list[str] = []
+    totale = 0.0
+    fee_ok = False
+    for trade in filtered:
+        size = trade.get("size", trade.get("quantity", "?"))
+        symbol = trade.get("symbol", trade.get("ticker", "?"))
+        lines.append(
+            f"{trade.get('side', '?')} {size} {symbol} @ "
+            f"{trade.get('price', '?')} · fee: {trade.get('commission', 'n/d')}"
+        )
+        try:
+            totale += float(trade.get("commission"))
+            fee_ok = True
+        except (TypeError, ValueError):
+            pass
+    body = f"📜 Ordini eseguiti (ultimi {days} giorni):\n\n" + "\n".join(lines)
+    if fee_ok:
+        body += f"\nTotale fee: {totale:.2f}"
+    send_telegram(body)
+    return True
+
+
 def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     try:
         trades_data = ibkr_get("/v1/api/iserver/account/trades")
@@ -1589,6 +1688,8 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("🚫") or stripped.startswith("📭"):
         return False
+    if stripped.startswith("📜"):
+        return False
     if stripped == "Watchlist vuota.":
         return False
     return True
@@ -1636,6 +1737,8 @@ def process_single_message(
     elif apply_telegram_positions(text, state_path):
         pass
     elif apply_telegram_orders(text, state_path):
+        pass
+    elif apply_telegram_history(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
