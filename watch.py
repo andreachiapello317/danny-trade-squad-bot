@@ -685,25 +685,88 @@ def ibkr_get_vwap(ticker: str) -> float | None:
     conid = ibkr_lookup_conid(ticker)
     if not conid:
         return None
-    path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields=31,7059"
-    ibkr_get(path)
-    time.sleep(1)
-    snap = ibkr_get(path)
-    if not isinstance(snap, list) or not snap:
+    data = ibkr_get(
+        f"/v1/api/iserver/marketdata/history?conid={conid}"
+        "&period=1d&bar=1min&outsideRth=false"
+    )
+    if data is None:
         return None
-    first = snap[0]
-    if not isinstance(first, dict):
+    _log_vwap_history_sample(ticker, data)
+    candles = _extract_history_candles(data)
+    if not candles:
         return None
-    raw = first.get("7059")
-    if raw is None:
+    somma_pesata = 0.0
+    somma_volume = 0.0
+    for candle in candles:
+        if not isinstance(candle, dict):
+            continue
+        try:
+            high = _candle_num(candle, "h", "high")
+            low = _candle_num(candle, "l", "low")
+            close = _candle_num(candle, "c", "close")
+            volume = _candle_num(candle, "v", "volume")
+            if None in (high, low, close, volume):
+                continue
+            typical_price = (high + low + close) / 3.0
+            somma_pesata += typical_price * volume
+            somma_volume += volume
+        except Exception:
+            continue
+    if somma_volume == 0:
         return None
-    match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
-    if not match:
-        return None
+    return somma_pesata / somma_volume
+
+
+def _log_vwap_history_sample(ticker: str, data: Any) -> None:
     try:
-        return float(match.group(0))
-    except (TypeError, ValueError):
+        sample: dict[str, Any] = {"type": type(data).__name__}
+        if isinstance(data, dict):
+            sample["keys"] = list(data.keys())
+            bars = data.get("data")
+            if isinstance(bars, list):
+                sample["n_bars"] = len(bars)
+                sample["first_bar"] = bars[0] if bars else None
+            else:
+                sample["data_type"] = type(bars).__name__
+        elif isinstance(data, list):
+            sample["n_bars"] = len(data)
+            sample["first_bar"] = data[0] if data else None
+        print(
+            f"DEBUG VWAP history {ticker}: {json.dumps(sample, default=str)}",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"DEBUG VWAP history {ticker}: log failed ({exc})", flush=True)
+
+
+def _extract_history_candles(data: Any) -> list[Any] | None:
+    try:
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("data", "bars"):
+                bars = data.get(key)
+                if isinstance(bars, list):
+                    return bars
         return None
+    except Exception:
+        return None
+
+
+def _candle_num(candle: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        raw = candle.get(key)
+        if raw is None:
+            continue
+        try:
+            if isinstance(raw, (int, float)):
+                return float(raw)
+            match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
+            if match:
+                return float(match.group(0))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:

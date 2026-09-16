@@ -1176,27 +1176,42 @@ class TelegramExtractTests(unittest.TestCase):
             hist.assert_called_once_with("/storico 7")
             delete.assert_called_once_with(27)
 
-    def test_ibkr_get_vwap_parses_field(self) -> None:
+    def test_ibkr_get_vwap_from_intraday_history(self) -> None:
+        bars = [
+            {"o": 100, "h": 102, "l": 98, "c": 100, "v": 10},
+            {"open": 101, "high": 104, "low": 100, "close": 102, "volume": 20},
+        ]
+        # typical1 = 100, typical2 = 102 → (100*10 + 102*20) / 30 = 101.333...
         watch._CONID_CACHE["AMD"] = "4391"
-        with (
-            patch.object(watch, "ibkr_get", return_value=[{"7059": "V148.50"}]) as get,
-            patch.object(watch, "time") as time_mod,
-        ):
-            time_mod.sleep.return_value = None
-            self.assertEqual(watch.ibkr_get_vwap("AMD"), 148.5)
-            time_mod.sleep.assert_called_once_with(1)
-            self.assertEqual(get.call_count, 2)
-            get.assert_called_with(
-                "/v1/api/iserver/marketdata/snapshot?conids=4391&fields=31,7059"
-            )
+        with patch.object(
+            watch, "ibkr_get", return_value={"symbol": "AMD", "data": bars}
+        ) as get:
+            vwap = watch.ibkr_get_vwap("AMD")
+        self.assertAlmostEqual(vwap, 101.333333, places=5)
+        get.assert_called_once_with(
+            "/v1/api/iserver/marketdata/history?conid=4391"
+            "&period=1d&bar=1min&outsideRth=false"
+        )
         with patch.object(watch, "ibkr_lookup_conid", return_value=None):
             self.assertIsNone(watch.ibkr_get_vwap("NOPE"))
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="1"),
-            patch.object(watch, "ibkr_get", return_value=[{"31": "10"}]),
-            patch.object(watch, "time") as time_mod,
+            patch.object(watch, "ibkr_get", return_value=None),
         ):
-            time_mod.sleep.return_value = None
+            self.assertIsNone(watch.ibkr_get_vwap("AMD"))
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get", return_value={"data": []}),
+        ):
+            self.assertIsNone(watch.ibkr_get_vwap("AMD"))
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(
+                watch,
+                "ibkr_get",
+                return_value={"data": [{"h": 1, "l": 1, "c": 1, "v": 0}]},
+            ),
+        ):
             self.assertIsNone(watch.ibkr_get_vwap("AMD"))
 
     def test_apply_telegram_vwap_add_and_rm(self) -> None:
