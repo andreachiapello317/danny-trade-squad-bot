@@ -172,6 +172,7 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("⚠️ Prezzo IBKR non disponibile per NVDA."))
         self.assertFalse(watch.should_delete_chat_message("🚫 Ordine per AMD annullato."))
         self.assertFalse(watch.should_delete_chat_message("📭 Nessuna posizione aperta."))
+        self.assertFalse(watch.should_delete_chat_message("📜 Ordini eseguiti (ultimi 7 giorni):"))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -1104,6 +1105,113 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual((added, removed), ([], []))
             orders.assert_called_once_with("/ordini", spath)
             delete.assert_called_once_with(26)
+
+    def test_ibkr_get_trades_parses_shapes(self) -> None:
+        with patch.object(watch, "ibkr_get", return_value=None):
+            self.assertIsNone(watch.ibkr_get_trades())
+        rows = [{"symbol": "AMD", "side": "BUY"}]
+        with patch.object(watch, "ibkr_get", return_value=rows):
+            self.assertEqual(watch.ibkr_get_trades(), rows)
+        with patch.object(watch, "ibkr_get", return_value={"trades": rows}):
+            self.assertEqual(watch.ibkr_get_trades(), rows)
+        with patch.object(watch, "ibkr_get", return_value={"trades": []}):
+            self.assertEqual(watch.ibkr_get_trades(), [])
+        single = {"ticker": "NVDA", "side": "SELL", "price": 120}
+        with patch.object(watch, "ibkr_get", return_value=single):
+            self.assertEqual(watch.ibkr_get_trades(), [single])
+        with patch.object(watch, "ibkr_get", return_value={"status": "ok"}):
+            self.assertIsNone(watch.ibkr_get_trades())
+
+    def test_trade_timestamp_ms_and_string(self) -> None:
+        ms = 1_725_000_000_000
+        self.assertEqual(watch._trade_timestamp({"trade_time_r": ms}), ms / 1000)
+        secs = 1_725_000_000
+        self.assertEqual(watch._trade_timestamp({"trade_time_r": secs}), float(secs))
+        ts = watch._trade_timestamp({"trade_time": "20240901-15:30:00"})
+        self.assertGreater(ts, 0)
+        self.assertEqual(watch._trade_timestamp({}), 0.0)
+        self.assertEqual(watch._trade_timestamp({"trade_time_r": "nope"}), 0.0)
+        self.assertEqual(watch._trade_timestamp({"trade_time": "not-a-date"}), 0.0)
+
+    def test_apply_telegram_history_filters_and_sums_fees(self) -> None:
+        now = 1_800_000_000.0
+        recent_ms = (now - 3600) * 1000
+        old_ms = (now - 10 * 86400) * 1000
+        trades = [
+            {
+                "side": "BUY",
+                "size": 2,
+                "symbol": "AMD",
+                "price": 148.2,
+                "commission": 1.05,
+                "trade_time_r": recent_ms,
+            },
+            {
+                "side": "SELL",
+                "quantity": 1,
+                "ticker": "NVDA",
+                "price": 120,
+                "commission": "n/d",
+                "trade_time_r": recent_ms,
+            },
+            {
+                "side": "BUY",
+                "size": 5,
+                "symbol": "HOOD",
+                "price": 20,
+                "commission": 0.5,
+                "trade_time_r": old_ms,
+            },
+            {
+                "side": "BUY",
+                "symbol": "NO_TS",
+                "price": 1,
+                "commission": 9,
+            },
+        ]
+        with (
+            patch.object(watch, "ibkr_get_trades", return_value=trades),
+            patch.object(watch, "send_telegram") as send,
+            patch.object(watch.time, "time", return_value=now),
+        ):
+            self.assertTrue(watch.apply_telegram_history("/storico 7"))
+            self.assertFalse(watch.apply_telegram_history("/ordini"))
+        body = send.call_args[0][0]
+        self.assertIn("📜 Ordini eseguiti (ultimi 7 giorni):", body)
+        self.assertIn("BUY 2 AMD @ 148.2 · fee: 1.05", body)
+        self.assertIn("SELL 1 NVDA @ 120 · fee: n/d", body)
+        self.assertNotIn("HOOD", body)
+        self.assertNotIn("NO_TS", body)
+        self.assertIn("Totale fee: 1.05", body)
+
+    def test_apply_telegram_history_empty_and_unavailable(self) -> None:
+        with (
+            patch.object(watch, "ibkr_get_trades", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_history("/storico 3"))
+        send.assert_called_with("⚠️ Impossibile leggere lo storico ordini al momento.")
+        with (
+            patch.object(watch, "ibkr_get_trades", return_value=[]),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_history("/STORICO 3"))
+        send.assert_called_with("📭 Nessun ordine eseguito negli ultimi 3 giorni.")
+
+    def test_process_single_message_runs_storico(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_history", return_value=True) as hist,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/storico 7", 27, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            hist.assert_called_once_with("/storico 7")
+            delete.assert_called_once_with(27)
 
     def test_check_order_fills_notifies_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
