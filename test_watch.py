@@ -2127,10 +2127,49 @@ class BuySellFlowTests(unittest.TestCase):
     def test_apply_telegram_sell_flow_start_sets_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
-            with patch.object(watch, "send_telegram") as send:
+            watch.save_state(spath, {"pending_flow": self._flow()})
+            positions = [
+                {"ticker": "amd", "position": 10},
+                {"ticker": "CASH", "position": 0},
+                {"ticker": "TSLA", "position": -2},
+                {"ticker": "AMD", "position": 3},
+                {"position": 5},
+            ]
+            with (
+                patch.object(watch, "ibkr_get_positions", return_value=positions),
+                patch.object(watch, "send_telegram_buttons") as buttons,
+            ):
                 self.assertTrue(watch.apply_telegram_sell_flow_start("/vendi", spath))
-            send.assert_called_once_with("Quale ticker vuoi vendere?")
-            self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "SELL")
+                self.assertFalse(
+                    watch.apply_telegram_sell_flow_start("/vendi AMD 1", spath)
+                )
+            buttons.assert_called_once_with(
+                "Quale ticker vuoi vendere?",
+                [("AMD", "sellticker:AMD"), ("TSLA", "sellticker:TSLA")],
+            )
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["type"], "SELL")
+            self.assertEqual(flow["step"], "size_type")
+            self.assertIsNone(flow["ticker"])
+
+    def test_apply_telegram_sell_flow_start_empty_positions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"pending_flow": self._flow()})
+            with (
+                patch.object(watch, "ibkr_get_positions", return_value=[]),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_sell_flow_start("/vendi", spath))
+            send.assert_called_once_with("📭 Nessuna posizione aperta da vendere.")
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+            with (
+                patch.object(watch, "ibkr_get_positions", return_value=None),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_sell_flow_start("/VENDI", spath))
+            send.assert_called_once_with("📭 Nessuna posizione aperta da vendere.")
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
     def test_process_pending_flow_text_ticker_and_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2156,25 +2195,22 @@ class BuySellFlowTests(unittest.TestCase):
             send.assert_called_once_with("⚠️ Ticker non valido, riprova.")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "ticker")
 
-    def test_sell_flow_size_buttons_include_vendi_tutto(self) -> None:
+    def test_sell_flow_text_ticker_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             watch.save_state(
-                spath, {"pending_flow": self._flow(type="SELL")}
+                spath, {"pending_flow": self._flow(type="SELL", step="ticker")}
             )
             with (
-                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
                 patch.object(watch, "send_telegram_buttons") as buttons,
             ):
-                self.assertTrue(watch.process_pending_flow_text("AMD", spath))
-            buttons.assert_called_once_with(
-                "Azioni o Dollari?",
-                [
-                    ("Azioni", "size:shares"),
-                    ("Dollari", "size:dollars"),
-                    ("Vendi tutto", "size:all"),
-                ],
-            )
+                self.assertFalse(watch.process_pending_flow_text("AMD", spath))
+            send.assert_not_called()
+            buttons.assert_not_called()
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["step"], "ticker")
+            self.assertIsNone(flow["ticker"])
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             watch.save_state(spath, {"pending_flow": self._flow()})
@@ -2328,6 +2364,48 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(
                 watch.load_state(spath)["pending_flow"]["price_type"], "limit"
             )
+
+    def test_process_callback_query_sellticker_shows_size_buttons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": self._flow(
+                        type="SELL", step="size_type", ticker=None
+                    )
+                },
+            )
+            with (
+                patch.object(watch, "answer_callback_query") as ack,
+                patch.object(watch, "send_telegram_buttons") as buttons,
+            ):
+                action = watch.process_callback_query(
+                    "sellticker:amd", 1, "cb6", spath
+                )
+            ack.assert_called_once_with("cb6")
+            self.assertIsNone(action)
+            buttons.assert_called_once_with(
+                "Azioni o Dollari?",
+                [
+                    ("Azioni", "size:shares"),
+                    ("Dollari", "size:dollars"),
+                    ("Vendi tutto", "size:all"),
+                ],
+            )
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["ticker"], "AMD")
+            self.assertEqual(flow["step"], "size_type")
+            self.assertEqual(flow["type"], "SELL")
+            watch.save_state(spath, {"pending_flow": self._flow(type="BUY")})
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram_buttons") as buttons,
+            ):
+                watch.process_callback_query("sellticker:AMD", 1, "cb7", spath)
+            buttons.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "BUY")
+            self.assertIsNone(watch.load_state(spath)["pending_flow"]["ticker"])
 
     def test_process_callback_query_sell_all_returns_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
