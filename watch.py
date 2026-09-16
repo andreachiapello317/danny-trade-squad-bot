@@ -1034,37 +1034,55 @@ def process_callback_query(
     chat_id: Any,
     callback_query_id: str,
     state_path: Path,
-) -> None:
+) -> dict[str, Any] | None:
+    """Aggiorna pending_flow. Non chiama IBKR.
+
+    Ritorna None se non serve altro, altrimenti un'azione da eseguire
+    fuori dal lock:
+
+    - {"action": "execute_order", "flow": {...}} → _execute_flow_order
+    - {"action": "sell_all", "ticker": str, "price": float|None} → ibkr_sell_all
+    """
     answer_callback_query(callback_query_id)
     flow = _pending_flow(load_state(state_path))
     if flow is None:
-        return
+        return None
     data = callback_data.strip()
     step = flow.get("step")
     if data.startswith("size:") and step == "size_type":
         choice = data.split(":", 1)[1]
         if choice not in {"shares", "dollars"}:
-            return
+            return None
         flow["size_type"] = choice
         flow["step"] = "quantity"
         _save_pending_flow(state_path, flow)
         send_telegram(
             "Quante azioni?" if choice == "shares" else "Quanti dollari?"
         )
-        return
+        return None
     if data.startswith("price:") and step == "price_type":
         choice = data.split(":", 1)[1]
         if choice not in {"market", "limit"}:
-            return
+            return None
         flow["price_type"] = choice
         if choice == "market":
-            _save_pending_flow(state_path, flow)
-            _execute_flow_order(flow)
+            snapshot = dict(flow)
             _save_pending_flow(state_path, None)
-            return
+            return {"action": "execute_order", "flow": snapshot}
         flow["step"] = "price"
         _save_pending_flow(state_path, flow)
         send_telegram("A che prezzo?")
+        return None
+    if data == "sell:all":
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        if not ticker:
+            return None
+        price = flow.get("price")
+        if not isinstance(price, (int, float)):
+            price = None
+        _save_pending_flow(state_path, None)
+        return {"action": "sell_all", "ticker": ticker, "price": price}
+    return None
 
 
 def ibkr_sell_all(ticker: str, price: float | None) -> str:

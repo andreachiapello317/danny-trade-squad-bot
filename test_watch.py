@@ -2106,10 +2106,15 @@ class BuySellFlowTests(unittest.TestCase):
                 ) as exe,
                 patch.object(watch, "send_telegram") as send,
             ):
-                watch.process_callback_query("price:market", 1, "cb3", spath)
-            exe.assert_called_once()
-            self.assertEqual(exe.call_args[0][0]["price_type"], "market")
+                action = watch.process_callback_query(
+                    "price:market", 1, "cb3", spath
+                )
+            exe.assert_not_called()
             send.assert_not_called()
+            self.assertEqual(action["action"], "execute_order")
+            self.assertEqual(action["flow"]["price_type"], "market")
+            self.assertEqual(action["flow"]["ticker"], "AMD")
+            self.assertEqual(action["flow"]["quantity"], 2.0)
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
             watch.save_state(
                 spath,
@@ -2132,6 +2137,23 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(
                 watch.load_state(spath)["pending_flow"]["price_type"], "limit"
             )
+
+    def test_process_callback_query_sell_all_returns_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath, {"pending_flow": self._flow(step="size_type", ticker="AMD")}
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "ibkr_sell_all") as sell_all,
+            ):
+                action = watch.process_callback_query("sell:all", 1, "cb5", spath)
+            sell_all.assert_not_called()
+            self.assertEqual(
+                action, {"action": "sell_all", "ticker": "AMD", "price": None}
+            )
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
     def test_process_callback_query_without_flow_still_acks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

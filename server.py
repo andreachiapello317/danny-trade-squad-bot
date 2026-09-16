@@ -15,10 +15,12 @@ from flask import Flask, request
 from watch import (
     DEFAULT_STATE,
     DEFAULT_WATCHLIST,
+    _execute_flow_order,
     chat_matches,
     check_order_fills,
     cycle,
     expire_order_messages,
+    ibkr_sell_all,
     in_watch_window,
     load_dotenv,
     load_fired,
@@ -31,6 +33,7 @@ from watch import (
     process_single_message,
     rome_now,
     save_watchlist,
+    send_telegram,
     send_watchlist_summary,
     telegram_chat_id,
     update_payload,
@@ -139,6 +142,22 @@ def reset_watchlist_on_boot() -> None:
     _commit_watchlist_reset()
 
 
+def run_callback_action(action: dict | None) -> None:
+    """Esegue l'azione lenta restituita da process_callback_query, senza lock."""
+    if not isinstance(action, dict):
+        return
+    kind = action.get("action")
+    if kind == "execute_order":
+        flow = action.get("flow")
+        if isinstance(flow, dict):
+            _execute_flow_order(flow)
+        return
+    if kind == "sell_all":
+        ticker = str(action.get("ticker") or "").strip()
+        if ticker:
+            send_telegram(ibkr_sell_all(ticker, action.get("price")))
+
+
 @app.post("/webhook")
 def webhook() -> tuple[str, int]:
     try:
@@ -156,13 +175,15 @@ def webhook() -> tuple[str, int]:
                     cq_id = cq.get("id")
                     chat_id = chat.get("id") if isinstance(chat, dict) else None
                     if isinstance(data, str) and cq_id is not None:
+                        action = None
                         with STATE_LOCK:
-                            process_callback_query(
+                            action = process_callback_query(
                                 data,
                                 chat_id,
                                 str(cq_id),
                                 STATE_PATH,
                             )
+                        run_callback_action(action)
             return "ok", 200
         msg = update_payload(update)
         print(f"DEBUG msg: {msg}, chat_id atteso: {telegram_chat_id()}", file=sys.stderr)

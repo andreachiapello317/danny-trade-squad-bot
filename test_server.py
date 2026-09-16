@@ -94,6 +94,69 @@ class WebhookTests(unittest.TestCase):
             )
             proc.assert_not_called()
 
+    def test_callback_executes_order_outside_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {
+                        "type": "BUY",
+                        "step": "price_type",
+                        "ticker": "AMD",
+                        "size_type": "shares",
+                        "quantity": 2.0,
+                        "price_type": None,
+                    }
+                },
+            )
+            held_during_order: list[bool] = []
+
+            def fake_execute(flow: dict) -> str:
+                held_during_order.append(server.STATE_LOCK.locked())
+                return "✅ ok"
+
+            payload = {
+                "update_id": 10,
+                "callback_query": {
+                    "id": "cb11",
+                    "data": "price:market",
+                    "message": _msg(text="A mercato o a limite?", message_id=80),
+                },
+            }
+            client = server.app.test_client()
+            with (
+                patch.object(server, "STATE_PATH", spath),
+                patch.object(watch, "answer_callback_query"),
+                patch.object(server, "_execute_flow_order", side_effect=fake_execute) as exe,
+                patch.object(server, "process_single_message") as proc,
+            ):
+                resp = client.post("/webhook", json=payload)
+            self.assertEqual(resp.status_code, 200)
+            exe.assert_called_once()
+            self.assertEqual(exe.call_args[0][0]["ticker"], "AMD")
+            self.assertEqual(held_during_order, [False])
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+            proc.assert_not_called()
+
+    def test_run_callback_action_dispatches(self) -> None:
+        with (
+            patch.object(server, "_execute_flow_order") as exe,
+            patch.object(server, "ibkr_sell_all", return_value="✅ sold") as sell,
+            patch.object(server, "send_telegram") as send,
+        ):
+            server.run_callback_action(None)
+            server.run_callback_action({"action": "noop"})
+            server.run_callback_action(
+                {"action": "execute_order", "flow": {"ticker": "AMD"}}
+            )
+            server.run_callback_action(
+                {"action": "sell_all", "ticker": "NVDA", "price": None}
+            )
+        exe.assert_called_once_with({"ticker": "AMD"})
+        sell.assert_called_once_with("NVDA", None)
+        send.assert_called_once_with("✅ sold")
+
     def test_ignores_callback_query_from_other_chat(self) -> None:
         payload = {
             "update_id": 9,
