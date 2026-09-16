@@ -25,12 +25,14 @@
     "GLXY||ingresso": true,
     "OSCR||ingresso": true,
     "ASST||ingresso": true,
-    "ETHA||stop": true,
-    "IBIT||stop": true,
     "SKHY||ingresso": true,
-    "SBET||stop": true,
-    "CRCL||stop": true,
-    "BMNR||stop": true
+    "AMD||ingresso": true,
+    "SBET||ingresso": true,
+    "BMNR||ingresso": true,
+    "IBIT||ingresso": true,
+    "ETHA||ingresso": true,
+    "NOK||ingresso": true,
+    "CRCL||ingresso": true
   },
   "sent_alerts": [
     {
@@ -94,8 +96,8 @@
       "sent_at": "2026-09-15T18:57:31.949538+00:00"
     }
   ],
-  "summary_message_id": 257,
-  "last_daily_summary": "2026-09-15",
+  "summary_message_id": 558,
+  "last_daily_summary": "2026-09-16",
   "screener_message_id": 162,
-  "last_screener_run": "2026-09-15"
+  "last_screener_run": "2026-09-16"
 }
