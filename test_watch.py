@@ -164,7 +164,7 @@ class MergeTicketTests(unittest.TestCase):
 class ShouldDeleteChatMessageTests(unittest.TestCase):
     def test_keeps_bot_digests(self) -> None:
         self.assertFalse(watch.should_delete_chat_message("📋 AMD  ing 130-134"))
-        self.assertFalse(watch.should_delete_chat_message("📊 Screener tecnico"))
+        self.assertFalse(watch.should_delete_chat_message("📊 Posizioni aperte:"))
         self.assertFalse(watch.should_delete_chat_message("ALERT AMD ingresso 131"))
         self.assertFalse(watch.should_delete_chat_message("Watchlist vuota."))
         self.assertFalse(watch.should_delete_chat_message("💰 Conto U123"))
@@ -333,7 +333,7 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(item["target"], 162.96)
             self.assertEqual(item["motivo"], "Screener automatico (4/4 ✅)")
 
-    def test_ingest_does_not_auto_run_screener_on_empty_ticket(self) -> None:
+    def test_ingest_empty_ticket_does_not_fill_levels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -342,53 +342,16 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "telegram_token", return_value="123:abc"),
                 patch.object(watch, "telegram_get_updates", return_value=updates),
                 patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "run_screener") as run,
-                patch.object(watch, "run_screener_single") as run_single,
                 patch.object(watch, "send_telegram", return_value=1) as send,
             ):
                 n = watch.ingest_telegram(wpath, spath)
             self.assertEqual(n, 1)
-            run.assert_not_called()
-            run_single.assert_not_called()
             send.assert_called()
             body = send.call_args[0][0]
             self.assertIn("✅ NVDA aggiunto/aggiornato", body)
             item = watch.load_watchlist(wpath)[0]
             self.assertEqual(item["ticker"], "NVDA")
             self.assertIsNone(item["ingresso_low"])
-
-    def test_ingest_skips_screener_when_new_ticket_has_levels(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            updates = [{"update_id": 93, "message": _msg(text=TICKET)}]
-            with (
-                patch.object(watch, "telegram_token", return_value="123:abc"),
-                patch.object(watch, "telegram_get_updates", return_value=updates),
-                patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "run_screener") as run,
-                patch.object(watch, "send_telegram", return_value=1),
-            ):
-                watch.ingest_telegram(wpath, spath)
-            run.assert_not_called()
-
-    def test_ingest_skips_screener_when_unavailable(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            updates = [{"update_id": 94, "message": _msg(text="$NVDA")}]
-            with (
-                patch.object(watch, "telegram_token", return_value="123:abc"),
-                patch.object(watch, "telegram_get_updates", return_value=updates),
-                patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "run_screener", None),
-                patch.object(watch, "send_telegram", return_value=1) as send,
-            ):
-                n = watch.ingest_telegram(wpath, spath)
-            self.assertEqual(n, 1)
-            send.assert_called()
-            self.assertEqual(watch.load_watchlist(wpath)[0]["ticker"], "NVDA")
-            self.assertIsNone(watch.load_watchlist(wpath)[0]["ingresso_low"])
 
     def test_process_single_message_upserts_ticket_and_deletes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1373,98 +1336,6 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.apply_telegram_list("/list", wpath, spath)
             send.assert_called_with("Watchlist vuota.")
 
-    def test_scan_commands_dispatch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            with (
-                patch.object(watch, "run_screener") as run_all,
-                patch.object(watch, "run_screener_single") as run_single,
-                patch.object(watch, "run_screener_entry_only") as run_entry,
-                patch.object(watch, "run_screener_entry_only_single") as run_entry_single,
-                patch.object(watch, "send_telegram") as send,
-            ):
-                self.assertTrue(watch.apply_telegram_scan("/scanall", wpath, spath))
-                self.assertTrue(watch.apply_telegram_scan("/SCANALL", wpath, spath))
-                self.assertTrue(watch.apply_telegram_scan("/scan $amd", wpath, spath))
-                self.assertTrue(watch.apply_telegram_scan("/scan NVDA", wpath, spath))
-                self.assertTrue(watch.apply_telegram_scan("/scanallin", wpath, spath))
-                self.assertTrue(watch.apply_telegram_scan("/scanin $be", wpath, spath))
-                self.assertFalse(watch.apply_telegram_scan("/scan", wpath, spath))
-                self.assertFalse(watch.apply_telegram_scan("/scanin", wpath, spath))
-                self.assertFalse(watch.apply_telegram_scan("/list", wpath, spath))
-            self.assertEqual(run_all.call_count, 2)
-            run_all.assert_called_with(wpath, spath)
-            self.assertEqual(
-                [c.args for c in run_single.call_args_list],
-                [("AMD", wpath, spath), ("NVDA", wpath, spath)],
-            )
-            run_entry.assert_called_once_with(wpath, spath)
-            run_entry_single.assert_called_once_with("BE", wpath, spath)
-            send.assert_not_called()
-
-    def test_process_single_message_runs_scan_variants(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            with (
-                patch.object(watch, "apply_telegram_scan", return_value=True) as scan,
-                patch.object(watch, "delete_telegram_message") as delete,
-            ):
-                added, removed = watch.process_single_message(
-                    "/scan AMD", 14, wpath, spath
-                )
-            self.assertEqual(added, [])
-            self.assertEqual(removed, [])
-            scan.assert_called_once_with("/scan AMD", wpath, spath)
-            delete.assert_called_once_with(14)
-
-    def test_ingest_scan_deletes_command(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
-            updates = [
-                {"update_id": 70, "message": _msg(text="/scanall", message_id=701)},
-            ]
-            with (
-                patch.object(watch, "telegram_token", return_value="123:abc"),
-                patch.object(watch, "telegram_get_updates", return_value=updates),
-                patch.object(watch, "run_screener", return_value="📊 ok"),
-                patch.object(watch, "send_telegram") as send,
-                patch.object(watch, "delete_telegram_message") as delete,
-            ):
-                n = watch.ingest_telegram(wpath, spath)
-            self.assertEqual(n, 0)
-            send.assert_not_called()
-            delete.assert_called_once_with(701)
-
-    def test_screener_daily_only_first_hour_once(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            rome = ZoneInfo("Europe/Rome")
-            at_open = datetime(2026, 9, 12, 15, 10, tzinfo=rome)
-            later = datetime(2026, 9, 12, 16, 10, tzinfo=rome)
-            items = [{"ticker": "AMD", "tf": "daily"}]
-            wpath = Path(tmp) / "watchlist.json"
-            with (
-                patch.object(watch, "rome_now", return_value=at_open),
-                patch.object(watch, "run_screener") as run,
-                patch.object(watch, "send_telegram") as send,
-            ):
-                watch.maybe_send_screener(items, spath, wpath)
-                watch.maybe_send_screener(items, spath, wpath)
-            run.assert_called_once_with(wpath, spath)
-            send.assert_not_called()
-            state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["last_screener_run"], "2026-09-12")
-            with (
-                patch.object(watch, "rome_now", return_value=later),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                watch.maybe_send_screener(items, spath, wpath)
-            send.assert_not_called()
-
     def test_refresh_watchlist_summary_replaces_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -1812,13 +1683,11 @@ class TelegramExtractTests(unittest.TestCase):
                     patch.object(watch, "TelegramClient", FakeClient),
                     patch.object(watch, "StringSession", lambda s: s),
                     patch.object(watch, "is_valid_symbol", return_value=True),
-                    patch.object(watch, "run_screener") as run,
                     patch.object(watch, "send_telegram"),
                     patch.object(watch, "delete_telegram_message") as delete,
                 ):
                     n = watch.ingest_telegram_userbot(wpath, spath)
                     self.assertEqual(delete.call_args_list[0][0][0], 10)
-                    run.assert_not_called()
             finally:
                 os.environ.pop("TELEGRAM_API_ID", None)
                 os.environ.pop("TELEGRAM_API_HASH", None)

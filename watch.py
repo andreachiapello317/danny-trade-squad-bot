@@ -34,21 +34,6 @@ except ImportError:  # pragma: no cover
     TelegramClient = None
     StringSession = None
 
-try:
-    from screener import (
-        SCREENER_CHAT_ID,
-        run_screener,
-        run_screener_entry_only,
-        run_screener_entry_only_single,
-        run_screener_single,
-    )
-except ImportError:  # pragma: no cover
-    SCREENER_CHAT_ID = ""
-    run_screener = None
-    run_screener_entry_only = None
-    run_screener_entry_only_single = None
-    run_screener_single = None
-
 DEFAULT_WATCHLIST = Path("watchlist.json")
 DEFAULT_STATE = Path("watch_state.json")
 DEFAULT_INTERVAL = 60
@@ -103,10 +88,6 @@ SET_FIELD_RE = re.compile(
     rf"^/(setbuy|settarget|setstop)\s+\$?([A-Za-z]{{1,8}})\s+{NUM}",
     re.I,
 )
-SCAN_SINGLE_RE = re.compile(r"^/scan\s+\$?([A-Za-z]{1,8})\s*$", re.I)
-SCAN_ALL_RE = re.compile(r"^/scanall\s*$", re.I)
-SCAN_ENTRY_SINGLE_RE = re.compile(r"^/scanin\s+\$?([A-Za-z]{1,8})\s*$", re.I)
-SCAN_ENTRY_ALL_RE = re.compile(r"^/scanallin\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 BUY_RE = re.compile(
@@ -536,41 +517,6 @@ def chat_matches(chat: Any, want: str) -> bool:
     if not isinstance(chat, dict):
         return False
     return str(chat.get("id", "")).strip() == str(want).strip()
-
-
-def apply_telegram_scan(
-    text: str, watchlist_path: Path, state_path: Path | None = None
-) -> bool:
-    stripped = text.strip()
-    if SCAN_ALL_RE.match(stripped):
-        if run_screener is None:
-            print("Screener non disponibile.", flush=True)
-            return True
-        run_screener(watchlist_path, state_path)
-        return True
-    match = SCAN_SINGLE_RE.match(stripped)
-    if match:
-        if run_screener_single is None:
-            print("Screener non disponibile.", flush=True)
-            return True
-        run_screener_single(match.group(1).upper(), watchlist_path, state_path)
-        return True
-    if SCAN_ENTRY_ALL_RE.match(stripped):
-        if run_screener_entry_only is None:
-            print("Screener non disponibile.", flush=True)
-            return True
-        run_screener_entry_only(watchlist_path, state_path)
-        return True
-    match = SCAN_ENTRY_SINGLE_RE.match(stripped)
-    if match:
-        if run_screener_entry_only_single is None:
-            print("Screener non disponibile.", flush=True)
-            return True
-        run_screener_entry_only_single(
-            match.group(1).upper(), watchlist_path, state_path
-        )
-        return True
-    return False
 
 
 def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
@@ -1703,9 +1649,7 @@ def process_single_message(
 ) -> tuple[list[str], list[str]]:
     added: list[str] = []
     removed: list[str] = []
-    if apply_telegram_scan(text, watchlist_path, state_path):
-        pass
-    elif apply_telegram_list(text, watchlist_path, state_path):
+    if apply_telegram_list(text, watchlist_path, state_path):
         pass
     elif apply_telegram_balance(text, state_path):
         pass
@@ -1844,9 +1788,7 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             if isinstance(mid, int):
                 max_seen = mid if max_seen == 0 else max(max_seen, mid)
             text = (getattr(message, "text", None) or "").strip()
-            if apply_telegram_scan(text, watchlist_path, state_path):
-                pass
-            elif apply_telegram_list(text, watchlist_path, state_path):
+            if apply_telegram_list(text, watchlist_path, state_path):
                 pass
             else:
                 cleared = apply_telegram_clear(text, watchlist_path)
@@ -2152,26 +2094,6 @@ def maybe_send_daily_summary(items: list[dict[str, Any]], state_path: Path) -> N
     save_state(state_path, state)
 
 
-def maybe_send_screener(
-    items: list[dict[str, Any]],
-    state_path: Path,
-    watchlist_path: Path,
-) -> None:
-    if run_screener is None:
-        return
-    local = rome_now()
-    if local.hour != WATCH_HOUR_START:
-        return
-    today = local.strftime("%Y-%m-%d")
-    state = load_state(state_path)
-    if state.get("last_screener_run") == today:
-        return
-    run_screener(watchlist_path, state_path)
-    state = load_state(state_path)
-    state["last_screener_run"] = today
-    save_state(state_path, state)
-
-
 def cmd_run(args: argparse.Namespace) -> int:
     if yf is None:
         print("Manca yfinance. pip install -r requirements.txt", file=sys.stderr)
@@ -2208,8 +2130,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             ingest_telegram(path, state_path)
             ingest_telegram_userbot(path, state_path)
             expire_sent_alerts(state_path)
-            items = load_watchlist(path)
-            maybe_send_screener(items, state_path, path)
             items = load_watchlist(path)
             fired.update(load_fired(load_state(state_path)))
             if not items:
