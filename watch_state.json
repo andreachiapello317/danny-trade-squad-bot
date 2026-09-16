@@ -10,47 +10,21 @@
     "IWM||ingresso": true,
     "MARA||ingresso": true,
     "SPCX||ingresso": true,
-    "META||ingresso": true,
     "QCOM||ingresso": true,
-    "BE||ingresso": true,
-    "INTC||ingresso": true,
     "MSTR||ingresso": true,
     "IREN||ingresso": true,
-    "TSM||ingresso": true,
     "MU||ingresso": true,
-    "MRVL||ingresso": true,
     "SNDK||ingresso": true,
-    "NBIS||ingresso": true,
-    "DRAM||ingresso": true,
     "GLXY||ingresso": true,
     "OSCR||ingresso": true,
     "ASST||ingresso": true,
-    "SKHY||ingresso": true,
-    "AMD||ingresso": true,
     "SBET||ingresso": true,
     "BMNR||ingresso": true,
     "IBIT||ingresso": true,
     "ETHA||ingresso": true,
-    "NOK||ingresso": true,
     "CRCL||ingresso": true
   },
   "sent_alerts": [
-    {
-      "message_id": 134,
-      "sent_at": "2026-09-14T13:31:29.355284+00:00"
-    },
-    {
-      "message_id": 135,
-      "sent_at": "2026-09-14T13:31:29.855666+00:00"
-    },
-    {
-      "message_id": 136,
-      "sent_at": "2026-09-14T13:31:30.374983+00:00"
-    },
-    {
-      "message_id": 137,
-      "sent_at": "2026-09-14T13:31:30.896637+00:00"
-    },
     {
       "message_id": 138,
       "sent_at": "2026-09-14T13:48:02.269863+00:00"
