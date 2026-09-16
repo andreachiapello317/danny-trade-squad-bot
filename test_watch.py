@@ -1641,14 +1641,22 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(items["AMD"]["locked_fields"], ["ingresso_low", "ingresso_high"])
             self.assertEqual(items["TSLA"]["ingresso_low"], 350.0)
             with patch.object(watch, "send_telegram") as send:
-                self.assertIsNone(
-                    watch.apply_telegram_set_field("/settarget\nAMD 160\nTSLA 400\n", wpath)
+                self.assertEqual(
+                    watch.apply_telegram_set_field("/settarget\nAMD 160\nTSLA 400\n", wpath),
+                    "AMD",
                 )
-                self.assertIsNone(
-                    watch.apply_telegram_set_field("/setstop\nAMD 120\nTSLA 300\n", wpath)
+                self.assertEqual(
+                    watch.apply_telegram_set_field("/setstop\nAMD 120\nTSLA 300\n", wpath),
+                    "AMD",
                 )
                 send.assert_not_called()
-            self.assertIsNone(watch.load_watchlist(wpath)[0].get("target"))
+            amd = watch.load_watchlist(wpath)[0]
+            self.assertEqual(amd["target"], 160.0)
+            self.assertEqual(amd["stop"], 120.0)
+            self.assertEqual(len(watch.load_watchlist(wpath)), 2)
+            self.assertIsNone(
+                next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "TSLA").get("target")
+            )
             self.assertEqual(
                 watch.apply_telegram_set_field("/settarget AMD 160", wpath),
                 "AMD",
