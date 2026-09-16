@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "ticker": "AMD",
+    "tf": "",
+    "ingresso_low": 500.0,
+    "ingresso_high": 500.0,
+    "stop": null,
+    "target": null,
+    "motivo": "",
+    "locked_fields": [
+      "ingresso_low",
+      "ingresso_high"
+    ]
+  },
+  {
+    "ticker": "TSLA",
+    "tf": "",
+    "ingresso_low": 350.0,
+    "ingresso_high": 350.0,
+    "stop": null,
+    "target": null,
+    "motivo": "",
+    "locked_fields": [
+      "ingresso_low",
+      "ingresso_high"
+    ]
+  }
+]
