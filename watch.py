@@ -1244,6 +1244,7 @@ def apply_telegram_history(text: str) -> bool:
     if not filtered:
         send_telegram(f"📭 Nessun ordine eseguito negli ultimi {days} giorni.")
         return True
+    filtered.sort(key=_trade_timestamp)
     lines: list[str] = []
     totale = 0.0
     fee_ok = False

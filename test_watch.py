@@ -1099,17 +1099,10 @@ class TelegramExtractTests(unittest.TestCase):
 
     def test_apply_telegram_history_filters_and_sums_fees(self) -> None:
         now = 1_800_000_000.0
+        older_ms = (now - 7200) * 1000
         recent_ms = (now - 3600) * 1000
         old_ms = (now - 10 * 86400) * 1000
         trades = [
-            {
-                "side": "BUY",
-                "size": 2,
-                "symbol": "AMD",
-                "price": 148.2,
-                "commission": 1.05,
-                "trade_time_r": recent_ms,
-            },
             {
                 "side": "SELL",
                 "quantity": 1,
@@ -1117,6 +1110,14 @@ class TelegramExtractTests(unittest.TestCase):
                 "price": 120,
                 "commission": "n/d",
                 "trade_time_r": recent_ms,
+            },
+            {
+                "side": "BUY",
+                "size": 2,
+                "symbol": "AMD",
+                "price": 148.2,
+                "commission": 1.05,
+                "trade_time_r": older_ms,
             },
             {
                 "side": "BUY",
@@ -1144,6 +1145,7 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertIn("📜 Ordini eseguiti (ultimi 7 giorni):", body)
         self.assertIn("BUY 2 AMD @ 148.2 · fee: 1.05", body)
         self.assertIn("SELL 1 NVDA @ 120 · fee: n/d", body)
+        self.assertLess(body.index("AMD"), body.index("NVDA"))
         self.assertNotIn("HOOD", body)
         self.assertNotIn("NO_TS", body)
         self.assertIn("Totale fee: 1.05", body)
