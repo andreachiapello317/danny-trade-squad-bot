@@ -17,6 +17,7 @@ from watch import (
     DEFAULT_WATCHLIST,
     chat_matches,
     check_order_fills,
+    check_vwap_strategy,
     cycle,
     expire_order_messages,
     in_watch_window,
@@ -66,10 +67,12 @@ def price_loop() -> None:
                     maybe_send_daily_summary(items, STATE_PATH)
                     check_order_fills(STATE_PATH)
                     expire_order_messages(STATE_PATH)
+                    check_vwap_strategy(STATE_PATH)
             else:
                 with STATE_LOCK:
                     check_order_fills(STATE_PATH)
                     expire_order_messages(STATE_PATH)
+                    check_vwap_strategy(STATE_PATH)
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
         time.sleep(60)

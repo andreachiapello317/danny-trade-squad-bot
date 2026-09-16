@@ -1348,6 +1348,61 @@ def apply_telegram_vwap_list(text: str, state_path: Path) -> bool:
     return True
 
 
+def check_vwap_strategy(state_path: Path) -> None:
+    state = load_state(state_path)
+    tickers = _vwap_tickers(state)
+    if not tickers:
+        return
+    raw_pos = state.get("vwap_positions")
+    vwap_positions: dict[str, Any] = (
+        dict(raw_pos) if isinstance(raw_pos, dict) else {}
+    )
+    for ticker in tickers:
+        prezzo = ibkr_get_price(ticker)
+        vwap = ibkr_get_vwap(ticker)
+        if prezzo is None or vwap is None or prezzo <= 0:
+            continue
+        if ticker not in vwap_positions:
+            if prezzo > vwap * 0.98:
+                continue
+            quantity = max(1, int(3 / prezzo))
+            result = ibkr_place_order(ticker, quantity, "BUY", None)
+            if not str(result).startswith("✅"):
+                send_telegram(result)
+                continue
+            send_telegram(
+                f"🎯 VWAP BUY: {ticker} {quantity}@~{prezzo:.2f} "
+                f"(VWAP {vwap:.2f})"
+            )
+            vwap_positions[ticker] = {
+                "entry_price": prezzo,
+                "quantity": quantity,
+                "order_id": "",
+            }
+            continue
+        entry = vwap_positions[ticker]
+        if not isinstance(entry, dict):
+            continue
+        try:
+            entry_price = float(entry.get("entry_price"))
+        except (TypeError, ValueError):
+            continue
+        if prezzo < vwap and prezzo < entry_price * 1.03:
+            continue
+        result = ibkr_sell_all(ticker, None)
+        if not str(result).startswith("✅"):
+            send_telegram(result)
+            continue
+        send_telegram(
+            f"🎯 VWAP SELL: {ticker} @ ~{prezzo:.2f} "
+            f"(entry era {entry_price:.2f})"
+        )
+        vwap_positions.pop(ticker, None)
+    state = load_state(state_path)
+    state["vwap_positions"] = vwap_positions
+    save_state(state_path, state)
+
+
 def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     try:
         trades_data = ibkr_get("/v1/api/iserver/account/trades")
@@ -1795,6 +1850,8 @@ def should_delete_chat_message(text: str) -> bool:
     if stripped.startswith("🚫") or stripped.startswith("📭"):
         return False
     if stripped.startswith("📜"):
+        return False
+    if stripped.startswith("🎯"):
         return False
     if stripped == "Watchlist vuota.":
         return False

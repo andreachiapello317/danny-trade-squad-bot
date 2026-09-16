@@ -173,6 +173,7 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("🚫 Ordine per AMD annullato."))
         self.assertFalse(watch.should_delete_chat_message("📭 Nessuna posizione aperta."))
         self.assertFalse(watch.should_delete_chat_message("📜 Ordini eseguiti (ultimi 7 giorni):"))
+        self.assertFalse(watch.should_delete_chat_message("🎯 VWAP BUY: AMD 1@~10.00 (VWAP 11.00)"))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -1293,6 +1294,133 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.process_single_message("/vwaplist", 30, wpath, spath)
             lst.assert_called_once_with("/vwaplist", spath)
             delete.assert_called_once_with(30)
+
+    def test_check_vwap_strategy_buys_below_vwap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"vwap_tickers": ["AMD", "NVDA"]})
+            prices = {"AMD": 9.8, "NVDA": 100.0}
+            vwaps = {"AMD": 10.0, "NVDA": 100.0}
+
+            def fake_price(ticker: str) -> float | None:
+                return prices.get(ticker)
+
+            def fake_vwap(ticker: str) -> float | None:
+                return vwaps.get(ticker)
+
+            with (
+                patch.object(watch, "ibkr_get_price", side_effect=fake_price),
+                patch.object(watch, "ibkr_get_vwap", side_effect=fake_vwap),
+                patch.object(
+                    watch, "ibkr_place_order", return_value="✅ Ordine BUY 1 AMD inviato."
+                ) as place,
+                patch.object(watch, "ibkr_sell_all") as sell,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            place.assert_called_once_with("AMD", 1, "BUY", None)
+            sell.assert_not_called()
+            send.assert_called_once_with("🎯 VWAP BUY: AMD 1@~9.80 (VWAP 10.00)")
+            pos = watch.load_state(spath)["vwap_positions"]["AMD"]
+            self.assertEqual(pos["entry_price"], 9.8)
+            self.assertEqual(pos["quantity"], 1)
+            self.assertNotIn("NVDA", watch.load_state(spath)["vwap_positions"])
+
+    def test_check_vwap_strategy_skips_existing_and_missing_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "vwap_tickers": ["AMD", "HOOD"],
+                    "vwap_positions": {
+                        "AMD": {"entry_price": 10.0, "quantity": 1, "order_id": ""}
+                    },
+                },
+            )
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_get_price",
+                    side_effect=lambda t: {"AMD": 9.0, "HOOD": None}[t],
+                ),
+                patch.object(watch, "ibkr_get_vwap", return_value=12.0),
+                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "ibkr_sell_all") as sell,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            place.assert_not_called()
+            sell.assert_not_called()
+            send.assert_not_called()
+            self.assertEqual(
+                watch.load_state(spath)["vwap_positions"]["AMD"]["entry_price"], 10.0
+            )
+
+    def test_check_vwap_strategy_sells_at_vwap_or_take_profit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "vwap_tickers": ["AMD"],
+                    "vwap_positions": {
+                        "AMD": {"entry_price": 100.0, "quantity": 1, "order_id": ""}
+                    },
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=100.0),
+                patch.object(watch, "ibkr_get_vwap", return_value=99.5),
+                patch.object(watch, "ibkr_sell_all", return_value="✅ venduto") as sell,
+                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            place.assert_not_called()
+            sell.assert_called_once_with("AMD", None)
+            send.assert_called_once_with(
+                "🎯 VWAP SELL: AMD @ ~100.00 (entry era 100.00)"
+            )
+            self.assertEqual(watch.load_state(spath)["vwap_positions"], {})
+
+            watch.save_state(
+                spath,
+                {
+                    "vwap_tickers": ["NVDA"],
+                    "vwap_positions": {
+                        "NVDA": {"entry_price": 100.0, "quantity": 1, "order_id": ""}
+                    },
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=103.0),
+                patch.object(watch, "ibkr_get_vwap", return_value=120.0),
+                patch.object(watch, "ibkr_sell_all", return_value="✅ venduto") as sell,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            sell.assert_called_once_with("NVDA", None)
+            send.assert_called_once_with(
+                "🎯 VWAP SELL: NVDA @ ~103.00 (entry era 100.00)"
+            )
+            self.assertEqual(watch.load_state(spath)["vwap_positions"], {})
+
+    def test_check_vwap_strategy_does_not_record_failed_buy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"vwap_tickers": ["AMD"]})
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=9.0),
+                patch.object(watch, "ibkr_get_vwap", return_value=10.0),
+                patch.object(
+                    watch, "ibkr_place_order", return_value="⚠️ Errore nell'invio dell'ordine."
+                ),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            send.assert_called_once_with("⚠️ Errore nell'invio dell'ordine.")
+            self.assertEqual(watch.load_state(spath).get("vwap_positions"), {})
 
     def test_check_order_fills_notifies_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -87,6 +87,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "maybe_send_daily_summary") as daily,
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "check_vwap_strategy") as vwap,
                 patch.object(server, "time") as time_mod,
             ):
                 time_mod.sleep.side_effect = KeyboardInterrupt()
@@ -97,6 +98,7 @@ class WebhookTests(unittest.TestCase):
             daily.assert_called_once()
             fills.assert_called_once_with(spath)
             expire.assert_called_once_with(spath)
+            vwap.assert_called_once_with(spath)
 
     def test_price_loop_keeps_going_after_error(self) -> None:
         calls = {"n": 0}
@@ -116,6 +118,24 @@ class WebhookTests(unittest.TestCase):
                 server.price_loop()
         self.assertEqual(calls["n"], 2)
         time_mod.sleep.assert_called_with(60)
+
+    def test_price_loop_runs_vwap_outside_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(server, "STATE_PATH", spath),
+                patch.object(server, "in_scheduled_window", return_value=False),
+                patch.object(server, "check_order_fills") as fills,
+                patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "check_vwap_strategy") as vwap,
+                patch.object(server, "time") as time_mod,
+            ):
+                time_mod.sleep.side_effect = KeyboardInterrupt()
+                with self.assertRaises(KeyboardInterrupt):
+                    server.price_loop()
+            fills.assert_called_once_with(spath)
+            expire.assert_called_once_with(spath)
+            vwap.assert_called_once_with(spath)
 
 
 class ResetWatchlistOnBootTests(unittest.TestCase):
