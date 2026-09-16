@@ -112,7 +112,7 @@ class WebhookTests(unittest.TestCase):
             )
             held_during_order: list[bool] = []
 
-            def fake_execute(flow: dict) -> str:
+            def fake_execute(flow: dict, state_path=None) -> str:
                 held_during_order.append(server.STATE_LOCK.locked())
                 return "✅ ok"
 
@@ -140,22 +140,26 @@ class WebhookTests(unittest.TestCase):
             proc.assert_not_called()
 
     def test_run_callback_action_dispatches(self) -> None:
-        with (
-            patch.object(server, "_execute_flow_order") as exe,
-            patch.object(server, "ibkr_sell_all", return_value="✅ sold") as sell,
-            patch.object(server, "send_telegram") as send,
-        ):
-            server.run_callback_action(None)
-            server.run_callback_action({"action": "noop"})
-            server.run_callback_action(
-                {"action": "execute_order", "flow": {"ticker": "AMD"}}
-            )
-            server.run_callback_action(
-                {"action": "sell_all", "ticker": "NVDA", "price": None}
-            )
-        exe.assert_called_once_with({"ticker": "AMD"})
-        sell.assert_called_once_with("NVDA", None)
-        send.assert_called_once_with("✅ sold")
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(server, "_execute_flow_order") as exe,
+                patch.object(server, "ibkr_sell_all", return_value="✅ sold") as sell,
+                patch.object(server, "_send_flow_message") as send,
+            ):
+                server.run_callback_action(None, spath)
+                server.run_callback_action({"action": "noop"}, spath)
+                server.run_callback_action(
+                    {"action": "execute_order", "flow": {"ticker": "AMD"}},
+                    spath,
+                )
+                server.run_callback_action(
+                    {"action": "sell_all", "ticker": "NVDA", "price": None},
+                    spath,
+                )
+            exe.assert_called_once_with({"ticker": "AMD"}, spath)
+            sell.assert_called_once_with("NVDA", None)
+            send.assert_called_once_with(spath, "✅ sold")
 
     def test_ignores_callback_query_from_other_chat(self) -> None:
         payload = {
