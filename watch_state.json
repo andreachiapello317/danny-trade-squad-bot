@@ -35,41 +35,6 @@
   "last_daily_summary": "2026-09-16",
   "order_messages": [
     {
-      "message_id": 1330,
-      "sent_at": "2026-09-16T23:53:32.968382+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1332,
-      "sent_at": "2026-09-16T23:53:36.496518+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1333,
-      "sent_at": "2026-09-16T23:53:37.926387+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1335,
-      "sent_at": "2026-09-16T23:53:40.417764+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1336,
-      "sent_at": "2026-09-16T23:53:43.847450+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1338,
-      "sent_at": "2026-09-16T23:53:53.120125+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1341,
-      "sent_at": "2026-09-16T23:54:00.605573+00:00",
-      "ttl_seconds": 120
-    },
-    {
       "message_id": 1343,
       "sent_at": "2026-09-16T23:54:17.754097+00:00",
       "ttl_seconds": 120
@@ -200,14 +165,7 @@
     "945083801": "Cancelled",
     "945083802": "Filled"
   },
-  "pending_flow": {
-    "type": "SELL",
-    "step": "size_type",
-    "ticker": "SLNH",
-    "size_type": null,
-    "quantity": null,
-    "price_type": null
-  },
+  "pending_flow": null,
   "positions_message_id": 1369,
   "orders_message_id": 1355
 }
