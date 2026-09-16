@@ -2494,84 +2494,200 @@ class BuySellFlowTests(unittest.TestCase):
             send.assert_not_called()
 
     def test_execute_flow_order_shares_and_dollars(self) -> None:
-        with (
-            patch.object(
-                watch, "ibkr_place_order", return_value="✅ shares"
-            ) as place,
-            patch.object(watch, "ibkr_place_cash_order") as cash,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            msg = watch._execute_flow_order(
-                self._flow(
-                    ticker="AMD",
-                    size_type="shares",
-                    quantity=2.0,
-                    price_type="market",
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch, "ibkr_place_order", return_value="✅ shares"
+                ) as place,
+                patch.object(watch, "ibkr_place_cash_order") as cash,
+                patch.object(watch, "send_telegram", return_value=81) as send,
+            ):
+                msg = watch._execute_flow_order(
+                    self._flow(
+                        ticker="AMD",
+                        size_type="shares",
+                        quantity=2.0,
+                        price_type="market",
+                    ),
+                    spath,
                 )
+            self.assertEqual(msg, "✅ shares")
+            place.assert_called_once_with("AMD", 2, "BUY", None)
+            cash.assert_not_called()
+            send.assert_called_once_with("✅ shares")
+            self.assertEqual(
+                watch.load_state(spath)["order_messages"][-1]["ttl_seconds"], 120
             )
-        self.assertEqual(msg, "✅ shares")
-        place.assert_called_once_with("AMD", 2, "BUY", None)
-        cash.assert_not_called()
-        send.assert_called_once_with("✅ shares")
-        with (
-            patch.object(watch, "ibkr_get_price", return_value=10.0),
-            patch.object(
-                watch, "ibkr_place_order", return_value="✅ cash"
-            ) as place,
-            patch.object(watch, "ibkr_place_cash_order") as cash,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            msg = watch._execute_flow_order(
-                self._flow(
-                    type="SELL",
-                    ticker="NVDA",
-                    size_type="dollars",
-                    quantity=25.0,
-                    price_type="market",
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=10.0),
+                patch.object(
+                    watch, "ibkr_place_order", return_value="✅ cash"
+                ) as place,
+                patch.object(watch, "ibkr_place_cash_order") as cash,
+                patch.object(watch, "send_telegram", return_value=82) as send,
+            ):
+                msg = watch._execute_flow_order(
+                    self._flow(
+                        type="SELL",
+                        ticker="NVDA",
+                        size_type="dollars",
+                        quantity=25.0,
+                        price_type="market",
+                    ),
+                    spath,
                 )
-            )
-        self.assertEqual(msg, "✅ cash")
-        place.assert_called_once_with("NVDA", 2, "SELL", None)
-        cash.assert_not_called()
-        send.assert_called_once_with("✅ cash")
-        with (
-            patch.object(watch, "ibkr_get_price", return_value=10.0),
-            patch.object(
-                watch, "ibkr_place_order", return_value="✅ lmt"
-            ) as place,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            msg = watch._execute_flow_order(
-                self._flow(
-                    ticker="AMD",
-                    size_type="dollars",
-                    quantity=25.0,
-                    price_type="limit",
-                    price=9.5,
+            self.assertEqual(msg, "✅ cash")
+            place.assert_called_once_with("NVDA", 2, "SELL", None)
+            cash.assert_not_called()
+            send.assert_called_once_with("✅ cash")
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=10.0),
+                patch.object(
+                    watch, "ibkr_place_order", return_value="✅ lmt"
+                ) as place,
+                patch.object(watch, "send_telegram", return_value=83) as send,
+            ):
+                msg = watch._execute_flow_order(
+                    self._flow(
+                        ticker="AMD",
+                        size_type="dollars",
+                        quantity=25.0,
+                        price_type="limit",
+                        price=9.5,
+                    ),
+                    spath,
                 )
-            )
-        self.assertEqual(msg, "✅ lmt")
-        place.assert_called_once_with("AMD", 2, "BUY", 9.5)
-        send.assert_called_once_with("✅ lmt")
-        with (
-            patch.object(watch, "ibkr_get_price", return_value=80.0),
-            patch.object(watch, "ibkr_place_order") as place,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            msg = watch._execute_flow_order(
-                self._flow(
-                    ticker="CRCL",
-                    size_type="dollars",
-                    quantity=3.0,
-                    price_type="limit",
-                    price=70.0,
+            self.assertEqual(msg, "✅ lmt")
+            place.assert_called_once_with("AMD", 2, "BUY", 9.5)
+            send.assert_called_once_with("✅ lmt")
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=80.0),
+                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "send_telegram", return_value=84) as send,
+            ):
+                msg = watch._execute_flow_order(
+                    self._flow(
+                        ticker="CRCL",
+                        size_type="dollars",
+                        quantity=3.0,
+                        price_type="limit",
+                        price=70.0,
+                    ),
+                    spath,
                 )
+            place.assert_not_called()
+            send.assert_called_once_with(
+                "⚠️ 3.0$ non bastano per comprare nemmeno 1 azione di CRCL (costa 80.00$)."
             )
-        place.assert_not_called()
-        send.assert_called_once_with(
-            "⚠️ 3.0$ non bastano per comprare nemmeno 1 azione di CRCL (costa 80.00$)."
-        )
-        self.assertIn("non bastano", msg)
+            self.assertIn("non bastano", msg)
+
+    def test_guided_flow_sends_are_recorded_with_120s_ttl(self) -> None:
+        def _last_ttl(path: Path) -> int:
+            return watch.load_state(path)["order_messages"][-1]["ttl_seconds"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram", return_value=101):
+                watch.apply_telegram_buy_flow_start("/compra", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_get_positions",
+                    return_value=[{"ticker": "AMD", "position": 2}],
+                ),
+                patch.object(watch, "send_telegram_buttons", return_value=102),
+            ):
+                watch.apply_telegram_sell_flow_start("/vendi", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            with (
+                patch.object(watch, "ibkr_get_positions", return_value=[]),
+                patch.object(watch, "send_telegram", return_value=103),
+            ):
+                watch.apply_telegram_sell_flow_start("/vendi", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            watch.save_state(spath, {"pending_flow": self._flow(), "order_messages": []})
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram_buttons", return_value=104),
+            ):
+                watch.process_pending_flow_text("AMD", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": self._flow(
+                        step="quantity", ticker="AMD", size_type="shares"
+                    )
+                },
+            )
+            with patch.object(watch, "send_telegram_buttons", return_value=105):
+                watch.process_pending_flow_text("2", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": self._flow(
+                        type="SELL", step="size_type", ticker=None
+                    )
+                },
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram_buttons", return_value=106),
+            ):
+                watch.process_callback_query("sellticker:AMD", 1, "cb", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            watch.save_state(
+                spath,
+                {"pending_flow": self._flow(step="size_type", ticker="AMD")},
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram", return_value=107),
+            ):
+                watch.process_callback_query("size:shares", 1, "cb", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": self._flow(
+                        step="price_type",
+                        ticker="AMD",
+                        size_type="shares",
+                        quantity=2.0,
+                    )
+                },
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram", return_value=108),
+            ):
+                watch.process_callback_query("price:limit", 1, "cb", spath)
+            self.assertEqual(_last_ttl(spath), 120)
+
+            with (
+                patch.object(watch, "ibkr_place_order", return_value="✅ ok"),
+                patch.object(watch, "send_telegram", return_value=109),
+            ):
+                watch._execute_flow_order(
+                    self._flow(
+                        ticker="AMD",
+                        size_type="shares",
+                        quantity=2.0,
+                        price_type="market",
+                    ),
+                    spath,
+                )
+            self.assertEqual(_last_ttl(spath), 120)
 
     def test_send_flow_message_records_120s_ttl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

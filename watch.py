@@ -1037,17 +1037,12 @@ def _flow_share_quantity(flow: dict[str, Any]) -> tuple[int | None, str | None]:
     return None, "⚠️ Ordine incompleto."
 
 
-def _emit_flow_result(result: str, state_path: Path | None) -> str:
-    if state_path is not None:
-        _send_flow_message(state_path, result)
-    else:
-        send_telegram(result)
+def _emit_flow_result(result: str, state_path: Path) -> str:
+    _send_flow_message(state_path, result)
     return result
 
 
-def _execute_flow_order(
-    flow: dict[str, Any], state_path: Path | None = None
-) -> str:
+def _execute_flow_order(flow: dict[str, Any], state_path: Path) -> str:
     ticker = str(flow.get("ticker") or "").strip().upper()
     price_type = flow.get("price_type")
     side = str(flow.get("type") or "BUY")
