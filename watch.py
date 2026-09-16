@@ -106,6 +106,7 @@ HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
 VWAP_ADD_RE = re.compile(r"^/vwapadd\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 VWAP_RM_RE = re.compile(r"^/vwaprm\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 VWAP_LIST_RE = re.compile(r"^/vwaplist\s*$", re.I)
+VWAP_CLEAR_RE = re.compile(r"^/vwapclear\s*$", re.I)
 TEST_FRAC_RE = re.compile(
     r"^/testfraz\s+\$?([A-Za-z]{1,8})\s+([\d.]+)\s*$", re.I
 )
@@ -1342,12 +1343,12 @@ def apply_telegram_vwap_add(text: str, state_path: Path) -> bool:
     state = load_state(state_path)
     tickers = _vwap_tickers(state)
     if ticker in tickers:
-        send_telegram(f"✅ {ticker} è già nella lista VWAP.")
+        _send_order_message(state_path, f"✅ {ticker} è già nella lista VWAP.")
         return True
     tickers.append(ticker)
     state["vwap_tickers"] = tickers
     save_state(state_path, state)
-    send_telegram(f"✅ {ticker} aggiunto alla lista VWAP.")
+    _send_order_message(state_path, f"✅ {ticker} aggiunto alla lista VWAP.")
     return True
 
 
@@ -1359,12 +1360,22 @@ def apply_telegram_vwap_rm(text: str, state_path: Path) -> bool:
     state = load_state(state_path)
     tickers = _vwap_tickers(state)
     if ticker not in tickers:
-        send_telegram(f"📭 {ticker} non era nella lista VWAP.")
+        _send_order_message(state_path, f"📭 {ticker} non era nella lista VWAP.")
         return True
     tickers = [t for t in tickers if t != ticker]
     state["vwap_tickers"] = tickers
     save_state(state_path, state)
-    send_telegram(f"✅ {ticker} rimosso dalla lista VWAP.")
+    _send_order_message(state_path, f"✅ {ticker} rimosso dalla lista VWAP.")
+    return True
+
+
+def apply_telegram_vwap_clear(text: str, state_path: Path) -> bool:
+    if not VWAP_CLEAR_RE.match(text.strip()):
+        return False
+    state = load_state(state_path)
+    state["vwap_tickers"] = []
+    save_state(state_path, state)
+    _send_order_message(state_path, "🗑️ Lista VWAP svuotata.")
     return True
 
 
@@ -1951,6 +1962,8 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("🎯"):
         return False
+    if stripped.startswith("🗑️"):
+        return False
     if stripped == "Watchlist vuota.":
         return False
     return True
@@ -2000,6 +2013,8 @@ def process_single_message(
     elif apply_telegram_vwap_add(text, state_path):
         pass
     elif apply_telegram_vwap_rm(text, state_path):
+        pass
+    elif apply_telegram_vwap_clear(text, state_path):
         pass
     elif apply_telegram_vwap_list(text, state_path):
         pass
