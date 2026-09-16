@@ -106,6 +106,9 @@ HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
 VWAP_ADD_RE = re.compile(r"^/vwapadd\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 VWAP_RM_RE = re.compile(r"^/vwaprm\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 VWAP_LIST_RE = re.compile(r"^/vwaplist\s*$", re.I)
+TEST_FRAC_RE = re.compile(
+    r"^/testfraz\s+\$?([A-Za-z]{1,8})\s+([\d.]+)\s*$", re.I
+)
 
 
 def parse_num(raw: str) -> float:
@@ -1349,6 +1352,44 @@ def apply_telegram_vwap_list(text: str, state_path: Path) -> bool:
     return True
 
 
+def apply_telegram_test_frac(text: str) -> bool:
+    match = TEST_FRAC_RE.match(text.strip())
+    if not match:
+        return False
+    ticker = match.group(1).upper()
+    try:
+        importo = float(match.group(2))
+    except ValueError:
+        send_telegram(f"⚠️ Importo non valido: {match.group(2)}")
+        return True
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
+        return True
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        send_telegram("⚠️ Impossibile leggere l'account IBKR.")
+        return True
+    try:
+        conid_int = int(conid)
+    except (TypeError, ValueError):
+        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
+        return True
+    corpo = {
+        "conid": conid_int,
+        "orderType": "MKT",
+        "side": "BUY",
+        "cashQty": importo,
+        "tif": "DAY",
+    }
+    result = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/orders",
+        {"orders": [corpo]},
+    )
+    send_telegram(str(result))
+    return True
+
+
 def check_vwap_strategy(state_path: Path) -> None:
     state = load_state(state_path)
     tickers = _vwap_tickers(state)
@@ -1905,6 +1946,8 @@ def process_single_message(
     elif apply_telegram_vwap_rm(text, state_path):
         pass
     elif apply_telegram_vwap_list(text, state_path):
+        pass
+    elif apply_telegram_test_frac(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)

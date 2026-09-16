@@ -1297,6 +1297,53 @@ class TelegramExtractTests(unittest.TestCase):
             lst.assert_called_once_with("/vwaplist", spath)
             delete.assert_called_once_with(30)
 
+    def test_apply_telegram_test_frac_sends_raw_ibkr(self) -> None:
+        raw = [{"id": "x", "message": ["confirm"]}]
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_post", return_value=raw) as post,
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_frac("/testfraz $amd 3.5"))
+            self.assertFalse(watch.apply_telegram_test_frac("/vwaplist"))
+        post.assert_called_once_with(
+            "/v1/api/iserver/account/U123/orders",
+            {
+                "orders": [
+                    {
+                        "conid": 4391,
+                        "orderType": "MKT",
+                        "side": "BUY",
+                        "cashQty": 3.5,
+                        "tif": "DAY",
+                    }
+                ]
+            },
+        )
+        send.assert_called_once_with(str(raw))
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_frac("/TESTFRAZ NVDA 3"))
+        send.assert_called_once_with("⚠️ Impossibile trovare NVDA su IBKR.")
+
+    def test_process_single_message_runs_testfraz(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_test_frac", return_value=True) as frac,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/testfraz AMD 3", 31, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            frac.assert_called_once_with("/testfraz AMD 3")
+            delete.assert_called_once_with(31)
+
     def test_check_vwap_strategy_buys_below_vwap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
