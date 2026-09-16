@@ -855,6 +855,29 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
     return True
 
 
+def _confirm_order_replies(
+    result: dict[str, Any] | list[Any] | None,
+) -> dict[str, Any] | None:
+    for _ in range(5):
+        if isinstance(result, dict):
+            result = [result]
+        if not isinstance(result, list) or not result:
+            return None
+        first = result[0]
+        if not isinstance(first, dict):
+            return None
+        if first.get("id") is not None and first.get("message") is not None:
+            result = ibkr_post(
+                f"/v1/api/iserver/reply/{first['id']}",
+                {"confirmed": True},
+            )
+            continue
+        if first.get("order_id") is not None or first.get("orderId") is not None:
+            return first
+        return None
+    return None
+
+
 def ibkr_place_order(
     ticker: str, quantity: int, side: str, price: float | None
 ) -> str:
@@ -893,26 +916,8 @@ def ibkr_place_order(
     )
     if result is None:
         return "⚠️ Errore nell'invio dell'ordine."
-    confirmed = False
-    for _ in range(5):
-        if isinstance(result, dict):
-            result = [result]
-        if not isinstance(result, list) or not result:
-            break
-        first = result[0]
-        if not isinstance(first, dict):
-            break
-        if first.get("id") is not None and first.get("message") is not None:
-            result = ibkr_post(
-                f"/v1/api/iserver/reply/{first['id']}",
-                {"confirmed": True},
-            )
-            continue
-        if first.get("order_id") is not None or first.get("orderId") is not None:
-            confirmed = True
-            break
-        break
-    if confirmed:
+    confirmed = _confirm_order_replies(result)
+    if confirmed is not None:
         if auto_price:
             return (
                 f"✅ Ordine {side} {quantity} {ticker} @ {price:.2f} "
@@ -921,6 +926,41 @@ def ibkr_place_order(
         return f"✅ Ordine {side} {quantity} {ticker} @ {price} inviato."
     return (
         f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
+    )
+
+
+def ibkr_place_cash_order(ticker: str, side: str, cash_amount: float) -> str:
+    ticker = ticker.strip().upper()
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return "⚠️ Impossibile leggere l'account IBKR."
+    try:
+        conid_int = int(conid)
+    except (TypeError, ValueError):
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    corpo = {
+        "conid": conid_int,
+        "orderType": "MKT",
+        "side": side,
+        "cashQty": cash_amount,
+        "tif": "DAY",
+    }
+    result = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/orders",
+        {"orders": [corpo]},
+    )
+    if result is None:
+        return "⚠️ Errore nell'invio dell'ordine."
+    confirmed = _confirm_order_replies(result)
+    if confirmed is None:
+        return (
+            f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
+        )
+    return (
+        f"✅ Ordine {side} {ticker} ${cash_amount:.2f} (MKT, cashQty) inviato."
     )
 
 
@@ -1407,18 +1447,17 @@ def check_vwap_strategy(state_path: Path) -> None:
         if ticker not in vwap_positions:
             if prezzo > vwap * 0.98:
                 continue
-            quantity = max(1, int(3 / prezzo))
-            result = ibkr_place_order(ticker, quantity, "BUY", None)
+            result = ibkr_place_cash_order(ticker, "BUY", 3.0)
             if not str(result).startswith("✅"):
                 send_telegram(result)
                 continue
             send_telegram(
-                f"🎯 VWAP BUY: {ticker} {quantity}@~{prezzo:.2f} "
+                f"🎯 VWAP BUY: {ticker} $3.00 @~{prezzo:.2f} "
                 f"(VWAP {vwap:.2f})"
             )
             vwap_positions[ticker] = {
                 "entry_price": prezzo,
-                "quantity": quantity,
+                "quantity": 0,
                 "order_id": "",
             }
             continue

@@ -692,6 +692,50 @@ class TelegramExtractTests(unittest.TestCase):
             ("/v1/api/iserver/reply/q1", {"confirmed": True}),
         )
 
+    def test_ibkr_place_cash_order_uses_cashqty(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                side_effect=[
+                    [{"id": "q1", "message": ["Confirm?"]}],
+                    [{"order_id": 91}],
+                ],
+            ) as post,
+        ):
+            msg = watch.ibkr_place_cash_order("amd", "BUY", 3.0)
+        self.assertEqual(
+            msg, "✅ Ordine BUY AMD $3.00 (MKT, cashQty) inviato."
+        )
+        self.assertEqual(
+            post.call_args_list[0][0],
+            (
+                "/v1/api/iserver/account/U123/orders",
+                {
+                    "orders": [
+                        {
+                            "conid": 4391,
+                            "orderType": "MKT",
+                            "side": "BUY",
+                            "cashQty": 3.0,
+                            "tif": "DAY",
+                        }
+                    ]
+                },
+            ),
+        )
+        self.assertEqual(
+            post.call_args_list[1][0],
+            ("/v1/api/iserver/reply/q1", {"confirmed": True}),
+        )
+        with patch.object(watch, "ibkr_lookup_conid", return_value=None):
+            self.assertEqual(
+                watch.ibkr_place_cash_order("ZZZ", "BUY", 3.0),
+                "⚠️ Impossibile trovare ZZZ su IBKR.",
+            )
+
     def test_ibkr_place_order_errors(self) -> None:
         with patch.object(watch, "ibkr_lookup_conid", return_value=None):
             self.assertEqual(
@@ -1361,18 +1405,20 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "ibkr_get_price", side_effect=fake_price),
                 patch.object(watch, "ibkr_get_vwap", side_effect=fake_vwap),
                 patch.object(
-                    watch, "ibkr_place_order", return_value="✅ Ordine BUY 1 AMD inviato."
+                    watch,
+                    "ibkr_place_cash_order",
+                    return_value="✅ Ordine BUY AMD $3.00 (MKT, cashQty) inviato.",
                 ) as place,
                 patch.object(watch, "ibkr_sell_all") as sell,
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.check_vwap_strategy(spath)
-            place.assert_called_once_with("AMD", 1, "BUY", None)
+            place.assert_called_once_with("AMD", "BUY", 3.0)
             sell.assert_not_called()
-            send.assert_called_once_with("🎯 VWAP BUY: AMD 1@~9.80 (VWAP 10.00)")
+            send.assert_called_once_with("🎯 VWAP BUY: AMD $3.00 @~9.80 (VWAP 10.00)")
             pos = watch.load_state(spath)["vwap_positions"]["AMD"]
             self.assertEqual(pos["entry_price"], 9.8)
-            self.assertEqual(pos["quantity"], 1)
+            self.assertEqual(pos["quantity"], 0)
             self.assertNotIn("NVDA", watch.load_state(spath)["vwap_positions"])
 
     def test_check_vwap_strategy_skips_existing_and_missing_quotes(self) -> None:
@@ -1394,7 +1440,7 @@ class TelegramExtractTests(unittest.TestCase):
                     side_effect=lambda t: {"AMD": 9.0, "HOOD": None}[t],
                 ),
                 patch.object(watch, "ibkr_get_vwap", return_value=12.0),
-                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "ibkr_place_cash_order") as place,
                 patch.object(watch, "ibkr_sell_all") as sell,
                 patch.object(watch, "send_telegram") as send,
             ):
@@ -1422,7 +1468,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "ibkr_get_price", return_value=100.0),
                 patch.object(watch, "ibkr_get_vwap", return_value=99.5),
                 patch.object(watch, "ibkr_sell_all", return_value="✅ venduto") as sell,
-                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "ibkr_place_cash_order") as place,
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.check_vwap_strategy(spath)
@@ -1463,7 +1509,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "ibkr_get_price", return_value=9.0),
                 patch.object(watch, "ibkr_get_vwap", return_value=10.0),
                 patch.object(
-                    watch, "ibkr_place_order", return_value="⚠️ Errore nell'invio dell'ordine."
+                    watch, "ibkr_place_cash_order", return_value="⚠️ Errore nell'invio dell'ordine."
                 ),
                 patch.object(watch, "send_telegram") as send,
             ):
