@@ -956,11 +956,43 @@ def apply_telegram_buy_flow_start(text: str, state_path: Path) -> bool:
     return True
 
 
+def _held_position_tickers(positions: list[Any] | None) -> list[str]:
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for pos in positions or []:
+        if not isinstance(pos, dict):
+            continue
+        try:
+            qty = float(pos.get("position") or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty == 0:
+            continue
+        ticker = str(pos.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    return tickers
+
+
 def apply_telegram_sell_flow_start(text: str, state_path: Path) -> bool:
     if not SELL_FLOW_START_RE.match(text.strip()):
         return False
-    _save_pending_flow(state_path, _new_pending_flow("SELL"))
-    _send_flow_message(state_path, "Quale ticker vuoi vendere?")
+    tickers = _held_position_tickers(ibkr_get_positions())
+    if not tickers:
+        _save_pending_flow(state_path, None)
+        _send_flow_message(state_path, "📭 Nessuna posizione aperta da vendere.")
+        return True
+    flow = _new_pending_flow("SELL")
+    flow["step"] = "size_type"
+    flow["ticker"] = None
+    _save_pending_flow(state_path, flow)
+    _send_flow_message(
+        state_path,
+        "Quale ticker vuoi vendere?",
+        [(ticker, f"sellticker:{ticker}") for ticker in tickers],
+    )
     return True
 
 
@@ -1040,6 +1072,8 @@ def process_pending_flow_text(text: str, state_path: Path) -> bool:
     step = flow.get("step")
     stripped = text.strip()
     if step == "ticker":
+        if str(flow.get("type") or "") == "SELL":
+            return False
         match = FLOW_TICKER_RE.match(stripped)
         ticker = match.group(1).upper() if match else ""
         if not ticker or not is_valid_symbol(ticker):
@@ -1099,6 +1133,25 @@ def process_callback_query(
         return None
     data = callback_data.strip()
     step = flow.get("step")
+    if data.startswith("sellticker:"):
+        if str(flow.get("type") or "") != "SELL":
+            return None
+        ticker = data.split(":", 1)[1].strip().upper()
+        if not ticker:
+            return None
+        flow["ticker"] = ticker
+        flow["step"] = "size_type"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Azioni o Dollari?",
+            [
+                ("Azioni", "size:shares"),
+                ("Dollari", "size:dollars"),
+                ("Vendi tutto", "size:all"),
+            ],
+        )
+        return None
     if data.startswith("size:") and step == "size_type":
         choice = data.split(":", 1)[1]
         if choice == "all":
