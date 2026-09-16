@@ -66,6 +66,49 @@ class WebhookTests(unittest.TestCase):
             summary.assert_called_once()
             self.assertEqual(summary.call_args[0][0], ["AMD"])
 
+    def test_processes_callback_query_and_skips_message_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            payload = {
+                "update_id": 8,
+                "callback_query": {
+                    "id": "cb9",
+                    "data": "size:shares",
+                    "message": _msg(text="Azioni o Dollari?", message_id=70),
+                },
+            }
+            client = server.app.test_client()
+            with (
+                patch.object(server, "STATE_PATH", spath),
+                patch.object(server, "process_callback_query") as cb,
+                patch.object(server, "process_single_message") as proc,
+            ):
+                resp = client.post("/webhook", json=payload)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.get_data(as_text=True), "ok")
+            cb.assert_called_once_with(
+                "size:shares",
+                int(watch.DEFAULT_CHAT_ID),
+                "cb9",
+                spath,
+            )
+            proc.assert_not_called()
+
+    def test_ignores_callback_query_from_other_chat(self) -> None:
+        payload = {
+            "update_id": 9,
+            "callback_query": {
+                "id": "cb10",
+                "data": "size:shares",
+                "message": _msg(text="Azioni o Dollari?", chat_id=1, message_id=71),
+            },
+        }
+        client = server.app.test_client()
+        with patch.object(server, "process_callback_query") as cb:
+            resp = client.post("/webhook", json=payload)
+        self.assertEqual(resp.status_code, 200)
+        cb.assert_not_called()
+
     def test_returns_200_on_internal_error(self) -> None:
         client = server.app.test_client()
         payload = {"update_id": 3, "message": _msg(text="$AMD", message_id=1)}

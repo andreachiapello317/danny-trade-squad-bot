@@ -96,6 +96,9 @@ BUY_RE = re.compile(
 SELL_RE = re.compile(
     r"^/vendi\s+\$?([A-Za-z]{1,8})\s+(\d+)(?:\s+([\d.]+))?\s*$", re.I
 )
+BUY_FLOW_START_RE = re.compile(r"^/compra\s*$", re.I)
+SELL_FLOW_START_RE = re.compile(r"^/vendi\s*$", re.I)
+FLOW_TICKER_RE = re.compile(r"^\$?([A-Za-z]{1,8})$")
 SELL_ALL_RE = re.compile(
     r"^/venditutto\s+\$?([A-Za-z]{1,8})(?:\s+([\d.]+))?\s*$", re.I
 )
@@ -894,6 +897,176 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
     return True
 
 
+def _new_pending_flow(kind: str) -> dict[str, Any]:
+    return {
+        "type": kind,
+        "step": "ticker",
+        "ticker": None,
+        "size_type": None,
+        "quantity": None,
+        "price_type": None,
+    }
+
+
+def _pending_flow(state: dict[str, Any]) -> dict[str, Any] | None:
+    raw = state.get("pending_flow")
+    return raw if isinstance(raw, dict) else None
+
+
+def _save_pending_flow(state_path: Path, flow: dict[str, Any] | None) -> None:
+    state = load_state(state_path)
+    state["pending_flow"] = flow
+    save_state(state_path, state)
+
+
+def apply_telegram_buy_flow_start(text: str, state_path: Path) -> bool:
+    if not BUY_FLOW_START_RE.match(text.strip()):
+        return False
+    _save_pending_flow(state_path, _new_pending_flow("BUY"))
+    send_telegram("Quale ticker vuoi comprare?")
+    return True
+
+
+def apply_telegram_sell_flow_start(text: str, state_path: Path) -> bool:
+    if not SELL_FLOW_START_RE.match(text.strip()):
+        return False
+    _save_pending_flow(state_path, _new_pending_flow("SELL"))
+    send_telegram("Quale ticker vuoi vendere?")
+    return True
+
+
+def _parse_flow_number(text: str) -> float | None:
+    try:
+        value = parse_num(text.strip())
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def _execute_flow_order(flow: dict[str, Any]) -> str:
+    ticker = str(flow.get("ticker") or "").strip().upper()
+    size_type = flow.get("size_type")
+    price_type = flow.get("price_type")
+    side = str(flow.get("type") or "BUY")
+    try:
+        quantity = float(flow.get("quantity"))
+    except (TypeError, ValueError):
+        result = "⚠️ Ordine incompleto."
+        send_telegram(result)
+        return result
+    price = None
+    if price_type == "limit":
+        try:
+            price = float(flow.get("price"))
+        except (TypeError, ValueError):
+            result = "⚠️ Prezzo non valido, riprova."
+            send_telegram(result)
+            return result
+    if size_type == "shares":
+        result = ibkr_place_order(ticker, int(quantity), side, price)
+    elif size_type == "dollars":
+        if price_type == "market":
+            result = ibkr_place_cash_order(ticker, side, quantity)
+        else:
+            spot = ibkr_get_price(ticker)
+            if spot is None or spot <= 0:
+                result = f"⚠️ Impossibile determinare un prezzo per {ticker}."
+            else:
+                stimata = max(1, int(quantity / spot))
+                result = ibkr_place_order(ticker, stimata, side, price)
+    else:
+        result = "⚠️ Ordine incompleto."
+    send_telegram(result)
+    return result
+
+
+def process_pending_flow_text(text: str, state_path: Path) -> bool:
+    state = load_state(state_path)
+    flow = _pending_flow(state)
+    if flow is None:
+        return False
+    step = flow.get("step")
+    stripped = text.strip()
+    if step == "ticker":
+        match = FLOW_TICKER_RE.match(stripped)
+        ticker = match.group(1).upper() if match else ""
+        if not ticker or not is_valid_symbol(ticker):
+            send_telegram("⚠️ Ticker non valido, riprova.")
+            return True
+        flow["ticker"] = ticker
+        flow["step"] = "size_type"
+        _save_pending_flow(state_path, flow)
+        send_telegram_buttons(
+            "Azioni o Dollari?",
+            [("Azioni", "size:shares"), ("Dollari", "size:dollars")],
+        )
+        return True
+    if step == "quantity":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            send_telegram("⚠️ Numero non valido, riprova.")
+            return True
+        flow["quantity"] = value
+        flow["step"] = "price_type"
+        _save_pending_flow(state_path, flow)
+        send_telegram_buttons(
+            "A mercato o a limite?",
+            [("A mercato", "price:market"), ("A limite", "price:limit")],
+        )
+        return True
+    if step == "price":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            send_telegram("⚠️ Prezzo non valido, riprova.")
+            return True
+        flow["price"] = value
+        _save_pending_flow(state_path, flow)
+        _execute_flow_order(flow)
+        _save_pending_flow(state_path, None)
+        return True
+    return False
+
+
+def process_callback_query(
+    callback_data: str,
+    chat_id: Any,
+    callback_query_id: str,
+    state_path: Path,
+) -> None:
+    answer_callback_query(callback_query_id)
+    flow = _pending_flow(load_state(state_path))
+    if flow is None:
+        return
+    data = callback_data.strip()
+    step = flow.get("step")
+    if data.startswith("size:") and step == "size_type":
+        choice = data.split(":", 1)[1]
+        if choice not in {"shares", "dollars"}:
+            return
+        flow["size_type"] = choice
+        flow["step"] = "quantity"
+        _save_pending_flow(state_path, flow)
+        send_telegram(
+            "Quante azioni?" if choice == "shares" else "Quanti dollari?"
+        )
+        return
+    if data.startswith("price:") and step == "price_type":
+        choice = data.split(":", 1)[1]
+        if choice not in {"market", "limit"}:
+            return
+        flow["price_type"] = choice
+        if choice == "market":
+            _save_pending_flow(state_path, flow)
+            _execute_flow_order(flow)
+            _save_pending_flow(state_path, None)
+            return
+        flow["step"] = "price"
+        _save_pending_flow(state_path, flow)
+        send_telegram("A che prezzo?")
+
+
 def ibkr_sell_all(ticker: str, price: float | None) -> str:
     ticker = ticker.strip().upper()
     positions = ibkr_get_positions()
@@ -1615,14 +1788,21 @@ def telegram_api(method: str, payload: dict[str, Any] | None = None, timeout: in
     return data.get("result")
 
 
-def send_telegram(text: str, chat_id_override: str | None = None) -> int | None:
+def send_telegram(
+    text: str,
+    chat_id_override: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
+) -> int | None:
     if not telegram_token():
         return None
     chat_id = (chat_id_override or "").strip() or telegram_chat_id()
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
     try:
         result = telegram_api(
             "sendMessage",
-            {"chat_id": chat_id, "text": text},
+            payload,
             timeout=12,
         )
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
@@ -1633,6 +1813,24 @@ def send_telegram(text: str, chat_id_override: str | None = None) -> int | None:
         if isinstance(mid, int):
             return mid
     return None
+
+
+def send_telegram_buttons(text: str, buttons: list[tuple[str, str]]) -> int | None:
+    markup = {
+        "inline_keyboard": [[{"text": t, "callback_data": d}] for t, d in buttons]
+    }
+    return send_telegram(text, reply_markup=markup)
+
+
+def answer_callback_query(callback_query_id: str) -> None:
+    try:
+        telegram_api(
+            "answerCallbackQuery",
+            {"callback_query_id": callback_query_id},
+            timeout=12,
+        )
+    except Exception:
+        pass
 
 
 def delete_telegram_message(message_id: int | None) -> None:
@@ -1690,7 +1888,13 @@ def process_single_message(
 ) -> tuple[list[str], list[str]]:
     added: list[str] = []
     removed: list[str] = []
-    if apply_telegram_list(text, watchlist_path, state_path):
+    if apply_telegram_buy_flow_start(text, state_path):
+        pass
+    elif apply_telegram_sell_flow_start(text, state_path):
+        pass
+    elif process_pending_flow_text(text, state_path):
+        pass
+    elif apply_telegram_list(text, watchlist_path, state_path):
         pass
     elif apply_telegram_balance(text, state_path):
         pass

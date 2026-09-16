@@ -27,6 +27,7 @@ from watch import (
     maybe_send_daily_summary,
     payload_text,
     persist_fired,
+    process_callback_query,
     process_single_message,
     rome_now,
     save_watchlist,
@@ -144,6 +145,24 @@ def webhook() -> tuple[str, int]:
         update = request.get_json(silent=True) or {}
         print(f"DEBUG webhook update: {update}", file=sys.stderr)
         if not isinstance(update, dict):
+            return "ok", 200
+        if "callback_query" in update:
+            cq = update.get("callback_query")
+            if isinstance(cq, dict):
+                msg = cq.get("message")
+                chat = msg.get("chat") if isinstance(msg, dict) else None
+                if chat_matches(chat, telegram_chat_id()):
+                    data = cq.get("data")
+                    cq_id = cq.get("id")
+                    chat_id = chat.get("id") if isinstance(chat, dict) else None
+                    if isinstance(data, str) and cq_id is not None:
+                        with STATE_LOCK:
+                            process_callback_query(
+                                data,
+                                chat_id,
+                                str(cq_id),
+                                STATE_PATH,
+                            )
             return "ok", 200
         msg = update_payload(update)
         print(f"DEBUG msg: {msg}, chat_id atteso: {telegram_chat_id()}", file=sys.stderr)
