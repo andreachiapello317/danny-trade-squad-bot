@@ -1542,55 +1542,6 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(watch.apply_telegram_clear("/RESET", wpath), [])
             self.assertIsNone(watch.apply_telegram_clear("/rm AMD", wpath))
 
-    def test_clean_deletes_alerts_keeps_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            watch.save_state(
-                spath,
-                {
-                    "summary_message_id": 77,
-                    "telegram_offset": 3,
-                    "sent_alerts": [
-                        {"message_id": 11, "sent_at": "2026-09-12T10:00:00+00:00"},
-                        {"message_id": 12, "sent_at": "2026-09-12T11:00:00+00:00"},
-                    ],
-                },
-            )
-            with patch.object(watch, "delete_telegram_message") as delete:
-                self.assertTrue(watch.apply_telegram_clean("/pulisci", spath))
-                self.assertTrue(watch.apply_telegram_clean("/CLEAN", spath))
-                self.assertFalse(watch.apply_telegram_clean("/clear", spath))
-            self.assertEqual(delete.call_args_list[0][0][0], 11)
-            self.assertEqual(delete.call_args_list[1][0][0], 12)
-            self.assertEqual(delete.call_count, 2)
-            state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["sent_alerts"], [])
-            self.assertEqual(state["summary_message_id"], 77)
-            self.assertEqual(state["telegram_offset"], 3)
-
-    def test_ingest_clean_deletes_command(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            spath = Path(tmp) / "watch_state.json"
-            watch.save_state(
-                spath,
-                {"sent_alerts": [{"message_id": 33, "sent_at": "2026-09-12T10:00:00+00:00"}]},
-            )
-            updates = [{"update_id": 90, "message": _msg(text="/pulisci", message_id=901)}]
-            with (
-                patch.object(watch, "telegram_token", return_value="123:abc"),
-                patch.object(watch, "telegram_get_updates", return_value=updates),
-                patch.object(watch, "send_telegram") as send,
-                patch.object(watch, "delete_telegram_message") as delete,
-            ):
-                n = watch.ingest_telegram(wpath, spath)
-            self.assertEqual(n, 0)
-            send.assert_not_called()
-            self.assertIn(33, [call[0][0] for call in delete.call_args_list])
-            self.assertIn(901, [call[0][0] for call in delete.call_args_list])
-            state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["sent_alerts"], [])
-
     def test_set_range_and_single_ingresso(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -1767,11 +1718,11 @@ class TelegramExtractTests(unittest.TestCase):
                     "sent_alerts": [
                         {
                             "message_id": 1,
-                            "sent_at": (now - timedelta(hours=49)).isoformat(),
+                            "sent_at": (now - timedelta(hours=9)).isoformat(),
                         },
                         {
                             "message_id": 2,
-                            "sent_at": (now - timedelta(hours=10)).isoformat(),
+                            "sent_at": (now - timedelta(hours=4)).isoformat(),
                         },
                     ],
                 },

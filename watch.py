@@ -61,7 +61,7 @@ SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
 WATCH_HOUR_END = 22  # inclusivo: 15:00–22:59 ora italiana
-ALERT_TTL = timedelta(hours=48)
+ALERT_TTL = timedelta(hours=8)
 ORDER_MESSAGE_TTL = timedelta(seconds=60)
 MISSING_TOKEN_MSG = (
     "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
@@ -107,7 +107,6 @@ SCAN_SINGLE_RE = re.compile(r"^/scan\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 SCAN_ALL_RE = re.compile(r"^/scanall\s*$", re.I)
 SCAN_ENTRY_SINGLE_RE = re.compile(r"^/scanin\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 SCAN_ENTRY_ALL_RE = re.compile(r"^/scanallin\s*$", re.I)
-CLEAN_RE = re.compile(r"^/(?:pulisci|clean)\s*$", re.I)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 BUY_RE = re.compile(
@@ -572,18 +571,6 @@ def apply_telegram_scan(
         )
         return True
     return False
-
-
-def apply_telegram_clean(text: str, state_path: Path) -> bool:
-    if not CLEAN_RE.match(text.strip()):
-        return False
-    state = load_state(state_path)
-    for entry in state.get("sent_alerts") or []:
-        mid = entry.get("message_id") if isinstance(entry, dict) else None
-        delete_telegram_message(mid)
-    state["sent_alerts"] = []
-    save_state(state_path, state)
-    return True
 
 
 def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
@@ -1718,8 +1705,6 @@ def process_single_message(
     removed: list[str] = []
     if apply_telegram_scan(text, watchlist_path, state_path):
         pass
-    elif apply_telegram_clean(text, state_path):
-        pass
     elif apply_telegram_list(text, watchlist_path, state_path):
         pass
     elif apply_telegram_balance(text, state_path):
@@ -1861,8 +1846,6 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             text = (getattr(message, "text", None) or "").strip()
             if apply_telegram_scan(text, watchlist_path, state_path):
                 pass
-            elif apply_telegram_clean(text, state_path):
-                pass
             elif apply_telegram_list(text, watchlist_path, state_path):
                 pass
             else:
@@ -1951,7 +1934,7 @@ def record_sent_alert(state_path: Path, message_id: int) -> None:
 
 
 def expire_sent_alerts(state_path: Path, now: datetime | None = None) -> None:
-    """Cancella gli alert Telegram più vecchi di 48 ore. Non tocca il riepilogo."""
+    """Cancella gli alert Telegram più vecchi di 8 ore. Non tocca il riepilogo."""
     state = load_state(state_path)
     if now is None:
         now = datetime.now(timezone.utc)
