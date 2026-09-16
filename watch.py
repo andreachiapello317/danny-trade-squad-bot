@@ -1550,6 +1550,11 @@ def check_order_fills(state_path: Path) -> None:
                 f"✅ ESEGUITO: {order.get('side')} {order.get('filledQuantity')} "
                 f"{order.get('ticker')} @ {avg} · fee: {fee}",
             )
+            known[order_id] = status
+            state = load_state(state_path)
+            state["known_order_status"] = known
+            save_state(state_path, state)
+            commit_state_to_git()
         known[order_id] = status
     state = load_state(state_path)
     state["known_order_status"] = known

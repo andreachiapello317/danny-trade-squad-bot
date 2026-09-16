@@ -1245,15 +1245,68 @@ class TelegramExtractTests(unittest.TestCase):
                     watch, "ibkr_get", side_effect=[payload, trades, payload, trades]
                 ),
                 patch.object(watch, "send_telegram", return_value=66) as send,
+                patch.object(watch, "commit_state_to_git") as sync,
             ):
                 watch.check_order_fills(spath)
                 watch.check_order_fills(spath)
             send.assert_called_once_with(
                 "✅ ESEGUITO: BUY 2 AMD @ 148.2 · fee: 1.05"
             )
+            sync.assert_called_once_with()
             state = watch.load_state(spath)
             self.assertEqual(state["known_order_status"]["77"], "Filled")
             self.assertEqual(state["order_messages"][0]["message_id"], 66)
+
+    def test_check_order_fills_commits_each_new_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            payload = {
+                "orders": [
+                    {
+                        "orderId": 10,
+                        "status": "Filled",
+                        "side": "BUY",
+                        "filledQuantity": 1,
+                        "ticker": "AMD",
+                        "avgPrice": 100,
+                    },
+                    {
+                        "orderId": 11,
+                        "status": "Submitted",
+                        "side": "SELL",
+                        "filledQuantity": 0,
+                        "ticker": "TSLA",
+                    },
+                    {
+                        "orderId": 12,
+                        "status": "Filled",
+                        "side": "SELL",
+                        "filledQuantity": 2,
+                        "ticker": "NVDA",
+                        "avgPrice": 120,
+                    },
+                ]
+            }
+            with (
+                patch.object(watch, "ibkr_get", return_value=payload),
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=1),
+                patch.object(watch, "commit_state_to_git") as sync,
+            ):
+                watch.check_order_fills(spath)
+            self.assertEqual(sync.call_count, 2)
+            state = watch.load_state(spath)
+            self.assertEqual(state["known_order_status"]["10"], "Filled")
+            self.assertEqual(state["known_order_status"]["11"], "Submitted")
+            self.assertEqual(state["known_order_status"]["12"], "Filled")
+            with (
+                patch.object(watch, "ibkr_get", return_value=payload),
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "commit_state_to_git") as sync,
+            ):
+                watch.check_order_fills(spath)
+            send.assert_not_called()
+            sync.assert_not_called()
 
     def test_ibkr_sell_all_uses_limit_under_spot(self) -> None:
         with (
