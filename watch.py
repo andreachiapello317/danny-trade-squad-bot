@@ -432,6 +432,11 @@ def in_watch_window(now: datetime | None = None) -> bool:
     return WATCH_HOUR_START <= local.hour <= WATCH_HOUR_END
 
 
+def alert_day(now: datetime | None = None) -> str:
+    """Data di calendario YYYY-MM-DD in Europe/Rome."""
+    return rome_now(now).date().isoformat()
+
+
 def telegram_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
@@ -467,25 +472,40 @@ def fired_key_str(key: tuple[str, str, str]) -> str:
     return "|".join(key)
 
 
-def load_fired(state: dict[str, Any]) -> dict[tuple[str, str, str], bool]:
+def load_fired(state: dict[str, Any]) -> dict[tuple[str, str, str], str | None]:
     raw = state.get("fired")
     if not isinstance(raw, dict):
         return {}
-    out: dict[tuple[str, str, str], bool] = {}
+    out: dict[tuple[str, str, str], str | None] = {}
+    today = alert_day()
     for k, v in raw.items():
-        if not v or not isinstance(k, str):
+        if not isinstance(k, str):
             continue
         parts = k.split("|")
-        if len(parts) == 3:
-            out[(parts[0], parts[1], parts[2])] = True
+        if len(parts) != 3:
+            continue
+        day: str | None
+        if isinstance(v, str) and v.strip():
+            day = v.strip()
+        elif v is True:
+            day = today
+        else:
+            continue
+        out[(parts[0], parts[1], parts[2])] = day
     return out
 
 
-def dump_fired(fired: dict[tuple[str, str, str], bool]) -> dict[str, bool]:
-    return {fired_key_str(k): True for k, v in fired.items() if v}
+def dump_fired(fired: dict[tuple[str, str, str], str | None]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key, day in fired.items():
+        if isinstance(day, str) and day.strip():
+            out[fired_key_str(key)] = day.strip()
+    return out
 
 
-def persist_fired(state_path: Path, fired: dict[tuple[str, str, str], bool]) -> None:
+def persist_fired(
+    state_path: Path, fired: dict[tuple[str, str, str], str | None]
+) -> None:
     state = load_state(state_path)
     state["fired"] = dump_fired(fired)
     save_state(state_path, state)
@@ -2259,19 +2279,20 @@ def maybe_alert(
     kind: str,
     line: str,
     active: bool,
-    fired: dict[tuple[str, str, str], bool],
+    fired: dict[tuple[str, str, str], str | None],
     state_path: Path,
 ) -> None:
     key = alert_key(item, kind)
-    if active:
-        if not fired.get(key):
-            print(line, flush=True)
-            mid = send_telegram(line)
-            fired[key] = True
-            if isinstance(mid, int):
-                record_sent_alert(state_path, mid)
-    else:
-        fired[key] = False
+    if not active:
+        return
+    today = alert_day()
+    if fired.get(key) == today:
+        return
+    print(line, flush=True)
+    mid = send_telegram(line)
+    fired[key] = today
+    if isinstance(mid, int):
+        record_sent_alert(state_path, mid)
 
 
 GIT_SYNC_REMOTE = (
@@ -2348,7 +2369,7 @@ def commit_state_to_git() -> None:
 
 def cycle(
     items: list[dict[str, Any]],
-    fired: dict[tuple[str, str, str], bool],
+    fired: dict[tuple[str, str, str], str | None],
     state_path: Path,
     lock: threading.Lock | None = None,
 ) -> None:

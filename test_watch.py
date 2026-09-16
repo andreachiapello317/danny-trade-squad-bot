@@ -1681,7 +1681,8 @@ class TelegramExtractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             item = {"ticker": "AMD", "tf": "daily"}
-            fired: dict[tuple[str, str, str], bool] = {}
+            fired: dict[tuple[str, str, str], str | None] = {}
+            today = watch.alert_day()
             with patch.object(watch, "send_telegram", return_value=321):
                 watch.maybe_alert(
                     item,
@@ -1691,27 +1692,63 @@ class TelegramExtractTests(unittest.TestCase):
                     fired,
                     spath,
                 )
-            self.assertTrue(fired[("AMD", "daily", "ingresso")])
+            self.assertEqual(fired[("AMD", "daily", "ingresso")], today)
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["sent_alerts"][0]["message_id"], 321)
             self.assertIn("T", state["sent_alerts"][0]["sent_at"])
 
+    def test_maybe_alert_once_per_calendar_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            item = {"ticker": "AMD", "tf": "daily"}
+            fired: dict[tuple[str, str, str], str | None] = {}
+            rome = ZoneInfo("Europe/Rome")
+            day1 = datetime(2026, 9, 16, 16, 0, tzinfo=rome)
+            day2 = datetime(2026, 9, 17, 16, 0, tzinfo=rome)
+            with (
+                patch.object(watch, "rome_now", return_value=day1),
+                patch.object(watch, "send_telegram", return_value=1) as send,
+            ):
+                watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
+                watch.maybe_alert(item, "stop", "ALERT AMD stop", False, fired, spath)
+                watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-16")
+            with (
+                patch.object(watch, "rome_now", return_value=day2),
+                patch.object(watch, "send_telegram", return_value=2) as send,
+            ):
+                watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
+            send.assert_called_once()
+            self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-17")
+
     def test_fired_roundtrip(self) -> None:
-        fired = {("AMD", "daily", "ingresso"): True, ("NVDA", "weekly", "stop"): False}
+        fired = {
+            ("AMD", "daily", "ingresso"): "2026-09-16",
+            ("NVDA", "weekly", "stop"): None,
+        }
         dumped = watch.dump_fired(fired)
-        self.assertEqual(dumped, {"AMD|daily|ingresso": True})
+        self.assertEqual(dumped, {"AMD|daily|ingresso": "2026-09-16"})
         loaded = watch.load_fired({"fired": dumped})
-        self.assertTrue(loaded[("AMD", "daily", "ingresso")])
+        self.assertEqual(loaded[("AMD", "daily", "ingresso")], "2026-09-16")
         self.assertNotIn(("NVDA", "weekly", "stop"), loaded)
+
+    def test_load_fired_migrates_legacy_bool(self) -> None:
+        with patch.object(watch, "alert_day", return_value="2026-09-16"):
+            loaded = watch.load_fired(
+                {"fired": {"AMD|daily|stop": True, "NVDA|weekly|target": False}}
+            )
+        self.assertEqual(loaded[("AMD", "daily", "stop")], "2026-09-16")
+        self.assertNotIn(("NVDA", "weekly", "target"), loaded)
 
     def test_persist_fired_keeps_offset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             watch.save_state(spath, {"telegram_offset": 9})
-            watch.persist_fired(spath, {("AMD", "daily", "target"): True})
+            watch.persist_fired(spath, {("AMD", "daily", "target"): "2026-09-16"})
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 9)
-            self.assertEqual(state["fired"]["AMD|daily|target"], True)
+            self.assertEqual(state["fired"]["AMD|daily|target"], "2026-09-16")
 
     def test_userbot_skips_without_creds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
