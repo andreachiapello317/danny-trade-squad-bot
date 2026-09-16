@@ -98,6 +98,13 @@ class WatchWindowTests(unittest.TestCase):
             watch.in_watch_window(datetime(2026, 1, 15, 13, 0, tzinfo=timezone.utc))
         )
 
+    def test_rth_window_1530_to_2200_rome(self) -> None:
+        rome = ZoneInfo("Europe/Rome")
+        self.assertFalse(watch.in_rth_window(datetime(2026, 9, 9, 15, 29, tzinfo=rome)))
+        self.assertTrue(watch.in_rth_window(datetime(2026, 9, 9, 15, 30, tzinfo=rome)))
+        self.assertTrue(watch.in_rth_window(datetime(2026, 9, 9, 21, 59, tzinfo=rome)))
+        self.assertFalse(watch.in_rth_window(datetime(2026, 9, 9, 22, 0, tzinfo=rome)))
+
 
 class ParseTicketTests(unittest.TestCase):
     def test_trader_card(self) -> None:
@@ -1402,6 +1409,7 @@ class TelegramExtractTests(unittest.TestCase):
                 return vwaps.get(ticker)
 
             with (
+                patch.object(watch, "in_rth_window", return_value=True),
                 patch.object(watch, "ibkr_get_price", side_effect=fake_price),
                 patch.object(watch, "ibkr_get_vwap", side_effect=fake_vwap),
                 patch.object(
@@ -1506,6 +1514,7 @@ class TelegramExtractTests(unittest.TestCase):
             spath = Path(tmp) / "watch_state.json"
             watch.save_state(spath, {"vwap_tickers": ["AMD"]})
             with (
+                patch.object(watch, "in_rth_window", return_value=True),
                 patch.object(watch, "ibkr_get_price", return_value=9.0),
                 patch.object(watch, "ibkr_get_vwap", return_value=10.0),
                 patch.object(
@@ -1515,6 +1524,42 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.check_vwap_strategy(spath)
             send.assert_called_once_with("⚠️ Errore nell'invio dell'ordine.")
+            self.assertEqual(watch.load_state(spath).get("vwap_positions"), {})
+
+    def test_check_vwap_strategy_off_hours_whole_shares_or_skip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"vwap_tickers": ["AMD"]})
+            with (
+                patch.object(watch, "in_rth_window", return_value=False),
+                patch.object(watch, "ibkr_get_price", return_value=9.8),
+                patch.object(watch, "ibkr_get_vwap", return_value=10.0),
+                patch.object(
+                    watch, "ibkr_place_order", return_value="✅ Ordine BUY 1 AMD inviato."
+                ) as place,
+                patch.object(watch, "ibkr_place_cash_order") as cash,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            cash.assert_not_called()
+            place.assert_called_once_with("AMD", 1, "BUY", None)
+            send.assert_called_once_with("🎯 VWAP BUY: AMD $3.00 @~9.80 (VWAP 10.00)")
+            self.assertEqual(
+                watch.load_state(spath)["vwap_positions"]["AMD"]["entry_price"], 9.8
+            )
+            watch.save_state(spath, {"vwap_tickers": ["CRCL"], "vwap_positions": {}})
+            with (
+                patch.object(watch, "in_rth_window", return_value=False),
+                patch.object(watch, "ibkr_get_price", return_value=80.0),
+                patch.object(watch, "ibkr_get_vwap", return_value=90.0),
+                patch.object(watch, "ibkr_place_order") as place,
+                patch.object(watch, "ibkr_place_cash_order") as cash,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_vwap_strategy(spath)
+            place.assert_not_called()
+            cash.assert_not_called()
+            send.assert_not_called()
             self.assertEqual(watch.load_state(spath).get("vwap_positions"), {})
 
     def test_check_order_fills_notifies_once(self) -> None:

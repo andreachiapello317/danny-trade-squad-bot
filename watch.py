@@ -435,6 +435,13 @@ def in_watch_window(now: datetime | None = None) -> bool:
     return WATCH_HOUR_START <= local.hour <= WATCH_HOUR_END
 
 
+def in_rth_window(now: datetime | None = None) -> bool:
+    """True dalle 15:30 alle 21:59 (Europe/Rome): RTH USA 9:30–16:00."""
+    local = rome_now(now)
+    minutes = local.hour * 60 + local.minute
+    return 15 * 60 + 30 <= minutes < 22 * 60
+
+
 def telegram_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
@@ -1447,7 +1454,17 @@ def check_vwap_strategy(state_path: Path) -> None:
         if ticker not in vwap_positions:
             if prezzo > vwap * 0.98:
                 continue
-            result = ibkr_place_cash_order(ticker, "BUY", 3.0)
+            if in_rth_window():
+                result = ibkr_place_cash_order(ticker, "BUY", 3.0)
+            elif prezzo > 15.0:
+                print(
+                    f"VWAP BUY skip {ticker}: {prezzo:.2f}$ > 15 fuori RTH",
+                    flush=True,
+                )
+                continue
+            else:
+                quantity = max(1, int(3 / prezzo))
+                result = ibkr_place_order(ticker, quantity, "BUY", None)
             if not str(result).startswith("✅"):
                 send_telegram(result)
                 continue
