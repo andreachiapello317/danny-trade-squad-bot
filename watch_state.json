@@ -35,11 +35,6 @@
   "last_daily_summary": "2026-09-16",
   "order_messages": [
     {
-      "message_id": 1313,
-      "sent_at": "2026-09-16T23:51:57.928956+00:00",
-      "ttl_seconds": 120
-    },
-    {
       "message_id": 1315,
       "sent_at": "2026-09-16T23:52:05.844575+00:00",
       "ttl_seconds": 120
@@ -68,11 +63,6 @@
       "message_id": 1324,
       "sent_at": "2026-09-16T23:52:50.601044+00:00",
       "ttl_seconds": 120
-    },
-    {
-      "message_id": 1325,
-      "sent_at": "2026-09-16T23:52:53.817187+00:00",
-      "ttl_seconds": 60
     },
     {
       "message_id": 1326,
@@ -170,7 +160,8 @@
     "860481004": "Filled",
     "860481006": "Filled",
     "945083797": "Filled",
-    "945083799": "Filled"
+    "945083799": "Filled",
+    "945083800": "Submitted"
   },
   "pending_flow": null,
   "positions_message_id": 1328
