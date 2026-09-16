@@ -103,13 +103,6 @@ CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
-VWAP_ADD_RE = re.compile(r"^/vwapadd\s+\$?([A-Za-z]{1,8})\s*$", re.I)
-VWAP_RM_RE = re.compile(r"^/vwaprm\s+\$?([A-Za-z]{1,8})\s*$", re.I)
-VWAP_LIST_RE = re.compile(r"^/vwaplist\s*$", re.I)
-VWAP_CLEAR_RE = re.compile(r"^/vwapclear\s*$", re.I)
-TEST_FRAC_RE = re.compile(
-    r"^/testfraz\s+\$?([A-Za-z]{1,8})\s+([\d.]+)\s*$", re.I
-)
 
 
 def parse_num(raw: str) -> float:
@@ -436,13 +429,6 @@ def in_watch_window(now: datetime | None = None) -> bool:
     return WATCH_HOUR_START <= local.hour <= WATCH_HOUR_END
 
 
-def in_rth_window(now: datetime | None = None) -> bool:
-    """True dalle 15:30 alle 21:59 (Europe/Rome): RTH USA 9:30–16:00."""
-    local = rome_now(now)
-    minutes = local.hour * 60 + local.minute
-    return 15 * 60 + 30 <= minutes < 22 * 60
-
-
 def telegram_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
@@ -690,94 +676,6 @@ def ibkr_get_price(ticker: str) -> float | None:
         return float(match.group(0))
     except ValueError:
         return None
-
-
-def ibkr_get_vwap(ticker: str) -> float | None:
-    conid = ibkr_lookup_conid(ticker)
-    if not conid:
-        return None
-    data = ibkr_get(
-        f"/v1/api/iserver/marketdata/history?conid={conid}"
-        "&period=1d&bar=1min&outsideRth=false"
-    )
-    if data is None:
-        return None
-    _log_vwap_history_sample(ticker, data)
-    candles = _extract_history_candles(data)
-    if not candles:
-        return None
-    somma_pesata = 0.0
-    somma_volume = 0.0
-    for candle in candles:
-        if not isinstance(candle, dict):
-            continue
-        try:
-            high = _candle_num(candle, "h", "high")
-            low = _candle_num(candle, "l", "low")
-            close = _candle_num(candle, "c", "close")
-            volume = _candle_num(candle, "v", "volume")
-            if None in (high, low, close, volume):
-                continue
-            typical_price = (high + low + close) / 3.0
-            somma_pesata += typical_price * volume
-            somma_volume += volume
-        except Exception:
-            continue
-    if somma_volume == 0:
-        return None
-    return somma_pesata / somma_volume
-
-
-def _log_vwap_history_sample(ticker: str, data: Any) -> None:
-    try:
-        sample: dict[str, Any] = {"type": type(data).__name__}
-        if isinstance(data, dict):
-            sample["keys"] = list(data.keys())
-            bars = data.get("data")
-            if isinstance(bars, list):
-                sample["n_bars"] = len(bars)
-                sample["first_bar"] = bars[0] if bars else None
-            else:
-                sample["data_type"] = type(bars).__name__
-        elif isinstance(data, list):
-            sample["n_bars"] = len(data)
-            sample["first_bar"] = data[0] if data else None
-        print(
-            f"DEBUG VWAP history {ticker}: {json.dumps(sample, default=str)}",
-            flush=True,
-        )
-    except Exception as exc:
-        print(f"DEBUG VWAP history {ticker}: log failed ({exc})", flush=True)
-
-
-def _extract_history_candles(data: Any) -> list[Any] | None:
-    try:
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for key in ("data", "bars"):
-                bars = data.get(key)
-                if isinstance(bars, list):
-                    return bars
-        return None
-    except Exception:
-        return None
-
-
-def _candle_num(candle: dict[str, Any], *keys: str) -> float | None:
-    for key in keys:
-        raw = candle.get(key)
-        if raw is None:
-            continue
-        try:
-            if isinstance(raw, (int, float)):
-                return float(raw)
-            match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
-            if match:
-                return float(match.group(0))
-        except (TypeError, ValueError):
-            continue
-    return None
 
 
 def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:
@@ -1318,200 +1216,6 @@ def apply_telegram_history(text: str) -> bool:
     return True
 
 
-def _vwap_tickers(state: dict[str, Any]) -> list[str]:
-    raw = state.get("vwap_tickers")
-    if not isinstance(raw, list):
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        ticker = item.strip().upper()
-        if not ticker or ticker in seen:
-            continue
-        seen.add(ticker)
-        out.append(ticker)
-    return out
-
-
-def apply_telegram_vwap_add(text: str, state_path: Path) -> bool:
-    match = VWAP_ADD_RE.match(text.strip())
-    if not match:
-        return False
-    ticker = match.group(1).upper()
-    state = load_state(state_path)
-    tickers = _vwap_tickers(state)
-    if ticker in tickers:
-        _send_order_message(state_path, f"✅ {ticker} è già nella lista VWAP.")
-        return True
-    tickers.append(ticker)
-    state["vwap_tickers"] = tickers
-    save_state(state_path, state)
-    _send_order_message(state_path, f"✅ {ticker} aggiunto alla lista VWAP.")
-    return True
-
-
-def apply_telegram_vwap_rm(text: str, state_path: Path) -> bool:
-    match = VWAP_RM_RE.match(text.strip())
-    if not match:
-        return False
-    ticker = match.group(1).upper()
-    state = load_state(state_path)
-    tickers = _vwap_tickers(state)
-    if ticker not in tickers:
-        _send_order_message(state_path, f"📭 {ticker} non era nella lista VWAP.")
-        return True
-    tickers = [t for t in tickers if t != ticker]
-    state["vwap_tickers"] = tickers
-    save_state(state_path, state)
-    _send_order_message(state_path, f"✅ {ticker} rimosso dalla lista VWAP.")
-    return True
-
-
-def apply_telegram_vwap_clear(text: str, state_path: Path) -> bool:
-    if not VWAP_CLEAR_RE.match(text.strip()):
-        return False
-    state = load_state(state_path)
-    state["vwap_tickers"] = []
-    save_state(state_path, state)
-    _send_order_message(state_path, "🗑️ Lista VWAP svuotata.")
-    return True
-
-
-def _fmt_vwap_line(ticker: str, prezzo: float | None, vwap: float | None) -> str:
-    p = f"{prezzo:.2f}" if prezzo is not None else "n/d"
-    v = f"{vwap:.2f}" if vwap is not None else "n/d"
-    dist = "n/d"
-    if prezzo is not None and vwap not in (None, 0):
-        dist = f"{((prezzo - vwap) / vwap * 100):+.2f}%"
-    return f"{ticker}: prezzo {p} · VWAP {v} · distanza {dist}"
-
-
-def apply_telegram_vwap_list(text: str, state_path: Path) -> bool:
-    if not VWAP_LIST_RE.match(text.strip()):
-        return False
-    tickers = _vwap_tickers(load_state(state_path))
-    if not tickers:
-        _send_replacing_message(
-            state_path,
-            "vwap_list_message_id",
-            "📭 Nessun ticker nella lista VWAP.",
-        )
-        return True
-    lines = ["📈 Lista VWAP:", ""]
-    for ticker in tickers:
-        lines.append(
-            _fmt_vwap_line(ticker, ibkr_get_price(ticker), ibkr_get_vwap(ticker))
-        )
-    _send_replacing_message(
-        state_path, "vwap_list_message_id", "\n".join(lines)
-    )
-    return True
-
-
-def apply_telegram_test_frac(text: str) -> bool:
-    match = TEST_FRAC_RE.match(text.strip())
-    if not match:
-        return False
-    ticker = match.group(1).upper()
-    try:
-        importo = float(match.group(2))
-    except ValueError:
-        send_telegram(f"⚠️ Importo non valido: {match.group(2)}")
-        return True
-    conid = ibkr_lookup_conid(ticker)
-    if not conid:
-        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
-        return True
-    account_id = ibkr_get_account_id()
-    if not account_id:
-        send_telegram("⚠️ Impossibile leggere l'account IBKR.")
-        return True
-    try:
-        conid_int = int(conid)
-    except (TypeError, ValueError):
-        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
-        return True
-    corpo = {
-        "conid": conid_int,
-        "orderType": "MKT",
-        "side": "BUY",
-        "cashQty": importo,
-        "tif": "DAY",
-    }
-    result = ibkr_post(
-        f"/v1/api/iserver/account/{account_id}/orders",
-        {"orders": [corpo]},
-    )
-    send_telegram(str(result))
-    return True
-
-
-def check_vwap_strategy(state_path: Path) -> None:
-    state = load_state(state_path)
-    tickers = _vwap_tickers(state)
-    if not tickers:
-        return
-    raw_pos = state.get("vwap_positions")
-    vwap_positions: dict[str, Any] = (
-        dict(raw_pos) if isinstance(raw_pos, dict) else {}
-    )
-    for ticker in tickers:
-        prezzo = ibkr_get_price(ticker)
-        vwap = ibkr_get_vwap(ticker)
-        if prezzo is None or vwap is None or prezzo <= 0:
-            continue
-        if ticker not in vwap_positions:
-            if prezzo > vwap * 0.98:
-                continue
-            if in_rth_window():
-                result = ibkr_place_cash_order(ticker, "BUY", 3.0)
-            elif prezzo > 15.0:
-                print(
-                    f"VWAP BUY skip {ticker}: {prezzo:.2f}$ > 15 fuori RTH",
-                    flush=True,
-                )
-                continue
-            else:
-                quantity = max(1, int(3 / prezzo))
-                result = ibkr_place_order(ticker, quantity, "BUY", None)
-            if not str(result).startswith("✅"):
-                send_telegram(result)
-                continue
-            send_telegram(
-                f"🎯 VWAP BUY: {ticker} $3.00 @~{prezzo:.2f} "
-                f"(VWAP {vwap:.2f})"
-            )
-            vwap_positions[ticker] = {
-                "entry_price": prezzo,
-                "quantity": 0,
-                "order_id": "",
-            }
-            continue
-        entry = vwap_positions[ticker]
-        if not isinstance(entry, dict):
-            continue
-        try:
-            entry_price = float(entry.get("entry_price"))
-        except (TypeError, ValueError):
-            continue
-        if prezzo < vwap and prezzo < entry_price * 1.03:
-            continue
-        result = ibkr_sell_all(ticker, None)
-        if not str(result).startswith("✅"):
-            send_telegram(result)
-            continue
-        send_telegram(
-            f"🎯 VWAP SELL: {ticker} @ ~{prezzo:.2f} "
-            f"(entry era {entry_price:.2f})"
-        )
-        vwap_positions.pop(ticker, None)
-    state = load_state(state_path)
-    state["vwap_positions"] = vwap_positions
-    save_state(state_path, state)
-
-
 def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     try:
         trades_data = ibkr_get("/v1/api/iserver/account/trades")
@@ -1960,10 +1664,6 @@ def should_delete_chat_message(text: str) -> bool:
         return False
     if stripped.startswith("📜"):
         return False
-    if stripped.startswith("🎯"):
-        return False
-    if stripped.startswith("🗑️"):
-        return False
     if stripped == "Watchlist vuota.":
         return False
     return True
@@ -2009,16 +1709,6 @@ def process_single_message(
     elif apply_telegram_orders(text, state_path):
         pass
     elif apply_telegram_history(text):
-        pass
-    elif apply_telegram_vwap_add(text, state_path):
-        pass
-    elif apply_telegram_vwap_rm(text, state_path):
-        pass
-    elif apply_telegram_vwap_clear(text, state_path):
-        pass
-    elif apply_telegram_vwap_list(text, state_path):
-        pass
-    elif apply_telegram_test_frac(text):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
