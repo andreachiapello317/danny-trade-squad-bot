@@ -1268,21 +1268,14 @@ def ibkr_sell_all(ticker: str, price: float | None) -> str:
 
 def ibkr_cancel_order(ticker: str) -> str:
     ticker = ticker.strip().upper()
-    data = ibkr_get("/v1/api/iserver/account/orders")
-    if data is None:
+    orders = ibkr_get_active_orders()
+    if orders is None:
         return "⚠️ Impossibile leggere gli ordini aperti."
-    orders = data.get("orders") if isinstance(data, dict) else None
-    if not isinstance(orders, list):
-        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
-    closed = {"filled", "cancelled", "canceled"}
     open_ids: list[Any] = []
     for order in orders:
         if not isinstance(order, dict):
             continue
         if str(order.get("ticker") or "").upper() != ticker:
-            continue
-        status = str(order.get("status") or "").lower()
-        if status in closed:
             continue
         order_id = order.get("orderId")
         if order_id is None:
@@ -1309,20 +1302,14 @@ def ibkr_cancel_order(ticker: str) -> str:
 
 def ibkr_modify_order(ticker: str, new_price: float) -> str:
     ticker = ticker.strip().upper()
-    data = ibkr_get("/v1/api/iserver/account/orders")
-    if data is None:
+    orders = ibkr_get_active_orders()
+    if orders is None:
         return "⚠️ Impossibile leggere gli ordini aperti."
-    orders = data.get("orders") if isinstance(data, dict) else None
-    if not isinstance(orders, list):
-        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
     found: dict[str, Any] | None = None
     for order in orders:
         if not isinstance(order, dict):
             continue
         if str(order.get("ticker") or "").upper() != ticker:
-            continue
-        status = str(order.get("status") or "")
-        if status in {"Filled", "Cancelled", "Canceled"}:
             continue
         if order.get("orderId") is None:
             continue
@@ -1482,7 +1469,10 @@ def apply_telegram_positions(text: str, state_path: Path) -> bool:
 
 
 def ibkr_get_active_orders() -> list[Any] | None:
-    data = ibkr_get("/v1/api/iserver/account/orders")
+    path = "/v1/api/iserver/account/orders"
+    ibkr_get(path)
+    time.sleep(1)
+    data = ibkr_get(path)
     if data is None:
         return None
     if not isinstance(data, dict):

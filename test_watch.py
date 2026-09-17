@@ -923,6 +923,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "ibkr_get", return_value=payload),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
+            patch.object(watch.time, "sleep"),
         ):
             self.assertEqual(
                 watch.ibkr_cancel_order("AMD"),
@@ -937,6 +938,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "ibkr_get", return_value=payload),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
+            patch.object(watch.time, "sleep"),
         ):
             self.assertEqual(
                 watch.ibkr_cancel_order("amd"),
@@ -951,12 +953,16 @@ class TelegramExtractTests(unittest.TestCase):
         )
 
     def test_ibkr_cancel_order_errors(self) -> None:
-        with patch.object(watch, "ibkr_get", return_value=None):
+        with patch.object(watch, "ibkr_get", return_value=None), patch.object(
+            watch.time, "sleep"
+        ):
             self.assertEqual(
                 watch.ibkr_cancel_order("AMD"),
                 "⚠️ Impossibile leggere gli ordini aperti.",
             )
-        with patch.object(watch, "ibkr_get", return_value={"orders": []}):
+        with patch.object(watch, "ibkr_get", return_value={"orders": []}), patch.object(
+            watch.time, "sleep"
+        ):
             self.assertEqual(
                 watch.ibkr_cancel_order("AMD"),
                 "⚠️ Nessun ordine aperto trovato per AMD.",
@@ -973,6 +979,7 @@ class TelegramExtractTests(unittest.TestCase):
             ),
             patch.object(watch, "ibkr_get_account_id", return_value="U1"),
             patch.object(watch, "ibkr_delete", return_value=None),
+            patch.object(watch.time, "sleep"),
         ):
             self.assertEqual(
                 watch.ibkr_cancel_order("AMD"),
@@ -1038,6 +1045,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(
                 watch, "ibkr_post", return_value=[{"order_id": 11}]
             ) as post,
+            patch.object(watch.time, "sleep"),
         ):
             self.assertEqual(
                 watch.ibkr_modify_order("AMD", 148.5),
@@ -1067,12 +1075,18 @@ class TelegramExtractTests(unittest.TestCase):
                 }
             ]
         }
-        with patch.object(watch, "ibkr_get", return_value=trail):
+        with (
+            patch.object(watch, "ibkr_get", return_value=trail),
+            patch.object(watch.time, "sleep"),
+        ):
             self.assertEqual(
                 watch.ibkr_modify_order("AMD", 10.0),
                 "⚠️ Impossibile modificare un ordine di tipo TRAIL, solo ordini a limite.",
             )
-        with patch.object(watch, "ibkr_get", return_value={"orders": []}):
+        with (
+            patch.object(watch, "ibkr_get", return_value={"orders": []}),
+            patch.object(watch.time, "sleep"),
+        ):
             self.assertEqual(
                 watch.ibkr_modify_order("NVDA", 100.0),
                 "⚠️ Nessun ordine aperto trovato per NVDA.",
@@ -1241,11 +1255,62 @@ class TelegramExtractTests(unittest.TestCase):
                 {"ticker": "HOOD", "status": "PreSubmitted", "orderId": 4},
             ]
         }
-        with patch.object(watch, "ibkr_get", return_value=payload):
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload) as get,
+            patch.object(watch.time, "sleep") as sleep,
+        ):
             active = watch.ibkr_get_active_orders()
         self.assertEqual([o["ticker"] for o in active], ["AMD", "HOOD"])
-        with patch.object(watch, "ibkr_get", return_value=None):
+        self.assertEqual(get.call_count, 2)
+        sleep.assert_called_once_with(1)
+        get.assert_called_with("/v1/api/iserver/account/orders")
+        with (
+            patch.object(watch, "ibkr_get", return_value=None),
+            patch.object(watch.time, "sleep"),
+        ):
             self.assertIsNone(watch.ibkr_get_active_orders())
+
+    def test_ibkr_get_active_orders_uses_second_snapshot(self) -> None:
+        stale = {
+            "orders": [
+                {"ticker": "AMD", "status": "Submitted", "orderId": 1},
+            ]
+        }
+        fresh = {
+            "orders": [
+                {"ticker": "AMD", "status": "Filled", "orderId": 1},
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", side_effect=[stale, fresh]) as get,
+            patch.object(watch.time, "sleep") as sleep,
+        ):
+            active = watch.ibkr_get_active_orders()
+        self.assertEqual(active, [])
+        self.assertEqual(get.call_count, 2)
+        sleep.assert_called_once_with(1)
+
+        with (
+            patch.object(watch, "ibkr_get", side_effect=[stale, fresh]),
+            patch.object(watch.time, "sleep"),
+            patch.object(watch, "ibkr_delete") as delete,
+        ):
+            self.assertEqual(
+                watch.ibkr_cancel_order("AMD"),
+                "⚠️ Nessun ordine aperto trovato per AMD.",
+            )
+        delete.assert_not_called()
+
+        with (
+            patch.object(watch, "ibkr_get", side_effect=[stale, fresh]),
+            patch.object(watch.time, "sleep"),
+            patch.object(watch, "ibkr_post") as post,
+        ):
+            self.assertEqual(
+                watch.ibkr_modify_order("AMD", 148.5),
+                "⚠️ Nessun ordine aperto trovato per AMD.",
+            )
+        post.assert_not_called()
 
     def test_apply_telegram_orders_replaces_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
