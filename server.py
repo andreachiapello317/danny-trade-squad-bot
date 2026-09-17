@@ -22,6 +22,7 @@ from watch import (
     check_order_fills,
     commit_state_to_git,
     cycle,
+    ensure_reply_suppression,
     expire_order_messages,
     ibkr_sell_all,
     in_watch_window,
@@ -72,12 +73,14 @@ def price_loop() -> None:
                     maybe_send_daily_summary(items, STATE_PATH)
                     check_order_fills(STATE_PATH)
                     check_fyi_notifications(STATE_PATH)
+                    ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
                     commit_state_to_git()
             else:
                 with STATE_LOCK:
                     check_order_fills(STATE_PATH)
                     check_fyi_notifications(STATE_PATH)
+                    ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
                     commit_state_to_git()
         except Exception as exc:

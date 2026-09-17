@@ -797,6 +797,16 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
     return True
 
 
+def ensure_reply_suppression() -> None:
+    try:
+        ibkr_post(
+            "/v1/api/iserver/questions/suppress",
+            {"messageIds": ["o10151", "o10153", "o10164", "o10223", "o354"]},
+        )
+    except Exception as exc:
+        print(f"IBKR suppress: {exc}", file=sys.stderr)
+
+
 def _confirm_order_replies(
     result: dict[str, Any] | list[Any] | None,
 ) -> dict[str, Any] | None:

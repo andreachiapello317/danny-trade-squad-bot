@@ -693,6 +693,16 @@ class TelegramExtractTests(unittest.TestCase):
             ("/v1/api/iserver/reply/q1", {"confirmed": True}),
         )
 
+    def test_ensure_reply_suppression_is_best_effort(self) -> None:
+        with patch.object(watch, "ibkr_post") as post:
+            watch.ensure_reply_suppression()
+        post.assert_called_once_with(
+            "/v1/api/iserver/questions/suppress",
+            {"messageIds": ["o10151", "o10153", "o10164", "o10223", "o354"]},
+        )
+        with patch.object(watch, "ibkr_post", side_effect=RuntimeError("down")):
+            watch.ensure_reply_suppression()
+
     def test_ibkr_place_cash_order_uses_cashqty(self) -> None:
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
