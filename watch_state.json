@@ -33,7 +33,38 @@
   ],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-16",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1441,
+      "sent_at": "2026-09-17T12:15:25.484517+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1443,
+      "sent_at": "2026-09-17T12:15:28.651347+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1444,
+      "sent_at": "2026-09-17T12:15:30.547831+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1446,
+      "sent_at": "2026-09-17T12:15:37.013795+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1447,
+      "sent_at": "2026-09-17T12:15:41.438378+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1450,
+      "sent_at": "2026-09-17T12:16:05.925595+00:00",
+      "ttl_seconds": 60
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -97,10 +128,11 @@
     "844834520": "Cancelled",
     "844834521": "Cancelled",
     "844834523": "Filled",
-    "844834522": "Filled"
+    "844834522": "Filled",
+    "844835160": "Filled"
   },
   "pending_flow": null,
-  "positions_message_id": 1437,
+  "positions_message_id": 1449,
   "orders_message_id": 1413,
   "balance_message_id": 1417
 }
