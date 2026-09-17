@@ -945,12 +945,18 @@ def apply_telegram_test_trail(text: str) -> bool:
     if not account_id:
         send_telegram("⚠️ Impossibile leggere l'account IBKR.")
         return True
+    prezzo_attuale = ibkr_get_price(ticker)
+    if prezzo_attuale is None:
+        send_telegram(f"⚠️ Impossibile determinare un prezzo per {ticker}.")
+        return True
     corpo = {
         "conid": int(conid),
         "orderType": "TRAIL",
         "side": "SELL",
         "quantity": quantity,
-        "auxPrice": trailing_amount,
+        "price": prezzo_attuale,
+        "trailingAmt": trailing_amount,
+        "trailingType": "amt",
         "tif": "DAY",
     }
     result = ibkr_post(
