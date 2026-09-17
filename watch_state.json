@@ -25,12 +25,7 @@
     "CRCL||ingresso": "2026-09-17",
     "META||ingresso": "2026-09-17"
   },
-  "sent_alerts": [
-    {
-      "message_id": 597,
-      "sent_at": "2026-09-16T13:58:49.080358+00:00"
-    }
-  ],
+  "sent_alerts": [],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-17",
   "order_messages": [],
