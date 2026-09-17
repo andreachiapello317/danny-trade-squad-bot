@@ -851,10 +851,19 @@ class TelegramExtractTests(unittest.TestCase):
         ):
             self.assertTrue(watch.apply_telegram_test_trail("/testtrail AMD 2 1.5"))
         send.assert_called_once_with("⚠️ Impossibile leggere l'account IBKR.")
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get_price", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_trail("/testtrail AMD 2 1.5"))
+        send.assert_called_once_with("⚠️ Impossibile determinare un prezzo per AMD.")
         raw = {"id": "ok", "order_id": 99}
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get_price", return_value=148.2),
             patch.object(watch, "ibkr_post", return_value=raw) as post,
             patch.object(watch, "send_telegram") as send,
         ):
@@ -869,7 +878,9 @@ class TelegramExtractTests(unittest.TestCase):
                         "orderType": "TRAIL",
                         "side": "SELL",
                         "quantity": 3,
-                        "auxPrice": 2.25,
+                        "price": 148.2,
+                        "trailingAmt": 2.25,
+                        "trailingType": "amt",
                         "tif": "DAY",
                     }
                 ]
