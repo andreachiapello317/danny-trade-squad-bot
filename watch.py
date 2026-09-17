@@ -116,6 +116,9 @@ CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
+TEST_TRAIL_RE = re.compile(
+    r"^/testtrail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
+)
 
 
 def parse_num(raw: str) -> float:
@@ -924,6 +927,37 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
     raw_price = m.group(3)
     price = float(raw_price) if raw_price is not None else None
     _send_order_message(state_path, ibkr_place_order(ticker, quantity, "SELL", price))
+    return True
+
+
+def apply_telegram_test_trail(text: str) -> bool:
+    m = TEST_TRAIL_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    quantity = int(m.group(2))
+    trailing_amount = float(m.group(3))
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
+        return True
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        send_telegram("⚠️ Impossibile leggere l'account IBKR.")
+        return True
+    corpo = {
+        "conid": int(conid),
+        "orderType": "TRAIL",
+        "side": "SELL",
+        "quantity": quantity,
+        "auxPrice": trailing_amount,
+        "tif": "DAY",
+    }
+    result = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/orders",
+        {"orders": [corpo]},
+    )
+    send_telegram(str(result))
     return True
 
 
@@ -2307,6 +2341,8 @@ def process_single_message(
     elif apply_telegram_buy(text, state_path):
         pass
     elif apply_telegram_sell(text, state_path):
+        pass
+    elif apply_telegram_test_trail(text):
         pass
     elif apply_telegram_cancel_order(text):
         pass
