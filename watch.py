@@ -119,8 +119,8 @@ MODIFY_ORDER_RE = re.compile(
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
-TEST_TRAIL_RE = re.compile(
-    r"^/testtrail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
+TRAIL_RE = re.compile(
+    r"^/trail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
 )
 
 
@@ -963,27 +963,23 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
     return True
 
 
-def apply_telegram_test_trail(text: str) -> bool:
-    m = TEST_TRAIL_RE.match(text.strip())
-    if not m:
-        return False
-    ticker = m.group(1).upper()
-    quantity = int(m.group(2))
-    trailing_amount = float(m.group(3))
+def ibkr_place_trail(ticker: str, quantity: int, trailing_amount: float) -> str:
+    ticker = ticker.strip().upper()
     conid = ibkr_lookup_conid(ticker)
     if not conid:
-        send_telegram(f"⚠️ Impossibile trovare {ticker} su IBKR.")
-        return True
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
     account_id = ibkr_get_account_id()
     if not account_id:
-        send_telegram("⚠️ Impossibile leggere l'account IBKR.")
-        return True
+        return "⚠️ Impossibile leggere l'account IBKR."
+    try:
+        conid_int = int(conid)
+    except (TypeError, ValueError):
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
     prezzo_attuale = ibkr_get_price(ticker)
     if prezzo_attuale is None:
-        send_telegram(f"⚠️ Impossibile determinare un prezzo per {ticker}.")
-        return True
+        return f"⚠️ Impossibile determinare un prezzo per {ticker}."
     corpo = {
-        "conid": int(conid),
+        "conid": conid_int,
         "orderType": "TRAIL",
         "side": "SELL",
         "quantity": quantity,
@@ -996,7 +992,28 @@ def apply_telegram_test_trail(text: str) -> bool:
         f"/v1/api/iserver/account/{account_id}/orders",
         {"orders": [corpo]},
     )
-    send_telegram(str(result))
+    if result is None:
+        return "⚠️ Errore nell'invio dell'ordine."
+    confirmed = _confirm_order_replies(result)
+    if confirmed is None:
+        return (
+            f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
+        )
+    return (
+        f"✅ Ordine SELL {quantity} {ticker} TRAIL {trailing_amount:g} inviato."
+    )
+
+
+def apply_telegram_trail(text: str, state_path: Path) -> bool:
+    m = TRAIL_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    quantity = int(m.group(2))
+    trailing_amount = float(m.group(3))
+    _send_order_message(
+        state_path, ibkr_place_trail(ticker, quantity, trailing_amount)
+    )
     return True
 
 
@@ -2564,7 +2581,7 @@ def process_single_message(
         pass
     elif apply_telegram_sell(text, state_path):
         pass
-    elif apply_telegram_test_trail(text):
+    elif apply_telegram_trail(text, state_path):
         pass
     elif apply_telegram_cancel_order(text, state_path):
         pass
