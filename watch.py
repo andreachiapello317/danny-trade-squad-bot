@@ -717,7 +717,12 @@ def ibkr_get_price(ticker: str) -> float | None:
         return None
 
 
-def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:
+def _send_replacing_message(
+    state_path: Path,
+    id_key: str,
+    text: str,
+    ttl: timedelta | None = None,
+) -> None:
     state = load_state(state_path)
     old_id = state.get(id_key)
     if old_id is not None:
@@ -725,7 +730,22 @@ def _send_replacing_message(state_path: Path, id_key: str, text: str) -> None:
     new_id = send_telegram(text)
     if isinstance(new_id, int):
         state[id_key] = new_id
-        save_state(state_path, state)
+    if ttl is not None:
+        messages = [
+            entry
+            for entry in (state.get("order_messages") or [])
+            if not (isinstance(entry, dict) and entry.get("message_id") == old_id)
+        ]
+        if isinstance(new_id, int):
+            messages.append(
+                {
+                    "message_id": new_id,
+                    "sent_at": datetime.now(timezone.utc).isoformat(),
+                    "ttl_seconds": int(ttl.total_seconds()),
+                }
+            )
+        state["order_messages"] = messages
+    save_state(state_path, state)
 
 
 def apply_telegram_balance(text: str, state_path: Path) -> bool:
@@ -1468,22 +1488,22 @@ def ibkr_modify_order(ticker: str, new_price: float) -> str:
     return f"✅ {updated} ordini {ticker} modificati a {new_price:.2f}."
 
 
-def apply_telegram_modify_order(text: str) -> bool:
+def apply_telegram_modify_order(text: str, state_path: Path) -> bool:
     m = MODIFY_ORDER_RE.match(text.strip())
     if not m:
         return False
     ticker = m.group(1).upper()
     new_price = float(m.group(2))
-    send_telegram(ibkr_modify_order(ticker, new_price))
+    _send_order_message(state_path, ibkr_modify_order(ticker, new_price))
     return True
 
 
-def apply_telegram_cancel_order(text: str) -> bool:
+def apply_telegram_cancel_order(text: str, state_path: Path) -> bool:
     m = CANCEL_ORDER_RE.match(text.strip())
     if not m:
         return False
     ticker = m.group(1).upper()
-    send_telegram(ibkr_cancel_order(ticker))
+    _send_order_message(state_path, ibkr_cancel_order(ticker))
     return True
 
 
@@ -1626,7 +1646,9 @@ def apply_telegram_orders(text: str, state_path: Path) -> bool:
             body = "📭 Nessun ordine attivo."
         else:
             body = "📋 Ordini attivi:\n\n" + "\n".join(lines)
-    _send_replacing_message(state_path, "orders_message_id", body)
+    _send_replacing_message(
+        state_path, "orders_message_id", body, ttl=ORDER_MESSAGE_TTL
+    )
     return True
 
 
@@ -2544,9 +2566,9 @@ def process_single_message(
         pass
     elif apply_telegram_test_trail(text):
         pass
-    elif apply_telegram_cancel_order(text):
+    elif apply_telegram_cancel_order(text, state_path):
         pass
-    elif apply_telegram_modify_order(text):
+    elif apply_telegram_modify_order(text, state_path):
         pass
     elif apply_telegram_positions(text, state_path):
         pass
@@ -2866,6 +2888,8 @@ def expire_order_messages(state_path: Path, now: datetime | None = None) -> None
             mid = entry.get("message_id")
             if isinstance(mid, int):
                 delete_telegram_message(mid)
+                if state.get("orders_message_id") == mid:
+                    state["orders_message_id"] = None
         else:
             kept.append(entry)
     state["order_messages"] = kept
