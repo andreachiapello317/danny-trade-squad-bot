@@ -698,7 +698,24 @@ class TelegramExtractTests(unittest.TestCase):
             watch.ensure_reply_suppression()
         post.assert_called_once_with(
             "/v1/api/iserver/questions/suppress",
-            {"messageIds": ["o10151", "o10153", "o10164", "o10223", "o354"]},
+            {
+                "messageIds": [
+                    "o163",
+                    "o354",
+                    "o382",
+                    "o383",
+                    "o403",
+                    "o451",
+                    "o10151",
+                    "o10152",
+                    "o10153",
+                    "o10164",
+                    "o10223",
+                    "o10331",
+                    "o10336",
+                    "p12",
+                ]
+            },
         )
         with patch.object(watch, "ibkr_post", side_effect=RuntimeError("down")):
             watch.ensure_reply_suppression()
@@ -789,8 +806,69 @@ class TelegramExtractTests(unittest.TestCase):
         ):
             self.assertEqual(
                 watch.ibkr_place_order("AMD", 1, "SELL", 9),
-                "⚠️ Ordine non confermato per AMD, controlla manualmente su IBKR.",
+                "⚠️ IBKR ha chiesto troppe conferme.",
             )
+
+    def test_ibkr_place_order_confirms_message_ids_only(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                side_effect=[
+                    [{"id": "q1", "messageIds": ["o163"]}],
+                    [{"order_id": 44, "order_status": "Submitted"}],
+                ],
+            ) as post,
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("SLNH", 1, "BUY", 1.01),
+                "✅ Ordine BUY 1 SLNH @ 1.01 inviato.",
+            )
+        self.assertEqual(
+            post.call_args_list[1][0],
+            ("/v1/api/iserver/reply/q1", {"confirmed": True}),
+        )
+
+    def test_ibkr_place_order_reads_order_id_not_first(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                return_value=[
+                    {"encrypt_message": "1"},
+                    {"order_id": 55, "order_status": "Submitted"},
+                ],
+            ),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("SLNH", 1, "BUY", 1.01),
+                "✅ Ordine BUY 1 SLNH @ 1.01 inviato.",
+            )
+
+    def test_ibkr_place_order_shows_ibkr_error(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                return_value={
+                    "error": (
+                        "We cannot accept an order at the limit price you "
+                        "selected. Please submit your order using a limit "
+                        "price that is closer to the current market price "
+                        "of 2.00."
+                    )
+                },
+            ),
+        ):
+            msg = watch.ibkr_place_order("SLNH", 1, "BUY", 1.01)
+        self.assertTrue(msg.startswith("⚠️ We cannot accept an order"))
+        self.assertIn("closer to the current market price", msg)
 
     def test_apply_telegram_buy_and_sell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
