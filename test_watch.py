@@ -1212,7 +1212,65 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertNotIn("EUR", body)
         self.assertNotIn("CASH", body)
         self.assertNotIn("USD", body)
+        self.assertNotIn("PNL", body)
         self.assertIn("Totale fee: 1.05", body)
+        self.assertNotIn("Totale PNL", body)
+
+    def test_apply_telegram_history_sell_pnl_uses_average_cost(self) -> None:
+        now = 1_800_000_000.0
+        old_buy = (now - 10 * 86400) * 1000
+        buy_ms = (now - 3600) * 1000
+        sell_ms = (now - 1800) * 1000
+        later_ms = (now - 600) * 1000
+        trades = [
+            {
+                "side": "B",
+                "symbol": "AMD",
+                "size": "2",
+                "price": "100",
+                "commission": "1.00",
+                "trade_time_r": old_buy,
+            },
+            {
+                "side": "BUY",
+                "symbol": "AMD",
+                "size": 2,
+                "price": 120,
+                "commission": 1.0,
+                "trade_time_r": buy_ms,
+            },
+            {
+                "side": "S",
+                "symbol": "AMD",
+                "size": 1,
+                "price": 150,
+                "commission": 0.5,
+                "trade_time_r": sell_ms,
+                "execution_id": "ex-1",
+            },
+            {
+                "side": "SELL",
+                "ticker": "NVDA",
+                "quantity": 1,
+                "price": 200,
+                "commission": "n/d",
+                "trade_time_r": later_ms,
+            },
+        ]
+        with (
+            patch.object(watch, "ibkr_get_trades", return_value=trades),
+            patch.object(watch, "send_telegram") as send,
+            patch.object(watch.time, "time", return_value=now),
+        ):
+            self.assertTrue(watch.apply_telegram_history("/storico 7"))
+        body = send.call_args[0][0]
+        self.assertIn("BUY 2 AMD @ 120 · fee: 1.0", body)
+        self.assertIn("S 1 AMD @ 150 · fee: 0.5 · PNL: +39.50", body)
+        self.assertIn("SELL 1 NVDA @ 200 · fee: n/d", body)
+        self.assertNotIn("B 2 AMD @ 100", body)
+        self.assertLess(body.index("BUY 2 AMD"), body.index("S 1 AMD"))
+        self.assertIn("Totale fee: 1.50", body)
+        self.assertIn("Totale PNL: +39.50", body)
 
     def test_apply_telegram_history_skips_only_eur_fx(self) -> None:
         now = 1_800_000_000.0
