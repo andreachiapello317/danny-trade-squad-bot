@@ -174,6 +174,7 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
         self.assertFalse(watch.should_delete_chat_message("🚫 Ordine per AMD annullato."))
         self.assertFalse(watch.should_delete_chat_message("📭 Nessuna posizione aperta."))
         self.assertFalse(watch.should_delete_chat_message("📜 Ordini eseguiti (ultimi 7 giorni):"))
+        self.assertFalse(watch.should_delete_chat_message("📢 IBKR: Margin warning"))
         self.assertTrue(watch.should_delete_chat_message("/scan"))
 
 
@@ -1406,6 +1407,69 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.check_order_fills(spath)
             send.assert_not_called()
             sync.assert_not_called()
+
+    def test_ibkr_get_fyi_notifications_shapes(self) -> None:
+        with patch.object(watch, "ibkr_get", return_value=None):
+            self.assertIsNone(watch.ibkr_get_fyi_notifications())
+        rows = [{"id": "1", "text": "hello"}]
+        with patch.object(watch, "ibkr_get", return_value=rows):
+            self.assertEqual(watch.ibkr_get_fyi_notifications(), rows)
+        with patch.object(
+            watch, "ibkr_get", return_value={"notifications": rows}
+        ):
+            self.assertEqual(watch.ibkr_get_fyi_notifications(), rows)
+        single = {"ID": "9", "MS": "margin"}
+        with patch.object(watch, "ibkr_get", return_value=single):
+            self.assertEqual(watch.ibkr_get_fyi_notifications(), [single])
+        with patch.object(watch, "ibkr_get", return_value={"ok": True}):
+            self.assertIsNone(watch.ibkr_get_fyi_notifications())
+
+    def test_check_fyi_notifications_sends_new_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            notes = [
+                {"notificationId": "a1", "text": "Deposito ricevuto"},
+                {"ID": "b2", "MS": "Avviso margine"},
+                {"message": "Senza id, stesso testo"},
+                "skip-me",
+            ]
+            with (
+                patch.object(watch, "ibkr_get_fyi_notifications", return_value=notes),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_fyi_notifications(spath)
+                watch.check_fyi_notifications(spath)
+            self.assertEqual(
+                [c.args[0] for c in send.call_args_list],
+                [
+                    "📢 IBKR: Deposito ricevuto",
+                    "📢 IBKR: Avviso margine",
+                    "📢 IBKR: Senza id, stesso testo",
+                ],
+            )
+            ids = set(watch.load_state(spath)["known_fyi_ids"])
+            self.assertIn("a1", ids)
+            self.assertIn("b2", ids)
+            hashed = watch._fyi_notification_id({"message": "Senza id, stesso testo"})
+            self.assertIn(hashed, ids)
+            self.assertTrue(hashed.startswith("h:"))
+
+    def test_check_fyi_notifications_skips_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get_fyi_notifications", return_value=None),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_fyi_notifications(spath)
+            send.assert_not_called()
+            self.assertNotIn("known_fyi_ids", watch.load_state(spath))
+            with (
+                patch.object(watch, "ibkr_get_fyi_notifications", return_value=[]),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_fyi_notifications(spath)
+            send.assert_not_called()
 
     def test_ibkr_sell_all_uses_limit_under_spot(self) -> None:
         with (

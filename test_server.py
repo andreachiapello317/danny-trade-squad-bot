@@ -198,6 +198,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "cycle") as cyc,
                 patch.object(server, "maybe_send_daily_summary") as daily,
                 patch.object(server, "check_order_fills") as fills,
+                patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "expire_order_messages") as expire,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
@@ -209,6 +210,7 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(cyc.call_args.kwargs.get("lock"), server.STATE_LOCK)
             daily.assert_called_once()
             fills.assert_called_once_with(spath)
+            fyi.assert_called_once_with(spath)
             expire.assert_called_once_with(spath)
             sync.assert_called_once()
 
@@ -238,6 +240,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(server, "in_scheduled_window", return_value=False),
                 patch.object(server, "check_order_fills") as fills,
+                patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "expire_order_messages") as expire,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
@@ -246,6 +249,7 @@ class WebhookTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     server.price_loop()
             fills.assert_called_once_with(spath)
+            fyi.assert_called_once_with(spath)
             expire.assert_called_once_with(spath)
             sync.assert_called_once()
 

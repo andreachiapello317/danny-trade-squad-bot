@@ -18,6 +18,7 @@ from watch import (
     _execute_flow_order,
     _send_flow_message,
     chat_matches,
+    check_fyi_notifications,
     check_order_fills,
     commit_state_to_git,
     cycle,
@@ -70,11 +71,13 @@ def price_loop() -> None:
                     items = load_watchlist(WATCHLIST_PATH)
                     maybe_send_daily_summary(items, STATE_PATH)
                     check_order_fills(STATE_PATH)
+                    check_fyi_notifications(STATE_PATH)
                     expire_order_messages(STATE_PATH)
                     commit_state_to_git()
             else:
                 with STATE_LOCK:
                     check_order_fills(STATE_PATH)
+                    check_fyi_notifications(STATE_PATH)
                     expire_order_messages(STATE_PATH)
                     commit_state_to_git()
         except Exception as exc:
