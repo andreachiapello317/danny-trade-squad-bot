@@ -1139,24 +1139,68 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "ibkr_get", return_value=payload),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(
-                watch, "ibkr_post", return_value=[{"order_id": 2}]
+                watch, "ibkr_post", return_value=[{"order_id": 3}]
             ) as post,
+            patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
             patch.object(watch.time, "sleep"),
         ):
             self.assertEqual(
                 watch.ibkr_modify_order("SLNH", 0.9),
-                "✅ 2 ordini SLNH modificati a 0.90.",
+                "✅ Ordine SLNH modificato a 0.90.",
             )
-        self.assertEqual(
-            [c.args[0] for c in post.call_args_list],
-            [
-                "/v1/api/iserver/account/U123/order/2",
-                "/v1/api/iserver/account/U123/order/3",
-            ],
+        post.assert_called_once_with(
+            "/v1/api/iserver/account/U123/order/3",
+            {
+                "conid": 55,
+                "orderType": "LMT",
+                "side": "BUY",
+                "quantity": 1,
+                "price": 0.9,
+                "tif": "DAY",
+            },
         )
-        for call in post.call_args_list:
-            self.assertEqual(call.args[1]["price"], 0.9)
-            self.assertEqual(call.args[1]["orderType"], "LMT")
+        delete.assert_called_once_with("/v1/api/iserver/account/U123/order/2")
+
+    def test_ibkr_modify_order_updates_pending_when_no_submitted(self) -> None:
+        payload = {
+            "orders": [
+                {
+                    "ticker": "SLNH",
+                    "status": "PendingSubmit",
+                    "orderId": 2,
+                    "conid": 55,
+                    "side": "BUY",
+                    "remainingQuantity": 1,
+                    "price": 2.0,
+                    "orderType": "LMT",
+                }
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"order_id": 2}]
+            ) as post,
+            patch.object(watch, "ibkr_delete") as delete,
+            patch.object(watch.time, "sleep"),
+        ):
+            self.assertEqual(
+                watch.ibkr_modify_order("SLNH", 1.05),
+                "✅ Ordine SLNH modificato a 1.05.",
+            )
+        post.assert_called_once_with(
+            "/v1/api/iserver/account/U123/order/2",
+            {
+                "conid": 55,
+                "orderType": "LMT",
+                "side": "BUY",
+                "quantity": 1,
+                "price": 1.05,
+                "tif": "DAY",
+            },
+        )
+        delete.assert_not_called()
 
     def test_ibkr_cancel_order_skips_inactive(self) -> None:
         payload = {
@@ -1368,6 +1412,12 @@ class TelegramExtractTests(unittest.TestCase):
                 },
                 {"ticker": "CRCL", "status": "PendingSubmit", "orderId": 6},
                 {"ticker": "TSLA", "status": "PendingCancel", "orderId": 7},
+                {
+                    "ticker": "GHOST",
+                    "status": "PendingSubmit",
+                    "price": 2.0,
+                    "orderId": 0,
+                },
             ]
         }
         with (
