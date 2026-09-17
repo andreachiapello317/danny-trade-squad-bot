@@ -958,6 +958,7 @@ def apply_telegram_test_trail(text: str) -> bool:
         "trailingAmt": trailing_amount,
         "trailingType": "amt",
         "tif": "DAY",
+        "outsideRTH": True,
     }
     result = ibkr_post(
         f"/v1/api/iserver/account/{account_id}/orders",
