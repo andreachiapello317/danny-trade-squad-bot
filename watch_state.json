@@ -35,36 +35,6 @@
   "last_daily_summary": "2026-09-16",
   "order_messages": [
     {
-      "message_id": 1421,
-      "sent_at": "2026-09-17T08:08:11.678376+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1423,
-      "sent_at": "2026-09-17T08:08:14.770084+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1424,
-      "sent_at": "2026-09-17T08:08:18.150418+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1426,
-      "sent_at": "2026-09-17T08:08:20.467299+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1427,
-      "sent_at": "2026-09-17T08:08:21.793979+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1429,
-      "sent_at": "2026-09-17T08:08:24.292519+00:00",
-      "ttl_seconds": 120
-    },
-    {
       "message_id": 1433,
       "sent_at": "2026-09-17T08:08:39.281030+00:00",
       "ttl_seconds": 120
@@ -78,16 +48,6 @@
       "message_id": 1435,
       "sent_at": "2026-09-17T08:08:43.794896+00:00",
       "ttl_seconds": 120
-    },
-    {
-      "message_id": 1438,
-      "sent_at": "2026-09-17T08:09:24.354130+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1439,
-      "sent_at": "2026-09-17T08:09:26.319880+00:00",
-      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
