@@ -78,6 +78,11 @@
       "message_id": 1560,
       "sent_at": "2026-09-17T20:40:16.475467+00:00",
       "ttl_seconds": 120
+    },
+    {
+      "message_id": 1574,
+      "sent_at": "2026-09-17T20:41:58.584736+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -149,7 +154,8 @@
     "844840479": "Inactive",
     "844840490": "Cancelled",
     "844840493": "Cancelled",
-    "844840511": "Cancelled"
+    "844840511": "Cancelled",
+    "844840530": "Filled"
   },
   "pending_flow": {
     "type": "BUY",
