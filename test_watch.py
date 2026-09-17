@@ -1092,6 +1092,113 @@ class TelegramExtractTests(unittest.TestCase):
                 "⚠️ Nessun ordine aperto trovato per NVDA.",
             )
 
+    def test_ibkr_modify_order_skips_trail_and_updates_limits(self) -> None:
+        payload = {
+            "orders": [
+                {
+                    "ticker": "SLNH",
+                    "status": "Inactive",
+                    "orderId": 1,
+                    "conid": 55,
+                    "side": "SELL",
+                    "remainingQuantity": 1,
+                    "orderType": "TRAILING_STOP",
+                },
+                {
+                    "ticker": "SLNH",
+                    "status": "Submitted",
+                    "orderId": 9,
+                    "conid": 55,
+                    "side": "SELL",
+                    "remainingQuantity": 1,
+                    "orderType": "TRAILING_STOP",
+                },
+                {
+                    "ticker": "SLNH",
+                    "status": "PendingSubmit",
+                    "orderId": 2,
+                    "conid": 55,
+                    "side": "BUY",
+                    "remainingQuantity": 1,
+                    "price": 2.0,
+                    "orderType": "LMT",
+                },
+                {
+                    "ticker": "SLNH",
+                    "status": "Submitted",
+                    "orderId": 3,
+                    "conid": 55,
+                    "side": "BUY",
+                    "remainingQuantity": 1,
+                    "price": 1.01,
+                    "orderType": "LMT",
+                },
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"order_id": 2}]
+            ) as post,
+            patch.object(watch.time, "sleep"),
+        ):
+            self.assertEqual(
+                watch.ibkr_modify_order("SLNH", 0.9),
+                "✅ 2 ordini SLNH modificati a 0.90.",
+            )
+        self.assertEqual(
+            [c.args[0] for c in post.call_args_list],
+            [
+                "/v1/api/iserver/account/U123/order/2",
+                "/v1/api/iserver/account/U123/order/3",
+            ],
+        )
+        for call in post.call_args_list:
+            self.assertEqual(call.args[1]["price"], 0.9)
+            self.assertEqual(call.args[1]["orderType"], "LMT")
+
+    def test_ibkr_cancel_order_skips_inactive(self) -> None:
+        payload = {
+            "orders": [
+                {
+                    "ticker": "SLNH",
+                    "status": "Inactive",
+                    "orderId": 1,
+                    "orderType": "TRAILING_STOP",
+                },
+                {
+                    "ticker": "SLNH",
+                    "status": "PendingSubmit",
+                    "orderId": 2,
+                    "orderType": "LMT",
+                },
+                {
+                    "ticker": "SLNH",
+                    "status": "Submitted",
+                    "orderId": 3,
+                    "orderType": "LMT",
+                },
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_delete", return_value={"ok": True}) as delete,
+            patch.object(watch.time, "sleep"),
+        ):
+            self.assertEqual(
+                watch.ibkr_cancel_order("SLNH"),
+                "🚫 2 ordini per SLNH annullati.",
+            )
+        self.assertEqual(
+            [c.args[0] for c in delete.call_args_list],
+            [
+                "/v1/api/iserver/account/U123/order/2",
+                "/v1/api/iserver/account/U123/order/3",
+            ],
+        )
+
     def test_apply_telegram_modify_order(self) -> None:
         with (
             patch.object(
@@ -1253,6 +1360,14 @@ class TelegramExtractTests(unittest.TestCase):
                 {"ticker": "NVDA", "status": "Filled", "orderId": 2},
                 {"ticker": "BE", "status": "cancelled", "orderId": 3},
                 {"ticker": "HOOD", "status": "PreSubmitted", "orderId": 4},
+                {
+                    "ticker": "SLNH",
+                    "status": "Inactive",
+                    "orderId": 5,
+                    "orderType": "TRAILING_STOP",
+                },
+                {"ticker": "CRCL", "status": "PendingSubmit", "orderId": 6},
+                {"ticker": "TSLA", "status": "PendingCancel", "orderId": 7},
             ]
         }
         with (
@@ -1260,7 +1375,9 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch.time, "sleep") as sleep,
         ):
             active = watch.ibkr_get_active_orders()
-        self.assertEqual([o["ticker"] for o in active], ["AMD", "HOOD"])
+        self.assertEqual(
+            [o["ticker"] for o in active], ["AMD", "HOOD", "CRCL"]
+        )
         self.assertEqual(get.call_count, 2)
         sleep.assert_called_once_with(1)
         get.assert_called_with("/v1/api/iserver/account/orders")
@@ -1343,6 +1460,21 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 self.assertTrue(watch.apply_telegram_orders("/ORDINI", spath))
             send.assert_called_with("📭 Nessun ordine attivo.")
+
+    def test_fmt_order_line_shows_trail_not_mkt(self) -> None:
+        self.assertEqual(
+            watch._fmt_order_line(
+                {
+                    "ticker": "SLNH",
+                    "side": "SELL",
+                    "remainingQuantity": 1.0,
+                    "orderType": "TRAILING_STOP",
+                    "trailingAmt": 0.05,
+                    "status": "Submitted",
+                }
+            ),
+            "SLNH SELL 1.0 @ TRAIL 0.05 · Submitted",
+        )
 
     def test_process_single_message_runs_ordini(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

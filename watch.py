@@ -1266,6 +1266,42 @@ def ibkr_sell_all(ticker: str, price: float | None) -> str:
     return ibkr_place_order(ticker, quantity, "SELL", price)
 
 
+_IBKR_DEAD_ORDER_STATUSES = {
+    "filled",
+    "cancelled",
+    "canceled",
+    "inactive",
+    "rejected",
+    "expired",
+    "pendingcancel",
+    "apicancelled",
+}
+_IBKR_LIMIT_ORDER_TYPES = {"LMT", "LIMIT"}
+_IBKR_TRAIL_ORDER_TYPES = {
+    "TRAIL",
+    "TRAILING_STOP",
+    "TRAILING STOP",
+    "STP TRAIL",
+    "STPTRL",
+}
+
+
+def _ibkr_order_status(order: dict[str, Any]) -> str:
+    return str(order.get("status") or "").strip().lower()
+
+
+def _ibkr_order_type(order: dict[str, Any]) -> str:
+    return str(order.get("orderType") or "").strip().upper()
+
+
+def _ibkr_is_dead_order(order: dict[str, Any]) -> bool:
+    return _ibkr_order_status(order) in _IBKR_DEAD_ORDER_STATUSES
+
+
+def _ibkr_is_limit_order(order: dict[str, Any]) -> bool:
+    return _ibkr_order_type(order) in _IBKR_LIMIT_ORDER_TYPES
+
+
 def ibkr_cancel_order(ticker: str) -> str:
     ticker = ticker.strip().upper()
     orders = ibkr_get_active_orders()
@@ -1300,36 +1336,15 @@ def ibkr_cancel_order(ticker: str) -> str:
     return f"🚫 {cancelled} ordini per {ticker} annullati."
 
 
-def ibkr_modify_order(ticker: str, new_price: float) -> str:
-    ticker = ticker.strip().upper()
-    orders = ibkr_get_active_orders()
-    if orders is None:
-        return "⚠️ Impossibile leggere gli ordini aperti."
-    found: dict[str, Any] | None = None
-    for order in orders:
-        if not isinstance(order, dict):
-            continue
-        if str(order.get("ticker") or "").upper() != ticker:
-            continue
-        if order.get("orderId") is None:
-            continue
-        found = order
-        break
-    if found is None:
-        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
-    order_type = str(found.get("orderType") or "")
-    if order_type.strip().upper() not in {"LMT", "LIMIT"}:
-        shown = order_type or "?"
-        return (
-            f"⚠️ Impossibile modificare un ordine di tipo {shown}, "
-            "solo ordini a limite."
-        )
+def _ibkr_replace_limit_order(
+    account_id: str, order: dict[str, Any], new_price: float, ticker: str
+) -> str | None:
     try:
-        conid_int = int(found.get("conid"))
+        conid_int = int(order.get("conid"))
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
-    side = found.get("side") or "SELL"
-    raw_qty = found.get("remainingQuantity", found.get("totalSize"))
+    side = order.get("side") or "SELL"
+    raw_qty = order.get("remainingQuantity", order.get("totalSize"))
     try:
         quantity = int(float(raw_qty))
     except (TypeError, ValueError):
@@ -1338,30 +1353,66 @@ def ibkr_modify_order(ticker: str, new_price: float) -> str:
         )
     if quantity < 1:
         return f"⚠️ Nessun ordine aperto trovato per {ticker}."
-    account_id = ibkr_get_account_id()
-    if not account_id:
-        return "⚠️ Impossibile leggere l'account IBKR."
-    order_id = found["orderId"]
-    corpo = {
-        "conid": conid_int,
-        "orderType": "LMT",
-        "side": side,
-        "quantity": quantity,
-        "price": new_price,
-        "tif": "DAY",
-    }
+    order_id = order["orderId"]
     result = ibkr_post(
         f"/v1/api/iserver/account/{account_id}/order/{order_id}",
-        corpo,
+        {
+            "conid": conid_int,
+            "orderType": "LMT",
+            "side": side,
+            "quantity": quantity,
+            "price": new_price,
+            "tif": "DAY",
+        },
     )
-    if result is None:
-        return f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
-    confirmed = _confirm_order_replies(result)
-    if confirmed is None:
+    if result is None or _confirm_order_replies(result) is None:
         return (
             f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
         )
-    return f"✅ Ordine {ticker} modificato a {new_price:.2f}."
+    return None
+
+
+def ibkr_modify_order(ticker: str, new_price: float) -> str:
+    ticker = ticker.strip().upper()
+    orders = ibkr_get_active_orders()
+    if orders is None:
+        return "⚠️ Impossibile leggere gli ordini aperti."
+    ticker_orders: list[dict[str, Any]] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("ticker") or "").upper() != ticker:
+            continue
+        if order.get("orderId") is None:
+            continue
+        ticker_orders.append(order)
+    if not ticker_orders:
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    limits = [order for order in ticker_orders if _ibkr_is_limit_order(order)]
+    if not limits:
+        shown = _ibkr_order_type(ticker_orders[0]) or "?"
+        return (
+            f"⚠️ Impossibile modificare un ordine di tipo {shown}, "
+            "solo ordini a limite."
+        )
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return "⚠️ Impossibile leggere l'account IBKR."
+    updated = 0
+    last_error: str | None = None
+    for order in limits:
+        error = _ibkr_replace_limit_order(account_id, order, new_price, ticker)
+        if error is None:
+            updated += 1
+        else:
+            last_error = error
+    if updated == 0:
+        return last_error or (
+            f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
+        )
+    if updated == 1:
+        return f"✅ Ordine {ticker} modificato a {new_price:.2f}."
+    return f"✅ {updated} ordini {ticker} modificati a {new_price:.2f}."
 
 
 def apply_telegram_modify_order(text: str) -> bool:
@@ -1480,13 +1531,11 @@ def ibkr_get_active_orders() -> list[Any] | None:
     orders = data.get("orders")
     if not isinstance(orders, list):
         return []
-    closed = {"filled", "cancelled", "canceled"}
     active: list[Any] = []
     for order in orders:
         if not isinstance(order, dict):
             continue
-        status = str(order.get("status") or "").lower()
-        if status in closed:
+        if _ibkr_is_dead_order(order):
             continue
         active.append(order)
     return active
@@ -1494,7 +1543,14 @@ def ibkr_get_active_orders() -> list[Any] | None:
 
 def _fmt_order_line(order: dict[str, Any]) -> str:
     qty = order.get("remainingQuantity", order.get("totalSize", "?"))
-    price = order.get("price") or order.get("avgPrice") or "MKT"
+    price = order.get("price") or order.get("avgPrice")
+    if price in (None, ""):
+        order_type = _ibkr_order_type(order)
+        if order_type in _IBKR_TRAIL_ORDER_TYPES:
+            trail = order.get("trailingAmt") or order.get("auxPrice")
+            price = f"TRAIL {trail}" if trail not in (None, "") else "TRAIL"
+        else:
+            price = order_type or "MKT"
     return (
         f"{order.get('ticker', '?')} {order.get('side', '?')} "
         f"{qty} @ {price} · {order.get('status', '?')}"
