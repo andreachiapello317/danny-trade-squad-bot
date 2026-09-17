@@ -1457,6 +1457,63 @@ def _is_cash_fx_trade(trade: dict[str, Any]) -> bool:
     return symbol == "EUR"
 
 
+def _trade_symbol(trade: dict[str, Any]) -> str:
+    return str(trade.get("symbol") or trade.get("ticker") or "").strip().upper()
+
+
+def _trade_side(raw: Any) -> str:
+    side = str(raw or "").strip().upper()
+    if side in {"B", "BUY", "BOT"} or side.startswith("B"):
+        return "B"
+    if side in {"S", "SELL", "SLD"} or side.startswith("S"):
+        return "S"
+    return side
+
+
+def _trade_number(raw: Any) -> float | None:
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        return parse_num(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _average_cost_pnls(trades: list[dict[str, Any]]) -> list[float | None]:
+    avg_cost: dict[str, tuple[float, float]] = {}
+    pnls: list[float | None] = []
+    for trade in trades:
+        symbol = _trade_symbol(trade)
+        side = _trade_side(trade.get("side"))
+        size = _trade_number(trade.get("size", trade.get("quantity")))
+        price = _trade_number(trade.get("price"))
+        commission = _trade_number(trade.get("commission"))
+        if commission is None:
+            commission = 0.0
+        pnl: float | None = None
+        if not symbol or size is None or price is None or size <= 0:
+            pnls.append(None)
+            continue
+        if side == "B":
+            old_qty, old_cost = avg_cost.get(symbol, (0.0, 0.0))
+            new_qty = old_qty + size
+            new_cost = (
+                ((old_qty * old_cost) + (size * price)) / new_qty
+                if new_qty > 0
+                else 0.0
+            )
+            avg_cost[symbol] = (new_qty, new_cost)
+        elif side == "S":
+            old_qty, avg = avg_cost.get(symbol, (0.0, 0.0))
+            if avg != 0.0:
+                pnl = (price - avg) * size - commission
+            avg_cost[symbol] = (max(0.0, old_qty - size), avg)
+        pnls.append(pnl)
+    return pnls
+
+
 def apply_telegram_history(text: str) -> bool:
     match = HISTORY_RE.match(text.strip())
     if not match:
@@ -1468,30 +1525,40 @@ def apply_telegram_history(text: str) -> bool:
         return True
     now = time.time()
     soglia = now - (days * 86400)
-    filtered: list[dict[str, Any]] = []
+    usable: list[dict[str, Any]] = []
     for trade in trades:
-        if not isinstance(trade, dict):
+        if not isinstance(trade, dict) or _is_cash_fx_trade(trade):
             continue
-        ts = _trade_timestamp(trade)
-        if ts == 0.0 or ts < soglia:
+        if _trade_timestamp(trade) == 0.0:
             continue
-        if _is_cash_fx_trade(trade):
-            continue
-        filtered.append(trade)
-    if not filtered:
+        usable.append(trade)
+    usable.sort(key=_trade_timestamp)
+    pnls = _average_cost_pnls(usable)
+    window: list[tuple[dict[str, Any], float | None]] = [
+        (trade, pnl)
+        for trade, pnl in zip(usable, pnls)
+        if _trade_timestamp(trade) >= soglia
+    ]
+    if not window:
         send_telegram(f"📭 Nessun ordine eseguito negli ultimi {days} giorni.")
         return True
-    filtered.sort(key=_trade_timestamp)
     lines: list[str] = []
     totale = 0.0
     fee_ok = False
-    for trade in filtered:
+    totale_pnl = 0.0
+    pnl_ok = False
+    for trade, pnl in window:
         size = trade.get("size", trade.get("quantity", "?"))
         symbol = trade.get("symbol", trade.get("ticker", "?"))
-        lines.append(
+        line = (
             f"{trade.get('side', '?')} {size} {symbol} @ "
             f"{trade.get('price', '?')} · fee: {trade.get('commission', 'n/d')}"
         )
+        if _trade_side(trade.get("side")) == "S" and pnl is not None:
+            line += f" · PNL: {pnl:+.2f}"
+            totale_pnl += pnl
+            pnl_ok = True
+        lines.append(line)
         try:
             totale += float(trade.get("commission"))
             fee_ok = True
@@ -1500,6 +1567,8 @@ def apply_telegram_history(text: str) -> bool:
     body = f"📜 Ordini eseguiti (ultimi {days} giorni):\n\n" + "\n".join(lines)
     if fee_ok:
         body += f"\nTotale fee: {totale:.2f}"
+    if pnl_ok:
+        body += f"\nTotale PNL: {totale_pnl:+.2f}"
     send_telegram(body)
     return True
 
