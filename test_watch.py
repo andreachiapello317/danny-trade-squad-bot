@@ -834,6 +834,62 @@ class TelegramExtractTests(unittest.TestCase):
             sell.assert_called_once_with("/vendi AMD 1 10", spath)
             delete.assert_called_once_with(22)
 
+    def test_apply_telegram_test_trail_posts_raw_result(self) -> None:
+        self.assertTrue(watch.TEST_TRAIL_RE.match("/testtrail AMD 2 1.5"))
+        self.assertTrue(watch.TEST_TRAIL_RE.match("/TESTTRAIL $hood 1 0.75"))
+        self.assertIsNone(watch.TEST_TRAIL_RE.match("/testtrail AMD 2"))
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_trail("/testtrail AMD 2 1.5"))
+        send.assert_called_once_with("⚠️ Impossibile trovare AMD su IBKR.")
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value=None),
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_trail("/testtrail AMD 2 1.5"))
+        send.assert_called_once_with("⚠️ Impossibile leggere l'account IBKR.")
+        raw = {"id": "ok", "order_id": 99}
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_post", return_value=raw) as post,
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_test_trail("/testtrail $amd 3 2.25"))
+            self.assertFalse(watch.apply_telegram_test_trail("/vendi AMD 1"))
+        post.assert_called_once_with(
+            "/v1/api/iserver/account/U123/orders",
+            {
+                "orders": [
+                    {
+                        "conid": 4391,
+                        "orderType": "TRAIL",
+                        "side": "SELL",
+                        "quantity": 3,
+                        "auxPrice": 2.25,
+                        "tif": "DAY",
+                    }
+                ]
+            },
+        )
+        send.assert_called_once_with(str(raw))
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_test_trail", return_value=True) as trail,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/testtrail AMD 2 1.5", 23, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            trail.assert_called_once_with("/testtrail AMD 2 1.5")
+            delete.assert_called_once_with(23)
+
     def test_ibkr_cancel_order_one_and_many(self) -> None:
         payload = {
             "orders": [
