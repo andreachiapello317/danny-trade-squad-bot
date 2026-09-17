@@ -99,5 +99,12 @@
   "positions_message_id": 1471,
   "orders_message_id": 1483,
   "balance_message_id": 1479,
-  "price_message_id": 1465
+  "price_message_id": 1465,
+  "known_fyi_ids": [
+    "2026091618405756",
+    "2026091618785743",
+    "2026091728835790",
+    "2026091616042826",
+    "2026091611588154"
+  ]
 }
