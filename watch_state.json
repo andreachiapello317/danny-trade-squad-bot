@@ -28,7 +28,13 @@
   "sent_alerts": [],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-17",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1707,
+      "sent_at": "2026-09-17T22:18:54.212033+00:00",
+      "ttl_seconds": 60
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -108,7 +114,8 @@
     "844840556": "Filled",
     "844840565": "Cancelled",
     "844840566": "Cancelled",
-    "844840568": "Cancelled"
+    "844840568": "Cancelled",
+    "844840918": "Cancelled"
   },
   "pending_flow": null,
   "positions_message_id": 1649,
