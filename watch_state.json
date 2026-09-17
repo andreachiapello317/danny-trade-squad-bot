@@ -58,6 +58,31 @@
       "message_id": 1427,
       "sent_at": "2026-09-17T08:08:21.793979+00:00",
       "ttl_seconds": 120
+    },
+    {
+      "message_id": 1429,
+      "sent_at": "2026-09-17T08:08:24.292519+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1433,
+      "sent_at": "2026-09-17T08:08:39.281030+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1434,
+      "sent_at": "2026-09-17T08:08:40.857448+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1435,
+      "sent_at": "2026-09-17T08:08:43.794896+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1438,
+      "sent_at": "2026-09-17T08:09:24.354130+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -121,17 +146,11 @@
     "945083802": "Filled",
     "945083803": "Filled",
     "844834520": "Cancelled",
-    "844834521": "Cancelled"
+    "844834521": "Cancelled",
+    "844834523": "Filled"
   },
-  "pending_flow": {
-    "type": "BUY",
-    "step": "price",
-    "ticker": "SLNH",
-    "size_type": "shares",
-    "quantity": 2.0,
-    "price_type": "limit"
-  },
-  "positions_message_id": 1419,
+  "pending_flow": null,
+  "positions_message_id": 1437,
   "orders_message_id": 1413,
   "balance_message_id": 1417
 }
