@@ -987,17 +987,30 @@ class TelegramExtractTests(unittest.TestCase):
             )
 
     def test_apply_telegram_cancel_order(self) -> None:
-        with (
-            patch.object(
-                watch, "ibkr_cancel_order", return_value="🚫 Ordine per AMD annullato."
-            ) as cancel,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_cancel_order("/annulla $amd"))
-            self.assertTrue(watch.apply_telegram_cancel_order("/ANNULLA NVDA"))
-            self.assertFalse(watch.apply_telegram_cancel_order("/vendi AMD 1"))
-        self.assertEqual([c.args[0] for c in cancel.call_args_list], ["AMD", "NVDA"])
-        self.assertEqual(send.call_count, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_cancel_order",
+                    return_value="🚫 Ordine per AMD annullato.",
+                ) as cancel,
+                patch.object(watch, "send_telegram", return_value=41) as send,
+            ):
+                self.assertTrue(
+                    watch.apply_telegram_cancel_order("/annulla $amd", spath)
+                )
+                self.assertTrue(
+                    watch.apply_telegram_cancel_order("/ANNULLA NVDA", spath)
+                )
+                self.assertFalse(
+                    watch.apply_telegram_cancel_order("/vendi AMD 1", spath)
+                )
+            self.assertEqual(
+                [c.args[0] for c in cancel.call_args_list], ["AMD", "NVDA"]
+            )
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual(len(watch.load_state(spath)["order_messages"]), 2)
 
     def test_process_single_message_runs_annulla(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1013,7 +1026,7 @@ class TelegramExtractTests(unittest.TestCase):
                     "/annulla AMD", 23, wpath, spath
                 )
             self.assertEqual((added, removed), ([], []))
-            cancel.assert_called_once_with("/annulla AMD")
+            cancel.assert_called_once_with("/annulla AMD", spath)
             delete.assert_called_once_with(23)
 
     def test_ibkr_modify_order_updates_limit_price(self) -> None:
@@ -1244,22 +1257,31 @@ class TelegramExtractTests(unittest.TestCase):
         )
 
     def test_apply_telegram_modify_order(self) -> None:
-        with (
-            patch.object(
-                watch,
-                "ibkr_modify_order",
-                return_value="✅ Ordine AMD modificato a 150.00.",
-            ) as modify,
-            patch.object(watch, "send_telegram") as send,
-        ):
-            self.assertTrue(watch.apply_telegram_modify_order("/modifica $amd 150"))
-            self.assertTrue(watch.apply_telegram_modify_order("/MODIFICA NVDA 99.5"))
-            self.assertFalse(watch.apply_telegram_modify_order("/annulla AMD"))
-        self.assertEqual(
-            [c.args for c in modify.call_args_list],
-            [("AMD", 150.0), ("NVDA", 99.5)],
-        )
-        self.assertEqual(send.call_count, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_modify_order",
+                    return_value="✅ Ordine AMD modificato a 150.00.",
+                ) as modify,
+                patch.object(watch, "send_telegram", return_value=42) as send,
+            ):
+                self.assertTrue(
+                    watch.apply_telegram_modify_order("/modifica $amd 150", spath)
+                )
+                self.assertTrue(
+                    watch.apply_telegram_modify_order("/MODIFICA NVDA 99.5", spath)
+                )
+                self.assertFalse(
+                    watch.apply_telegram_modify_order("/annulla AMD", spath)
+                )
+            self.assertEqual(
+                [c.args for c in modify.call_args_list],
+                [("AMD", 150.0), ("NVDA", 99.5)],
+            )
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual(len(watch.load_state(spath)["order_messages"]), 2)
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -1273,7 +1295,7 @@ class TelegramExtractTests(unittest.TestCase):
                     "/modifica AMD 150", 24, wpath, spath
                 )
             self.assertEqual((added, removed), ([], []))
-            apply_mod.assert_called_once_with("/modifica AMD 150")
+            apply_mod.assert_called_once_with("/modifica AMD 150", spath)
             delete.assert_called_once_with(24)
 
     def test_ibkr_get_positions_retries_when_empty(self) -> None:
@@ -1504,12 +1526,23 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertIn("📋 Ordini attivi:", body)
             self.assertIn("AMD BUY 2 @ 100.5 · Submitted", body)
             self.assertEqual(watch.load_state(spath)["orders_message_id"], 22)
+            self.assertEqual(
+                watch.load_state(spath)["order_messages"][0]["message_id"], 22
+            )
+            self.assertEqual(
+                watch.load_state(spath)["order_messages"][0]["ttl_seconds"], 60
+            )
             with (
                 patch.object(watch, "ibkr_get_active_orders", return_value=[]),
-                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "send_telegram", return_value=23) as send,
             ):
                 self.assertTrue(watch.apply_telegram_orders("/ORDINI", spath))
             send.assert_called_with("📭 Nessun ordine attivo.")
+            state = watch.load_state(spath)
+            self.assertEqual(state["orders_message_id"], 23)
+            self.assertEqual(
+                [m["message_id"] for m in state["order_messages"]], [23]
+            )
 
     def test_fmt_order_line_shows_trail_not_mkt(self) -> None:
         self.assertEqual(
@@ -2000,6 +2033,28 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(len(state["order_messages"]), 1)
             self.assertEqual(state["order_messages"][0]["message_id"], 2)
             self.assertEqual(state["sent_alerts"][0]["message_id"], 9)
+
+    def test_expire_order_messages_clears_orders_digest_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            now = datetime(2026, 9, 15, 22, 0, tzinfo=timezone.utc)
+            watch.save_state(
+                spath,
+                {
+                    "orders_message_id": 1,
+                    "order_messages": [
+                        {
+                            "message_id": 1,
+                            "sent_at": (now - timedelta(seconds=61)).isoformat(),
+                            "ttl_seconds": 60,
+                        }
+                    ],
+                },
+            )
+            with patch.object(watch, "delete_telegram_message") as delete:
+                watch.expire_order_messages(spath, now=now)
+            delete.assert_called_once_with(1)
+            self.assertIsNone(watch.load_state(spath)["orders_message_id"])
 
     def test_expire_flow_messages_uses_120s_ttl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
