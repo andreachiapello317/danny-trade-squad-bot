@@ -70,11 +70,6 @@
       "ttl_seconds": 120
     },
     {
-      "message_id": 1608,
-      "sent_at": "2026-09-17T20:49:06.565158+00:00",
-      "ttl_seconds": 60
-    },
-    {
       "message_id": 1610,
       "sent_at": "2026-09-17T20:49:08.633660+00:00",
       "ttl_seconds": 120
