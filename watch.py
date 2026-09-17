@@ -1664,16 +1664,20 @@ def ibkr_get_fyi_notifications() -> list[Any] | None:
     return None
 
 
-def _fyi_notification_text(note: dict[str, Any]) -> str:
-    for key in ("text", "message", "msgText", "MS", "title", "content", "body"):
-        val = note.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-        if val is not None and not isinstance(val, (dict, list)):
-            text = str(val).strip()
-            if text:
-                return text
-    return ""
+def _fyi_field(note: dict[str, Any], key: str) -> str:
+    val = note.get(key)
+    if val is None or isinstance(val, (dict, list)):
+        return ""
+    return str(val).strip()
+
+
+def _fyi_strip_html(raw: str) -> str:
+    text = raw.replace("\r\n", "\n")
+    text = re.sub(r"(?is)<a\s+[^>]*>(.*?)</a>", r"\1", text)
+    text = re.sub(r"(?i)</?div\b[^>]*>", "", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _fyi_notification_id(note: dict[str, Any]) -> str:
@@ -1681,8 +1685,10 @@ def _fyi_notification_id(note: dict[str, Any]) -> str:
         val = note.get(key)
         if val is not None and str(val).strip():
             return str(val).strip()
-    raw = _fyi_notification_text(note) or json.dumps(
-        note, sort_keys=True, default=str
+    raw = (
+        _fyi_field(note, "MS")
+        or _fyi_field(note, "MD")
+        or json.dumps(note, sort_keys=True, default=str)
     )
     return "h:" + hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()
 
@@ -1700,9 +1706,18 @@ def check_fyi_notifications(state_path: Path) -> None:
         nid = _fyi_notification_id(note)
         if not nid or nid in known:
             continue
-        text = _fyi_notification_text(note)
-        if text:
-            send_telegram(f"📢 IBKR: {text}")
+        title_raw = _fyi_field(note, "MS")
+        if "currency conversion" in title_raw.lower():
+            known.add(nid)
+            continue
+        title = _fyi_strip_html(title_raw)
+        body = _fyi_strip_html(_fyi_field(note, "MD"))
+        if title and body:
+            send_telegram(f"📢 {title}\n\n{body}")
+        elif title:
+            send_telegram(f"📢 {title}")
+        elif body:
+            send_telegram(f"📢 {body}")
         known.add(nid)
     state["known_fyi_ids"] = list(known)
     save_state(state_path, state)

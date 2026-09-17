@@ -1428,9 +1428,20 @@ class TelegramExtractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             notes = [
-                {"notificationId": "a1", "text": "Deposito ricevuto"},
-                {"ID": "b2", "MS": "Avviso margine"},
-                {"message": "Senza id, stesso testo"},
+                {
+                    "ID": "a1",
+                    "MS": "Deposito ricevuto",
+                    "MD": "<div>Soldi arrivati<br /><a href=\"sso://x\">Dettagli</a></div>",
+                },
+                {
+                    "ID": "fx1",
+                    "MS": "Currency Conversion Notification",
+                    "MD": "<div>EUR to USD</div>",
+                },
+                {
+                    "MS": "Avviso margine",
+                    "MD": "Controlla il conto",
+                },
                 "skip-me",
             ]
             with (
@@ -1442,17 +1453,36 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(
                 [c.args[0] for c in send.call_args_list],
                 [
-                    "📢 IBKR: Deposito ricevuto",
-                    "📢 IBKR: Avviso margine",
-                    "📢 IBKR: Senza id, stesso testo",
+                    "📢 Deposito ricevuto\n\nSoldi arrivati\nDettagli",
+                    "📢 Avviso margine\n\nControlla il conto",
                 ],
             )
             ids = set(watch.load_state(spath)["known_fyi_ids"])
             self.assertIn("a1", ids)
-            self.assertIn("b2", ids)
-            hashed = watch._fyi_notification_id({"message": "Senza id, stesso testo"})
+            self.assertIn("fx1", ids)
+            hashed = watch._fyi_notification_id(
+                {"MS": "Avviso margine", "MD": "Controlla il conto"}
+            )
             self.assertIn(hashed, ids)
             self.assertTrue(hashed.startswith("h:"))
+
+    def test_check_fyi_skips_currency_conversion_case_insensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            notes = [
+                {
+                    "ID": "fx2",
+                    "MS": "CURRENCY CONVERSION notice",
+                    "MD": "ignore me",
+                }
+            ]
+            with (
+                patch.object(watch, "ibkr_get_fyi_notifications", return_value=notes),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_fyi_notifications(spath)
+            send.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["known_fyi_ids"], ["fx2"])
 
     def test_check_fyi_notifications_skips_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
