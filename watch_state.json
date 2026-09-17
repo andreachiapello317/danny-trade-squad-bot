@@ -28,38 +28,7 @@
   "sent_alerts": [],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-17",
-  "order_messages": [
-    {
-      "message_id": 1684,
-      "sent_at": "2026-09-17T21:37:08.403700+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1686,
-      "sent_at": "2026-09-17T21:37:11.184754+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1687,
-      "sent_at": "2026-09-17T21:37:14.533088+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1689,
-      "sent_at": "2026-09-17T21:37:16.992901+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1690,
-      "sent_at": "2026-09-17T21:37:20.229588+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1692,
-      "sent_at": "2026-09-17T21:37:23.060215+00:00",
-      "ttl_seconds": 120
-    }
-  ],
+  "order_messages": [],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
