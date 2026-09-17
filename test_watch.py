@@ -882,7 +882,6 @@ class TelegramExtractTests(unittest.TestCase):
                         "trailingAmt": 2.25,
                         "trailingType": "amt",
                         "tif": "DAY",
-                        "outsideRTH": True,
                     }
                 ]
             },
