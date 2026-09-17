@@ -28,7 +28,13 @@
   "sent_alerts": [],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-17",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1703,
+      "sent_at": "2026-09-17T22:12:30.750844+00:00",
+      "ttl_seconds": 60
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -112,7 +118,7 @@
   },
   "pending_flow": null,
   "positions_message_id": 1649,
-  "orders_message_id": 1700,
+  "orders_message_id": 1703,
   "balance_message_id": 1530,
   "price_message_id": 1514,
   "known_fyi_ids": [
