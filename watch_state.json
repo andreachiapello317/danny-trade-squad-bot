@@ -35,28 +35,38 @@
   "last_daily_summary": "2026-09-16",
   "order_messages": [
     {
-      "message_id": 1381,
-      "sent_at": "2026-09-17T08:03:51.496094+00:00",
+      "message_id": 1397,
+      "sent_at": "2026-09-17T08:05:21.056161+00:00",
       "ttl_seconds": 120
     },
     {
-      "message_id": 1383,
-      "sent_at": "2026-09-17T08:03:54.911379+00:00",
+      "message_id": 1399,
+      "sent_at": "2026-09-17T08:05:25.180639+00:00",
       "ttl_seconds": 120
     },
     {
-      "message_id": 1384,
-      "sent_at": "2026-09-17T08:03:56.949966+00:00",
+      "message_id": 1403,
+      "sent_at": "2026-09-17T08:05:43.947270+00:00",
       "ttl_seconds": 120
     },
     {
-      "message_id": 1386,
-      "sent_at": "2026-09-17T08:03:59.846843+00:00",
+      "message_id": 1405,
+      "sent_at": "2026-09-17T08:05:46.961411+00:00",
       "ttl_seconds": 120
     },
     {
-      "message_id": 1387,
-      "sent_at": "2026-09-17T08:04:03.321246+00:00",
+      "message_id": 1406,
+      "sent_at": "2026-09-17T08:05:48.439346+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1408,
+      "sent_at": "2026-09-17T08:05:50.827513+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1409,
+      "sent_at": "2026-09-17T08:05:55.747861+00:00",
       "ttl_seconds": 120
     }
   ],
@@ -120,9 +130,11 @@
     "945083801": "Cancelled",
     "945083802": "Filled",
     "945083803": "Filled",
-    "844834520": "Cancelled"
+    "844834520": "Cancelled",
+    "844834521": "Submitted"
   },
   "pending_flow": null,
-  "positions_message_id": 1393,
-  "orders_message_id": 1391
+  "positions_message_id": 1411,
+  "orders_message_id": 1413,
+  "balance_message_id": 1401
 }
