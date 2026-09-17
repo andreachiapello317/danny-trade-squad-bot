@@ -30,46 +30,6 @@
   "last_daily_summary": "2026-09-17",
   "order_messages": [
     {
-      "message_id": 1522,
-      "sent_at": "2026-09-17T20:36:21.653502+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1524,
-      "sent_at": "2026-09-17T20:36:38.947255+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1525,
-      "sent_at": "2026-09-17T20:36:42.877444+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1527,
-      "sent_at": "2026-09-17T20:36:45.662021+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1528,
-      "sent_at": "2026-09-17T20:36:49.735196+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1532,
-      "sent_at": "2026-09-17T20:37:11.594128+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1534,
-      "sent_at": "2026-09-17T20:37:14.723885+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1535,
-      "sent_at": "2026-09-17T20:37:17.691617+00:00",
-      "ttl_seconds": 120
-    },
-    {
       "message_id": 1537,
       "sent_at": "2026-09-17T20:37:20.058851+00:00",
       "ttl_seconds": 120
