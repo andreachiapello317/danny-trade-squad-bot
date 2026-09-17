@@ -1501,7 +1501,7 @@ def _average_cost_pnls(trades: list[dict[str, Any]]) -> list[float | None]:
             old_qty, old_cost = avg_cost.get(symbol, (0.0, 0.0))
             new_qty = old_qty + size
             new_cost = (
-                ((old_qty * old_cost) + (size * price)) / new_qty
+                ((old_qty * old_cost) + (size * price + commission)) / new_qty
                 if new_qty > 0
                 else 0.0
             )

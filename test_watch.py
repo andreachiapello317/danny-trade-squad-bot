@@ -1266,12 +1266,12 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertTrue(watch.apply_telegram_history("/storico 7"))
         body = send.call_args[0][0]
         self.assertIn("BUY 2 AMD @ 120 · fee: 1.0", body)
-        self.assertIn("S 1 AMD @ 150 · fee: 0.5 · PNL: +39.50", body)
+        self.assertIn("S 1 AMD @ 150 · fee: 0.5 · PNL: +39.00", body)
         self.assertIn("SELL 1 NVDA @ 200 · fee: n/d", body)
         self.assertNotIn("B 2 AMD @ 100", body)
         self.assertLess(body.index("BUY 2 AMD"), body.index("S 1 AMD"))
         self.assertIn("Totale fee: 1.50", body)
-        self.assertIn("Totale PNL: +39.50", body)
+        self.assertIn("Totale PNL: +39.00", body)
 
     def test_apply_telegram_history_skips_only_eur_fx(self) -> None:
         now = 1_800_000_000.0
