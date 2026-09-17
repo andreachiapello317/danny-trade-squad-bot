@@ -1177,6 +1177,23 @@ class TelegramExtractTests(unittest.TestCase):
                 "price": 1,
                 "commission": 9,
             },
+            {
+                "side": "BUY",
+                "symbol": "EUR",
+                "size": 200,
+                "price": 1.17,
+                "commission": 0.0,
+                "trade_time_r": recent_ms,
+            },
+            {
+                "side": "SELL",
+                "ticker": "USD",
+                "secType": "CASH",
+                "size": 234,
+                "price": 0.85,
+                "commission": 0.0,
+                "trade_time_r": older_ms,
+            },
         ]
         with (
             patch.object(watch, "ibkr_get_trades", return_value=trades),
@@ -1192,7 +1209,31 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertLess(body.index("AMD"), body.index("NVDA"))
         self.assertNotIn("HOOD", body)
         self.assertNotIn("NO_TS", body)
+        self.assertNotIn("EUR", body)
+        self.assertNotIn("CASH", body)
+        self.assertNotIn("USD", body)
         self.assertIn("Totale fee: 1.05", body)
+
+    def test_apply_telegram_history_skips_only_eur_fx(self) -> None:
+        now = 1_800_000_000.0
+        trades = [
+            {
+                "side": "BUY",
+                "symbol": "EUR",
+                "secType": "CASH",
+                "size": 100,
+                "price": 1.1,
+                "commission": 0.0,
+                "trade_time_r": (now - 60) * 1000,
+            }
+        ]
+        with (
+            patch.object(watch, "ibkr_get_trades", return_value=trades),
+            patch.object(watch, "send_telegram") as send,
+            patch.object(watch.time, "time", return_value=now),
+        ):
+            self.assertTrue(watch.apply_telegram_history("/storico 1"))
+        send.assert_called_with("📭 Nessun ordine eseguito negli ultimi 1 giorni.")
 
     def test_apply_telegram_history_empty_and_unavailable(self) -> None:
         with (
