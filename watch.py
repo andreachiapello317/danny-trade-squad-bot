@@ -1284,6 +1284,15 @@ _IBKR_TRAIL_ORDER_TYPES = {
     "STP TRAIL",
     "STPTRL",
 }
+_IBKR_NON_LIMIT_ORDER_TYPES = _IBKR_TRAIL_ORDER_TYPES | {
+    "MKT",
+    "MARKET",
+    "STP",
+    "STOP",
+    "STP LMT",
+    "STOP LIMIT",
+}
+_IBKR_WORKING_ORDER_STATUSES = {"submitted", "presubmitted"}
 
 
 def _ibkr_order_status(order: dict[str, Any]) -> str:
@@ -1294,12 +1303,42 @@ def _ibkr_order_type(order: dict[str, Any]) -> str:
     return str(order.get("orderType") or "").strip().upper()
 
 
+def _ibkr_order_id(order: dict[str, Any]) -> Any | None:
+    raw = order.get("orderId")
+    if raw is None or raw == "":
+        return None
+    try:
+        if int(float(str(raw).strip())) == 0:
+            return None
+    except (TypeError, ValueError):
+        return raw
+    return raw
+
+
 def _ibkr_is_dead_order(order: dict[str, Any]) -> bool:
     return _ibkr_order_status(order) in _IBKR_DEAD_ORDER_STATUSES
 
 
 def _ibkr_is_limit_order(order: dict[str, Any]) -> bool:
-    return _ibkr_order_type(order) in _IBKR_LIMIT_ORDER_TYPES
+    typ = _ibkr_order_type(order)
+    if typ in _IBKR_LIMIT_ORDER_TYPES:
+        return True
+    if typ in _IBKR_NON_LIMIT_ORDER_TYPES:
+        return False
+    if typ:
+        return False
+    return order.get("price") not in (None, "")
+
+
+def _ibkr_delete_orders(account_id: str, order_ids: list[Any]) -> int:
+    cancelled = 0
+    for order_id in order_ids:
+        result = ibkr_delete(
+            f"/v1/api/iserver/account/{account_id}/order/{order_id}"
+        )
+        if result is not None:
+            cancelled += 1
+    return cancelled
 
 
 def ibkr_cancel_order(ticker: str) -> str:
@@ -1313,7 +1352,7 @@ def ibkr_cancel_order(ticker: str) -> str:
             continue
         if str(order.get("ticker") or "").upper() != ticker:
             continue
-        order_id = order.get("orderId")
+        order_id = _ibkr_order_id(order)
         if order_id is None:
             continue
         open_ids.append(order_id)
@@ -1322,13 +1361,7 @@ def ibkr_cancel_order(ticker: str) -> str:
     account_id = ibkr_get_account_id()
     if not account_id:
         return "⚠️ Impossibile leggere l'account IBKR."
-    cancelled = 0
-    for order_id in open_ids:
-        result = ibkr_delete(
-            f"/v1/api/iserver/account/{account_id}/order/{order_id}"
-        )
-        if result is not None:
-            cancelled += 1
+    cancelled = _ibkr_delete_orders(account_id, open_ids)
     if cancelled == 0:
         return f"⚠️ Errore nell'annullamento dell'ordine per {ticker}."
     if cancelled == 1:
@@ -1383,7 +1416,7 @@ def ibkr_modify_order(ticker: str, new_price: float) -> str:
             continue
         if str(order.get("ticker") or "").upper() != ticker:
             continue
-        if order.get("orderId") is None:
+        if _ibkr_order_id(order) is None:
             continue
         ticker_orders.append(order)
     if not ticker_orders:
@@ -1395,17 +1428,37 @@ def ibkr_modify_order(ticker: str, new_price: float) -> str:
             f"⚠️ Impossibile modificare un ordine di tipo {shown}, "
             "solo ordini a limite."
         )
+    working = [
+        order
+        for order in limits
+        if _ibkr_order_status(order) in _IBKR_WORKING_ORDER_STATUSES
+    ]
+    targets = working or limits
     account_id = ibkr_get_account_id()
     if not account_id:
         return "⚠️ Impossibile leggere l'account IBKR."
     updated = 0
+    updated_ids: set[str] = set()
     last_error: str | None = None
-    for order in limits:
+    for order in targets:
         error = _ibkr_replace_limit_order(account_id, order, new_price, ticker)
         if error is None:
             updated += 1
+            order_id = _ibkr_order_id(order)
+            if order_id is not None:
+                updated_ids.add(str(order_id))
         else:
             last_error = error
+    extras: list[Any] = []
+    for order in limits:
+        order_id = _ibkr_order_id(order)
+        if order_id is None:
+            continue
+        if str(order_id) in updated_ids:
+            continue
+        extras.append(order_id)
+    if extras:
+        _ibkr_delete_orders(account_id, extras)
     if updated == 0:
         return last_error or (
             f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
@@ -1536,6 +1589,8 @@ def ibkr_get_active_orders() -> list[Any] | None:
         if not isinstance(order, dict):
             continue
         if _ibkr_is_dead_order(order):
+            continue
+        if _ibkr_order_id(order) is None:
             continue
         active.append(order)
     return active
