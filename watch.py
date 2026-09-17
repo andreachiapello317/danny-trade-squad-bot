@@ -7,6 +7,7 @@ Non piazza ordini. Non è consulenza finanziaria.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -1635,6 +1636,78 @@ def check_order_fills(state_path: Path) -> None:
     save_state(state_path, state)
 
 
+def ibkr_get_fyi_notifications() -> list[Any] | None:
+    data = ibkr_get("/v1/api/fyi/notifications")
+    if data is None:
+        return None
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("notifications", "fyi", "items", "data", "result"):
+            val = data.get(key)
+            if isinstance(val, list):
+                return val
+        if any(
+            key in data
+            for key in (
+                "notificationId",
+                "id",
+                "ID",
+                "text",
+                "message",
+                "msgText",
+                "MS",
+            )
+        ):
+            return [data]
+        return None
+    return None
+
+
+def _fyi_notification_text(note: dict[str, Any]) -> str:
+    for key in ("text", "message", "msgText", "MS", "title", "content", "body"):
+        val = note.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if val is not None and not isinstance(val, (dict, list)):
+            text = str(val).strip()
+            if text:
+                return text
+    return ""
+
+
+def _fyi_notification_id(note: dict[str, Any]) -> str:
+    for key in ("notificationId", "notification_id", "id", "ID", "nId"):
+        val = note.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    raw = _fyi_notification_text(note) or json.dumps(
+        note, sort_keys=True, default=str
+    )
+    return "h:" + hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()
+
+
+def check_fyi_notifications(state_path: Path) -> None:
+    notes = ibkr_get_fyi_notifications()
+    if not notes:
+        return
+    state = load_state(state_path)
+    raw_known = state.get("known_fyi_ids")
+    known: set[str] = {str(x) for x in raw_known} if isinstance(raw_known, list) else set()
+    for note in notes:
+        if not isinstance(note, dict):
+            continue
+        nid = _fyi_notification_id(note)
+        if not nid or nid in known:
+            continue
+        text = _fyi_notification_text(note)
+        if text:
+            send_telegram(f"📢 IBKR: {text}")
+        known.add(nid)
+    state["known_fyi_ids"] = list(known)
+    save_state(state_path, state)
+
+
 def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     if not CLEAR_RE.match(text.strip()):
         return None
@@ -2175,6 +2248,8 @@ def should_delete_chat_message(text: str) -> bool:
     if stripped.startswith("🚫") or stripped.startswith("📭"):
         return False
     if stripped.startswith("📜"):
+        return False
+    if stripped.startswith("📢"):
         return False
     if stripped == "Watchlist vuota.":
         return False
