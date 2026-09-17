@@ -93,7 +93,8 @@
     "844834521": "Cancelled",
     "844834523": "Filled",
     "844834522": "Filled",
-    "844835160": "Filled"
+    "844835160": "Filled",
+    "844840465": "Inactive"
   },
   "pending_flow": null,
   "positions_message_id": 1471,
