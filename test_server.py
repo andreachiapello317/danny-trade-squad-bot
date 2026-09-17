@@ -199,6 +199,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "maybe_send_daily_summary") as daily,
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "check_fyi_notifications") as fyi,
+                patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
@@ -211,6 +212,7 @@ class WebhookTests(unittest.TestCase):
             daily.assert_called_once()
             fills.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)
+            suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
             sync.assert_called_once()
 
@@ -241,6 +243,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "in_scheduled_window", return_value=False),
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "check_fyi_notifications") as fyi,
+                patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
@@ -250,6 +253,7 @@ class WebhookTests(unittest.TestCase):
                     server.price_loop()
             fills.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)
+            suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
             sync.assert_called_once()
 
