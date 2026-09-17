@@ -113,6 +113,9 @@ BUY_FLOW_START_RE = re.compile(r"^/compra\s*$", re.I)
 SELL_FLOW_START_RE = re.compile(r"^/vendi\s*$", re.I)
 FLOW_TICKER_RE = re.compile(r"^\$?([A-Za-z]{1,8})$")
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
+MODIFY_ORDER_RE = re.compile(
+    r"^/modifica\s+\$?([A-Za-z]{1,8})\s+([\d.]+)\s*$", re.I
+)
 POSITIONS_RE = re.compile(r"^/posizioni\s*$", re.I)
 ORDERS_RE = re.compile(r"^/ordini\s*$", re.I)
 HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
@@ -1304,6 +1307,86 @@ def ibkr_cancel_order(ticker: str) -> str:
     return f"🚫 {cancelled} ordini per {ticker} annullati."
 
 
+def ibkr_modify_order(ticker: str, new_price: float) -> str:
+    ticker = ticker.strip().upper()
+    data = ibkr_get("/v1/api/iserver/account/orders")
+    if data is None:
+        return "⚠️ Impossibile leggere gli ordini aperti."
+    orders = data.get("orders") if isinstance(data, dict) else None
+    if not isinstance(orders, list):
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    found: dict[str, Any] | None = None
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("ticker") or "").upper() != ticker:
+            continue
+        status = str(order.get("status") or "")
+        if status in {"Filled", "Cancelled", "Canceled"}:
+            continue
+        if order.get("orderId") is None:
+            continue
+        found = order
+        break
+    if found is None:
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    order_type = str(found.get("orderType") or "")
+    if order_type.strip().upper() not in {"LMT", "LIMIT"}:
+        shown = order_type or "?"
+        return (
+            f"⚠️ Impossibile modificare un ordine di tipo {shown}, "
+            "solo ordini a limite."
+        )
+    try:
+        conid_int = int(found.get("conid"))
+    except (TypeError, ValueError):
+        return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    side = found.get("side") or "SELL"
+    raw_qty = found.get("remainingQuantity", found.get("totalSize"))
+    try:
+        quantity = int(float(raw_qty))
+    except (TypeError, ValueError):
+        return (
+            f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
+        )
+    if quantity < 1:
+        return f"⚠️ Nessun ordine aperto trovato per {ticker}."
+    account_id = ibkr_get_account_id()
+    if not account_id:
+        return "⚠️ Impossibile leggere l'account IBKR."
+    order_id = found["orderId"]
+    corpo = {
+        "conid": conid_int,
+        "orderType": "LMT",
+        "side": side,
+        "quantity": quantity,
+        "price": new_price,
+        "tif": "DAY",
+    }
+    result = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/order/{order_id}",
+        corpo,
+    )
+    if result is None:
+        return f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
+    confirmed = _confirm_order_replies(result)
+    if confirmed is None:
+        return (
+            f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
+        )
+    return f"✅ Ordine {ticker} modificato a {new_price:.2f}."
+
+
+def apply_telegram_modify_order(text: str) -> bool:
+    m = MODIFY_ORDER_RE.match(text.strip())
+    if not m:
+        return False
+    ticker = m.group(1).upper()
+    new_price = float(m.group(2))
+    send_telegram(ibkr_modify_order(ticker, new_price))
+    return True
+
+
 def apply_telegram_cancel_order(text: str) -> bool:
     m = CANCEL_ORDER_RE.match(text.strip())
     if not m:
@@ -2361,6 +2444,8 @@ def process_single_message(
     elif apply_telegram_test_trail(text):
         pass
     elif apply_telegram_cancel_order(text):
+        pass
+    elif apply_telegram_modify_order(text):
         pass
     elif apply_telegram_positions(text, state_path):
         pass

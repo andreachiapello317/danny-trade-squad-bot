@@ -1009,6 +1009,108 @@ class TelegramExtractTests(unittest.TestCase):
             cancel.assert_called_once_with("/annulla AMD")
             delete.assert_called_once_with(23)
 
+    def test_ibkr_modify_order_updates_limit_price(self) -> None:
+        payload = {
+            "orders": [
+                {
+                    "ticker": "amd",
+                    "status": "Submitted",
+                    "orderId": 11,
+                    "conid": 4391,
+                    "side": "SELL",
+                    "remainingQuantity": 2,
+                    "orderType": "Limit",
+                },
+                {
+                    "ticker": "AMD",
+                    "status": "Filled",
+                    "orderId": 12,
+                    "conid": 4391,
+                    "side": "SELL",
+                    "remainingQuantity": 1,
+                    "orderType": "LMT",
+                },
+            ]
+        }
+        with (
+            patch.object(watch, "ibkr_get", return_value=payload),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"order_id": 11}]
+            ) as post,
+        ):
+            self.assertEqual(
+                watch.ibkr_modify_order("AMD", 148.5),
+                "✅ Ordine AMD modificato a 148.50.",
+            )
+        post.assert_called_once_with(
+            "/v1/api/iserver/account/U123/order/11",
+            {
+                "conid": 4391,
+                "orderType": "LMT",
+                "side": "SELL",
+                "quantity": 2,
+                "price": 148.5,
+                "tif": "DAY",
+            },
+        )
+        trail = {
+            "orders": [
+                {
+                    "ticker": "AMD",
+                    "status": "Submitted",
+                    "orderId": 20,
+                    "conid": 4391,
+                    "side": "SELL",
+                    "totalSize": 3,
+                    "orderType": "TRAIL",
+                }
+            ]
+        }
+        with patch.object(watch, "ibkr_get", return_value=trail):
+            self.assertEqual(
+                watch.ibkr_modify_order("AMD", 10.0),
+                "⚠️ Impossibile modificare un ordine di tipo TRAIL, solo ordini a limite.",
+            )
+        with patch.object(watch, "ibkr_get", return_value={"orders": []}):
+            self.assertEqual(
+                watch.ibkr_modify_order("NVDA", 100.0),
+                "⚠️ Nessun ordine aperto trovato per NVDA.",
+            )
+
+    def test_apply_telegram_modify_order(self) -> None:
+        with (
+            patch.object(
+                watch,
+                "ibkr_modify_order",
+                return_value="✅ Ordine AMD modificato a 150.00.",
+            ) as modify,
+            patch.object(watch, "send_telegram") as send,
+        ):
+            self.assertTrue(watch.apply_telegram_modify_order("/modifica $amd 150"))
+            self.assertTrue(watch.apply_telegram_modify_order("/MODIFICA NVDA 99.5"))
+            self.assertFalse(watch.apply_telegram_modify_order("/annulla AMD"))
+        self.assertEqual(
+            [c.args for c in modify.call_args_list],
+            [("AMD", 150.0), ("NVDA", 99.5)],
+        )
+        self.assertEqual(send.call_count, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch, "apply_telegram_modify_order", return_value=True
+                ) as apply_mod,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/modifica AMD 150", 24, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            apply_mod.assert_called_once_with("/modifica AMD 150")
+            delete.assert_called_once_with(24)
+
     def test_ibkr_get_positions_retries_when_empty(self) -> None:
         with (
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
