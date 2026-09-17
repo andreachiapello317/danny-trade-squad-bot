@@ -1112,8 +1112,6 @@ class TelegramExtractTests(unittest.TestCase):
             delete.assert_called_once_with(24)
 
     def test_ibkr_get_positions_retries_when_empty(self) -> None:
-
-    def test_ibkr_get_positions_retries_when_empty(self) -> None:
         with (
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(watch, "ibkr_get", side_effect=[[], [{"ticker": "AMD"}]]) as get,
