@@ -28,7 +28,38 @@
   "sent_alerts": [],
   "summary_message_id": 558,
   "last_daily_summary": "2026-09-17",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1635,
+      "sent_at": "2026-09-17T21:16:08.789389+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1637,
+      "sent_at": "2026-09-17T21:16:12.067362+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1638,
+      "sent_at": "2026-09-17T21:16:14.642988+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1640,
+      "sent_at": "2026-09-17T21:16:16.242442+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1641,
+      "sent_at": "2026-09-17T21:16:18.524643+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1643,
+      "sent_at": "2026-09-17T21:16:22.798137+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -105,7 +136,8 @@
     "844840552": "Filled",
     "844840553": "Filled",
     "844840557": "Filled",
-    "844840556": "Filled"
+    "844840556": "Filled",
+    "844840565": "Submitted"
   },
   "pending_flow": null,
   "positions_message_id": 1585,
