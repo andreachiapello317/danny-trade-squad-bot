@@ -1449,6 +1449,14 @@ def _trade_timestamp(trade: dict[str, Any]) -> float:
     return 0.0
 
 
+def _is_cash_fx_trade(trade: dict[str, Any]) -> bool:
+    sec_type = str(trade.get("secType") or "").strip().upper()
+    if sec_type == "CASH":
+        return True
+    symbol = str(trade.get("symbol") or trade.get("ticker") or "").strip().upper()
+    return symbol == "EUR"
+
+
 def apply_telegram_history(text: str) -> bool:
     match = HISTORY_RE.match(text.strip())
     if not match:
@@ -1466,6 +1474,8 @@ def apply_telegram_history(text: str) -> bool:
             continue
         ts = _trade_timestamp(trade)
         if ts == 0.0 or ts < soglia:
+            continue
+        if _is_cash_fx_trade(trade):
             continue
         filtered.append(trade)
     if not filtered:
