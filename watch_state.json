@@ -33,6 +33,31 @@
       "message_id": 1718,
       "sent_at": "2026-09-18T16:30:26.213875+00:00",
       "ttl_seconds": 120
+    },
+    {
+      "message_id": 1720,
+      "sent_at": "2026-09-18T16:30:29.595533+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1721,
+      "sent_at": "2026-09-18T16:30:31.355477+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1723,
+      "sent_at": "2026-09-18T16:30:36.603367+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1724,
+      "sent_at": "2026-09-18T16:30:46.558383+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1725,
+      "sent_at": "2026-09-18T16:31:28.796591+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -115,16 +140,10 @@
     "844840565": "Cancelled",
     "844840566": "Cancelled",
     "844840568": "Cancelled",
-    "844840918": "Cancelled"
+    "844840918": "Cancelled",
+    "1169398424": "Filled"
   },
-  "pending_flow": {
-    "type": "BUY",
-    "step": "ticker",
-    "ticker": null,
-    "size_type": null,
-    "quantity": null,
-    "price_type": null
-  },
+  "pending_flow": null,
   "positions_message_id": 1712,
   "orders_message_id": null,
   "balance_message_id": 1714,
