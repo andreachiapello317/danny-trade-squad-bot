@@ -937,7 +937,10 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertEqual(watch.step_trail_stop_price(102.0, 100, 2), 100.0)
         self.assertEqual(watch.step_trail_stop_price(103.99, 100, 2), 100.0)
         self.assertEqual(watch.step_trail_stop_price(104.0, 100, 2), 102.0)
-        self.assertEqual(watch.step_trail_breakeven(100, 2, 1.0), 101.0)
+        self.assertEqual(watch.step_trail_breakeven(100), 102.0202)
+        self.assertEqual(watch.step_trail_breakeven(50), 51.0101)
+        self.assertIn("Delta non valido", watch.start_step_trail("AMD", 1, 0, Path(".")))
+        self.assertIn("Delta non valido", watch.start_step_trail("AMD", 1, 101, Path(".")))
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -989,6 +992,8 @@ class TelegramExtractTests(unittest.TestCase):
             )
             self.assertIn("BUY 3 AMD @ 100.50", sent_text(send))
             self.assertIn("nessuno stop sotto", sent_text(send))
+            self.assertIn("Delta 2.25%", sent_text(send))
+            self.assertIn("1% entrata + 1% uscita", sent_text(send))
             trail = watch.load_state(spath)["auto_trails"][0]
             self.assertEqual(trail["ticker"], "AMD")
             self.assertEqual(trail["quantity"], 3)
@@ -1046,30 +1051,30 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.apply_order_status_updates([order], spath)
             trail = watch.load_state(spath)["auto_trails"][0]
             self.assertEqual(trail["status"], "watching")
-            self.assertEqual(trail["breakeven"], 101.0)
+            self.assertEqual(trail["breakeven"], 102.0202)
             self.assertIsNone(trail.get("stop_level"))
             with (
-                patch.object(watch, "ibkr_get_price", return_value=103.0),
+                patch.object(watch, "ibkr_get_price", return_value=104.07),
                 patch.object(
                     watch, "ibkr_place_stop", return_value=(None, "88")
                 ) as place,
                 patch.object(watch, "send_telegram", return_value=2) as send,
             ):
                 watch.check_step_trails(spath)
-            place.assert_called_once_with("AMD", 2, 101.0)
-            self.assertIn("stop attivato a 101.00", sent_text(send))
+            place.assert_called_once_with("AMD", 2, 102.02)
+            self.assertIn("stop attivato a 102.02", sent_text(send))
             trail = watch.load_state(spath)["auto_trails"][0]
             self.assertEqual(trail["status"], "armed")
-            self.assertEqual(trail["stop_level"], 101.0)
+            self.assertEqual(trail["stop_level"], 102.02)
             self.assertEqual(trail["stop_order_id"], "88")
             with (
-                patch.object(watch, "ibkr_get_price", return_value=105.0),
+                patch.object(watch, "ibkr_get_price", return_value=106.11),
                 patch.object(watch, "ibkr_replace_stop", return_value=None) as replace,
                 patch.object(watch, "send_telegram", return_value=3) as send,
             ):
                 watch.check_step_trails(spath)
-            replace.assert_called_once_with("88", "AMD", 2, 103.0)
-            self.assertIn("stop alzato a 103.00", sent_text(send))
+            replace.assert_called_once_with("88", "AMD", 2, 104.06)
+            self.assertIn("stop alzato a 104.06", sent_text(send))
             sell = {
                 "orderId": 88,
                 "status": "Filled",
@@ -2212,7 +2217,7 @@ class TelegramExtractTests(unittest.TestCase):
                             "ticker": "AMD",
                             "quantity": 2,
                             "delta": 2.0,
-                            "breakeven": 101.0,
+                            "breakeven": 100.0,
                             "status": "watching",
                         }
                     ]
@@ -2226,11 +2231,11 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram", return_value=2) as send,
             ):
                 watch.handle_ibkr_ws_message(tick, spath, {"4391": "AMD"})
-            place.assert_called_once_with("AMD", 2, 103.0)
-            self.assertIn("stop attivato a 103.00", sent_text(send))
+            place.assert_called_once_with("AMD", 2, 102.0)
+            self.assertIn("stop attivato a 102.00", sent_text(send))
             trail = watch.load_state(spath)["auto_trails"][0]
             self.assertEqual(trail["status"], "armed")
-            self.assertEqual(trail["stop_level"], 103.0)
+            self.assertEqual(trail["stop_level"], 102.0)
             sent: list[str] = []
 
             class FakeSock:
@@ -3301,17 +3306,12 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(sent_text(send), "AMD: quante azioni?")
             flow = watch.load_state(spath)["pending_flow"]
             self.assertEqual(flow["step"], "quantity")
-            watch.save_state(
-                spath,
-                {
-                    "pending_flow": {
-                        "type": "TRAIL",
-                        "step": "amount",
-                        "ticker": "AMD",
-                        "quantity": 3,
-                    }
-                },
-            )
+            with patch.object(watch, "send_telegram") as send:
+                self.assertTrue(watch.process_pending_flow_text("3", spath, wpath))
+            self.assertEqual(sent_text(send), "AMD: delta in %? (es. 2 = 2%)")
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["step"], "amount")
+            self.assertEqual(flow["quantity"], 3)
             with (
                 patch.object(
                     watch, "start_step_trail", return_value="✅ ok"
@@ -4102,6 +4102,8 @@ class BuySellFlowTests(unittest.TestCase):
                 watch.process_callback_query("menu:back", 1, "cbb", spath, 70)
             self.assertIn("Trading automatico", edit.call_args_list[0][0][2])
             self.assertIn("compra a mercato", edit.call_args_list[0][0][2])
+            self.assertIn("1% entrata + 1% uscita", edit.call_args_list[0][0][2])
+            self.assertIn("delta è in %", edit.call_args_list[0][0][2])
             auto_buttons = edit.call_args_list[0][0][3]
             self.assertEqual(auto_buttons[0], ("📉 Trail", "action:trail"))
             self.assertEqual(auto_buttons[1], ("🛑 Ferma Trail", "action:stoptrail"))

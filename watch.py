@@ -160,7 +160,8 @@ MENU_TRADING_BUTTONS = [
 MENU_AUTO_TEXT = (
     "🤖 Trading automatico\n\n"
     "Trail: compra a mercato, nessuno stop sotto. "
-    "Quando il prezzo supera il break-even (fee incluse) di un delta, "
+    "Break-even = medio + 1% entrata + 1% uscita. "
+    "Il delta è in %. Quando il prezzo supera il BE di un delta, "
     "parte uno stop su quel livello e sale a scalini."
 )
 MENU_AUTO_BUTTONS = [
@@ -1656,24 +1657,41 @@ def _save_auto_trails(state_path: Path, trails: list[dict[str, Any]]) -> None:
     save_state(state_path, state)
 
 
+TRAIL_ENTRY_FEE_PCT = 1.0
+TRAIL_EXIT_FEE_PCT = 1.0
+
+
+def step_trail_step_amount(breakeven: float, delta_pct: float) -> float | None:
+    if delta_pct <= 0 or breakeven <= 0:
+        return None
+    step = breakeven * (delta_pct / 100.0)
+    if step <= 0:
+        return None
+    return step
+
+
 def step_trail_stop_price(
-    price: float, breakeven: float, delta: float
+    price: float, breakeven: float, delta_pct: float
 ) -> float | None:
-    """Stop a scalini: parte a BE quando prezzo >= BE+delta, poi +delta."""
-    if delta <= 0:
+    """Stop a scalini: delta in % sul BE. Parte a BE quando prezzo >= BE+delta%."""
+    step = step_trail_step_amount(breakeven, delta_pct)
+    if step is None:
         return None
-    if price + 1e-9 < breakeven + delta:
+    if price + 1e-9 < breakeven + step:
         return None
-    levels = int((price - breakeven) / delta)
+    levels = int((price - breakeven + 1e-9) / step)
     if levels < 1:
         return None
-    return round(breakeven + (levels - 1) * delta, 2)
+    return round(breakeven + (levels - 1) * step, 2)
 
 
-def step_trail_breakeven(avg_price: float, quantity: int, buy_fee: float) -> float:
-    sell_fee = buy_fee
-    extra = (buy_fee + sell_fee) / quantity if quantity else 0.0
-    return round(avg_price + extra, 4)
+def step_trail_breakeven(avg_price: float) -> float:
+    """BE dopo 1% in entrata e 1% in uscita: avg * 1.01 / 0.99."""
+    entry = 1.0 + TRAIL_ENTRY_FEE_PCT / 100.0
+    exit_keep = 1.0 - TRAIL_EXIT_FEE_PCT / 100.0
+    if exit_keep <= 0:
+        return avg_price
+    return round(avg_price * entry / exit_keep, 4)
 
 
 def ibkr_place_stop(
@@ -1747,8 +1765,8 @@ def start_step_trail(
     ticker = ticker.strip().upper()
     if quantity < 1:
         return "⚠️ Numero di azioni non valido."
-    if delta <= 0:
-        return "⚠️ Delta non valido."
+    if delta <= 0 or delta > 100:
+        return "⚠️ Delta non valido. Usa una percentuale, es. 2."
     message, order_id = ibkr_place_order_ex(ticker, quantity, "BUY", None)
     if message.startswith("⚠️"):
         return message
@@ -1772,7 +1790,8 @@ def start_step_trail(
     return (
         f"{message}\n"
         f"Trail {ticker}: nessuno stop sotto. "
-        f"Delta {delta:g}$. Attendo il fill per il break-even (fee incluse)."
+        f"Delta {delta:g}%. Attendo il fill per il break-even "
+        f"(1% entrata + 1% uscita)."
     )
 
 
@@ -1865,19 +1884,23 @@ def _on_step_trail_fill(
                 qty = 0
             if qty < 1:
                 continue
-            buy_fee = _fee_amount(fee)
             trail["buy_order_id"] = order_id
             trail["avg_price"] = avg_f
-            trail["buy_fee"] = buy_fee
-            trail["breakeven"] = step_trail_breakeven(avg_f, qty, buy_fee)
+            trail["breakeven"] = step_trail_breakeven(avg_f)
             trail["status"] = "watching"
             changed = True
+            try:
+                arm_at = float(trail["breakeven"]) * (
+                    1.0 + float(trail.get("delta") or 0) / 100.0
+                )
+            except (TypeError, ValueError):
+                arm_at = float(trail["breakeven"])
             _send_order_message(
                 state_path,
-                f"Trail {ticker}: fill @ {avg_f:g} · fee {buy_fee:g} · "
+                f"Trail {ticker}: fill @ {avg_f:g} · "
                 f"break-even {trail['breakeven']:g} "
-                f"(+ fee vendita stimate). "
-                f"Stop si arma a {trail['breakeven'] + float(trail['delta']):g}.",
+                f"(1% entrata + 1% uscita). "
+                f"Stop si arma a {arm_at:g}.",
             )
             break
         if status == "armed" and side == "SELL":
@@ -2451,7 +2474,7 @@ def process_pending_flow_text(
             _save_pending_flow(state_path, flow)
             _send_flow_message(
                 state_path,
-                f"{flow.get('ticker')}: delta in dollari? (es. 2)",
+                f"{flow.get('ticker')}: delta in %? (es. 2 = 2%)",
             )
             return True
         flow["quantity"] = value
