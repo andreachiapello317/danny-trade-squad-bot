@@ -23,6 +23,7 @@ from watch import (
     chat_matches,
     check_fyi_notifications,
     check_order_fills,
+    check_step_trails,
     commit_state_to_git,
     cycle,
     ensure_reply_suppression,
@@ -76,6 +77,7 @@ def price_loop() -> None:
                 with STATE_LOCK:
                     persist_fired(STATE_PATH, fired)
                     check_order_fills(STATE_PATH)
+                    check_step_trails(STATE_PATH)
                     check_fyi_notifications(STATE_PATH)
                     ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
@@ -84,6 +86,7 @@ def price_loop() -> None:
             else:
                 with STATE_LOCK:
                     check_order_fills(STATE_PATH)
+                    check_step_trails(STATE_PATH)
                     check_fyi_notifications(STATE_PATH)
                     ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
