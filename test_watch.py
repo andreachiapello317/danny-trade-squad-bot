@@ -17,6 +17,14 @@ from zoneinfo import ZoneInfo
 import watch
 
 
+def sent_text(mock) -> str:
+    return mock.call_args[0][0]
+
+
+def with_nav(rows: list) -> list:
+    return list(rows) + list(watch.MENU_NAV_BUTTONS)
+
+
 TICKET = """$AMD · daily
 
 Danny: Red candle on daily chart, panel 1
@@ -432,9 +440,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
-            send.assert_called_once_with(
-                "💰 Conto U9\nContanti: 10 EUR\nValore netto: 20 EUR"
-            )
+            self.assertEqual(sent_text(send), "💰 Conto U9\nContanti: 10 EUR\nValore netto: 20 EUR")
 
     def test_apply_telegram_balance_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -444,7 +450,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
-            send.assert_called_with("⚠️ Impossibile leggere il conto IBKR al momento.")
+            self.assertEqual(sent_text(send), "⚠️ Impossibile leggere il conto IBKR al momento.")
             with (
                 patch.object(
                     watch, "ibkr_get", side_effect=[[{"accountId": "U1"}], None]
@@ -452,7 +458,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_balance("/saldo", spath))
-            send.assert_called_with("⚠️ Impossibile leggere il saldo al momento.")
+            self.assertEqual(sent_text(send), "⚠️ Impossibile leggere il saldo al momento.")
 
     def test_apply_telegram_balance_replaces_previous_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -564,13 +570,13 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 self.assertTrue(watch.apply_telegram_price("/prezzo $amd", spath))
                 self.assertFalse(watch.apply_telegram_price("/saldo", spath))
-            send.assert_called_once_with("📈 AMD (IBKR): 148.20")
+            self.assertEqual(sent_text(send), "📈 AMD (IBKR): 148.20")
             with (
                 patch.object(watch, "ibkr_get_price", return_value=None),
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_price("/prezzo NVDA", spath))
-            send.assert_called_once_with("⚠️ Prezzo IBKR non disponibile per NVDA.")
+            self.assertEqual(sent_text(send), "⚠️ Prezzo IBKR non disponibile per NVDA.")
 
     def test_apply_telegram_price_replaces_previous_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -583,7 +589,7 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 self.assertTrue(watch.apply_telegram_price("/prezzo AMD", spath))
             delete.assert_called_once_with(44)
-            send.assert_called_once_with("📈 AMD (IBKR): 10.50")
+            self.assertEqual(sent_text(send), "📈 AMD (IBKR): 10.50")
             self.assertEqual(watch.load_state(spath)["price_message_id"], 55)
 
     def test_process_single_message_runs_prezzo(self) -> None:
@@ -934,14 +940,14 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram", return_value=1) as send,
             ):
                 self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
-            send.assert_called_once_with("⚠️ Impossibile trovare AMD su IBKR.")
+            self.assertEqual(sent_text(send), "⚠️ Impossibile trovare AMD su IBKR.")
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value=None),
                 patch.object(watch, "send_telegram", return_value=2) as send,
             ):
                 self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
-            send.assert_called_once_with("⚠️ Impossibile leggere l'account IBKR.")
+            self.assertEqual(sent_text(send), "⚠️ Impossibile leggere l'account IBKR.")
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value="U123"),
@@ -949,9 +955,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram", return_value=3) as send,
             ):
                 self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
-            send.assert_called_once_with(
-                "⚠️ Impossibile determinare un prezzo per AMD."
-            )
+            self.assertEqual(sent_text(send), "⚠️ Impossibile determinare un prezzo per AMD.")
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value="U123"),
@@ -982,9 +986,7 @@ class TelegramExtractTests(unittest.TestCase):
                     ]
                 },
             )
-            send.assert_called_once_with(
-                "✅ Ordine SELL 3 AMD TRAIL 2.25 inviato."
-            )
+            self.assertEqual(sent_text(send), "✅ Ordine SELL 3 AMD TRAIL 2.25 inviato.")
             self.assertEqual(len(watch.load_state(spath)["order_messages"]), 4)
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -1452,13 +1454,13 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_positions("/posizioni", spath))
-            send.assert_called_once_with("📭 Nessuna posizione aperta.")
+            self.assertEqual(sent_text(send), "📭 Nessuna posizione aperta.")
             with (
                 patch.object(watch, "ibkr_get_positions", return_value=None),
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_positions("/posizioni", spath))
-            send.assert_called_once_with("⚠️ Impossibile leggere le posizioni al momento.")
+            self.assertEqual(sent_text(send), "⚠️ Impossibile leggere le posizioni al momento.")
             with (
                 patch.object(
                     watch,
@@ -1471,7 +1473,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_positions("/posizioni", spath))
-            send.assert_called_once_with("📭 Nessuna posizione aperta.")
+            self.assertEqual(sent_text(send), "📭 Nessuna posizione aperta.")
             mixed = [
                 {"ticker": "CASH", "position": 0, "avgCost": 0, "mktValue": 0, "currency": "USD", "unrealizedPnl": 0},
                 {
@@ -1628,7 +1630,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram", return_value=23) as send,
             ):
                 self.assertTrue(watch.apply_telegram_orders("/ORDINI", spath))
-            send.assert_called_with("📭 Nessun ordine attivo.")
+            self.assertEqual(sent_text(send), "📭 Nessun ordine attivo.")
             state = watch.load_state(spath)
             self.assertEqual(state["orders_message_id"], 23)
             self.assertEqual(
@@ -1842,7 +1844,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch.time, "time", return_value=now),
         ):
             self.assertTrue(watch.apply_telegram_history("/storico 1"))
-        send.assert_called_with("📭 Nessun ordine eseguito negli ultimi 1 giorni.")
+        self.assertEqual(sent_text(send), "📭 Nessun ordine eseguito negli ultimi 1 giorni.")
 
     def test_apply_telegram_history_empty_and_unavailable(self) -> None:
         with (
@@ -1850,13 +1852,13 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "send_telegram") as send,
         ):
             self.assertTrue(watch.apply_telegram_history("/storico 3"))
-        send.assert_called_with("⚠️ Impossibile leggere lo storico ordini al momento.")
+        self.assertEqual(sent_text(send), "⚠️ Impossibile leggere lo storico ordini al momento.")
         with (
             patch.object(watch, "ibkr_get_trades", return_value=[]),
             patch.object(watch, "send_telegram") as send,
         ):
             self.assertTrue(watch.apply_telegram_history("/STORICO 3"))
-        send.assert_called_with("📭 Nessun ordine eseguito negli ultimi 3 giorni.")
+        self.assertEqual(sent_text(send), "📭 Nessun ordine eseguito negli ultimi 3 giorni.")
 
     def test_process_single_message_runs_storico(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1870,7 +1872,7 @@ class TelegramExtractTests(unittest.TestCase):
                     "/storico 7", 27, wpath, spath
                 )
             self.assertEqual((added, removed), ([], []))
-            hist.assert_called_once_with("/storico 7")
+            hist.assert_called_once_with("/storico 7", spath)
             delete.assert_called_once_with(27)
 
     def test_check_order_fills_notifies_once(self) -> None:
@@ -1899,9 +1901,7 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.check_order_fills(spath)
                 watch.check_order_fills(spath)
-            send.assert_called_once_with(
-                "✅ ESEGUITO: BUY 2 AMD @ 148.2 · fee: 1.05"
-            )
+            self.assertEqual(sent_text(send), "✅ ESEGUITO: BUY 2 AMD @ 148.2 · fee: 1.05")
             sync.assert_called_once_with()
             state = watch.load_state(spath)
             self.assertEqual(state["known_order_status"]["77"], "Filled")
@@ -2144,8 +2144,8 @@ class TelegramExtractTests(unittest.TestCase):
             )
             with patch.object(watch, "delete_telegram_message") as delete:
                 watch.expire_order_messages(spath, now=now)
-            delete.assert_called_once_with(1)
-            self.assertIsNone(watch.load_state(spath)["orders_message_id"])
+            delete.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["orders_message_id"], 1)
 
     def test_expire_flow_messages_uses_120s_ttl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2223,7 +2223,7 @@ class TelegramExtractTests(unittest.TestCase):
             watch.save_watchlist(wpath, [])
             with patch.object(watch, "send_telegram", return_value=33) as send:
                 watch.apply_telegram_list("/list", wpath, spath)
-            send.assert_called_with("Watchlist vuota.")
+            self.assertEqual(sent_text(send), "Watchlist vuota.")
 
     def test_refresh_watchlist_summary_replaces_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2401,7 +2401,7 @@ class TelegramExtractTests(unittest.TestCase):
                     watch.apply_telegram_set(text, wpath),
                     ["AMD", "TSLA"],
                 )
-            send.assert_called_once_with("✅ Impostati: AMD, TSLA")
+            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA")
             items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
             self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
             self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
@@ -2427,9 +2427,7 @@ class TelegramExtractTests(unittest.TestCase):
                     watch.apply_telegram_set(text, wpath),
                     ["AMD", "TSLA"],
                 )
-            send.assert_called_once_with(
-                "✅ Impostati: AMD, TSLA\n⚠️ Errori: NOT, BAD"
-            )
+            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA\n⚠️ Errori: NOT, BAD")
             tickers = [it["ticker"] for it in watch.load_watchlist(wpath)]
             self.assertEqual(tickers, ["AMD", "TSLA"])
             self.assertEqual(
@@ -2452,7 +2450,7 @@ class TelegramExtractTests(unittest.TestCase):
                     watch.apply_telegram_set_field(text, wpath),
                     ["AMD", "TSLA"],
                 )
-            send.assert_called_once_with("✅ Impostati: AMD, TSLA\n⚠️ Errori: FOO")
+            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA\n⚠️ Errori: FOO")
             items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
             self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
             self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
@@ -2494,7 +2492,7 @@ class TelegramExtractTests(unittest.TestCase):
                 added, removed = watch.process_single_message(text, 9, wpath, spath)
             self.assertEqual(added, [])
             self.assertEqual(removed, [])
-            send.assert_called_once_with("✅ Impostati: AMD, TSLA")
+            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA")
             self.assertEqual(
                 [it["ticker"] for it in watch.load_watchlist(wpath)],
                 ["AMD", "TSLA"],
@@ -2650,6 +2648,29 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
             send.assert_called_once()
             self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-17")
+
+    def test_maybe_alert_sends_new_message_not_the_bot_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "bot_message_id": 70,
+                    "pending_flow": {"type": "BUY", "step": "ticker"},
+                },
+            )
+            item = {"ticker": "AMD", "tf": "daily"}
+            fired: dict[tuple[str, str, str], str | None] = {}
+            with (
+                patch.object(watch, "send_telegram", return_value=321) as send,
+                patch.object(watch, "deliver_text") as deliver,
+            ):
+                watch.maybe_alert(
+                    item, "ingresso", "ALERT AMD ingresso 130", True, fired, spath
+                )
+            send.assert_called_once_with("ALERT AMD ingresso 130")
+            deliver.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["bot_message_id"], 70)
 
     def test_fired_roundtrip(self) -> None:
         fired = {
@@ -2862,7 +2883,11 @@ class DayRangeTests(unittest.TestCase):
             held_during_fetch.append(lock.locked())
             return {"AMD": None}
 
-        def fake_send(text: str, chat_id_override: str | None = None) -> int | None:
+        def fake_send(
+            text: str,
+            chat_id_override: str | None = None,
+            reply_markup: dict | None = None,
+        ) -> int | None:
             held_during_send.append(lock.locked())
             return 1
 
@@ -2936,7 +2961,7 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertFalse(
                     watch.apply_telegram_buy_flow_start("/compra AMD 1", spath)
                 )
-            send.assert_called_once_with("Quale ticker vuoi comprare?")
+            self.assertEqual(send.call_args[0][0], "Quale ticker vuoi comprare?")
             flow = watch.load_state(spath)["pending_flow"]
             self.assertEqual(flow["type"], "BUY")
             self.assertEqual(flow["step"], "ticker")
@@ -2963,7 +2988,11 @@ class BuySellFlowTests(unittest.TestCase):
                 )
             buttons.assert_called_once_with(
                 "Quale ticker vuoi vendere?",
-                [("AMD", "sellticker:AMD"), ("TSLA", "sellticker:TSLA")],
+                [
+                    ("AMD", "sellticker:AMD"),
+                    ("TSLA", "sellticker:TSLA"),
+                    *watch.MENU_NAV_BUTTONS,
+                ],
             )
             flow = watch.load_state(spath)["pending_flow"]
             self.assertEqual(flow["type"], "SELL")
@@ -2979,14 +3008,18 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_sell_flow_start("/vendi", spath))
-            send.assert_called_once_with("📭 Nessuna posizione aperta da vendere.")
+            self.assertEqual(
+                send.call_args[0][0], "📭 Nessuna posizione aperta da vendere."
+            )
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
             with (
                 patch.object(watch, "ibkr_get_positions", return_value=None),
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.apply_telegram_sell_flow_start("/VENDI", spath))
-            send.assert_called_once_with("📭 Nessuna posizione aperta da vendere.")
+            self.assertEqual(
+                send.call_args[0][0], "📭 Nessuna posizione aperta da vendere."
+            )
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
     def test_process_pending_flow_text_ticker_and_invalid(self) -> None:
@@ -3001,7 +3034,7 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertTrue(watch.process_pending_flow_text("$amd", spath))
             buttons.assert_called_once_with(
                 "Azioni o Dollari?",
-                [("Azioni", "size:shares"), ("Dollari", "size:dollars")],
+                with_nav([("Azioni", "size:shares"), ("Dollari", "size:dollars")]),
             )
             send.assert_not_called()
             flow = watch.load_state(spath)["pending_flow"]
@@ -3010,7 +3043,7 @@ class BuySellFlowTests(unittest.TestCase):
             watch.save_state(spath, {"pending_flow": self._flow()})
             with patch.object(watch, "send_telegram") as send:
                 self.assertTrue(watch.process_pending_flow_text("too-long-name", spath))
-            send.assert_called_once_with("⚠️ Ticker non valido, riprova.")
+            self.assertEqual(sent_text(send), "⚠️ Ticker non valido, riprova.")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "ticker")
 
     def test_sell_flow_text_ticker_is_ignored(self) -> None:
@@ -3037,7 +3070,7 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(watch.process_pending_flow_text("BTC", spath))
-            send.assert_called_once_with("⚠️ Ticker non valido, riprova.")
+            self.assertEqual(sent_text(send), "⚠️ Ticker non valido, riprova.")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "ticker")
 
     def test_process_pending_flow_text_quantity_and_price(self) -> None:
@@ -3053,7 +3086,7 @@ class BuySellFlowTests(unittest.TestCase):
             )
             with patch.object(watch, "send_telegram") as send:
                 self.assertTrue(watch.process_pending_flow_text("nope", spath))
-            send.assert_called_once_with("⚠️ Numero non valido, riprova.")
+            self.assertEqual(sent_text(send), "⚠️ Numero non valido, riprova.")
             self.assertEqual(
                 watch.load_state(spath)["pending_flow"]["step"], "quantity"
             )
@@ -3061,7 +3094,7 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertTrue(watch.process_pending_flow_text("2", spath))
             buttons.assert_called_once_with(
                 "A mercato o a limite?",
-                [("A mercato", "price:market"), ("A limite", "price:limit")],
+                with_nav([("A mercato", "price:market"), ("A limite", "price:limit")]),
             )
             self.assertEqual(watch.load_state(spath)["pending_flow"]["quantity"], 2.0)
             self.assertEqual(
@@ -3081,7 +3114,7 @@ class BuySellFlowTests(unittest.TestCase):
             )
             with patch.object(watch, "send_telegram") as send:
                 self.assertTrue(watch.process_pending_flow_text("0", spath))
-            send.assert_called_once_with("⚠️ Prezzo non valido, riprova.")
+            self.assertEqual(sent_text(send), "⚠️ Prezzo non valido, riprova.")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "price")
             with patch.object(
                 watch, "_execute_flow_order", return_value="✅ ok"
@@ -3116,7 +3149,7 @@ class BuySellFlowTests(unittest.TestCase):
             ):
                 watch.process_callback_query("size:shares", 1, "cb1", spath)
             ack.assert_called_once_with("cb1")
-            send.assert_called_once_with("Quante azioni?")
+            self.assertEqual(sent_text(send), "Quante azioni?")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["size_type"], "shares")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "quantity")
             watch.save_state(
@@ -3132,7 +3165,7 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.process_callback_query("size:dollars", 1, "cb2", spath)
-            send.assert_called_once_with("Quanti dollari?")
+            self.assertEqual(sent_text(send), "Quanti dollari?")
             watch.save_state(
                 spath,
                 {
@@ -3177,7 +3210,7 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.process_callback_query("price:limit", 1, "cb4", spath)
-            send.assert_called_once_with("A che prezzo?")
+            self.assertEqual(sent_text(send), "A che prezzo?")
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "price")
             self.assertEqual(
                 watch.load_state(spath)["pending_flow"]["price_type"], "limit"
@@ -3205,11 +3238,13 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertIsNone(action)
             buttons.assert_called_once_with(
                 "Azioni o Dollari?",
-                [
-                    ("Azioni", "size:shares"),
-                    ("Dollari", "size:dollars"),
-                    ("Vendi tutto", "size:all"),
-                ],
+                with_nav(
+                    [
+                        ("Azioni", "size:shares"),
+                        ("Dollari", "size:dollars"),
+                        ("Vendi tutto", "size:all"),
+                    ]
+                ),
             )
             flow = watch.load_state(spath)["pending_flow"]
             self.assertEqual(flow["ticker"], "AMD")
@@ -3280,7 +3315,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(msg, "✅ shares")
             place.assert_called_once_with("AMD", 2, "BUY", None)
             cash.assert_not_called()
-            send.assert_called_once_with("✅ shares")
+            self.assertEqual(sent_text(send), "✅ shares")
             self.assertEqual(
                 watch.load_state(spath)["order_messages"][-1]["ttl_seconds"], 120
             )
@@ -3305,7 +3340,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(msg, "✅ cash")
             place.assert_called_once_with("NVDA", 2, "SELL", None)
             cash.assert_not_called()
-            send.assert_called_once_with("✅ cash")
+            self.assertEqual(sent_text(send), "✅ cash")
             with (
                 patch.object(watch, "ibkr_get_price", return_value=10.0),
                 patch.object(
@@ -3325,7 +3360,7 @@ class BuySellFlowTests(unittest.TestCase):
                 )
             self.assertEqual(msg, "✅ lmt")
             place.assert_called_once_with("AMD", 2, "BUY", 9.5)
-            send.assert_called_once_with("✅ lmt")
+            self.assertEqual(sent_text(send), "✅ lmt")
             with (
                 patch.object(watch, "ibkr_get_price", return_value=80.0),
                 patch.object(watch, "ibkr_place_order") as place,
@@ -3342,9 +3377,7 @@ class BuySellFlowTests(unittest.TestCase):
                     spath,
                 )
             place.assert_not_called()
-            send.assert_called_once_with(
-                "⚠️ 3.0$ non bastano per comprare nemmeno 1 azione di CRCL (costa 80.00$)."
-            )
+            self.assertEqual(sent_text(send), "⚠️ 3.0$ non bastano per comprare nemmeno 1 azione di CRCL (costa 80.00$).")
             self.assertIn("non bastano", msg)
 
     def test_guided_flow_sends_are_recorded_with_120s_ttl(self) -> None:
@@ -3612,7 +3645,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(
                 watchlist_buttons[-2:],
                 [
-                    ("◀️ Indietro", "menu:main"),
+                    ("◀️ Indietro", "menu:back"),
                     ("🏠 Home", "menu:main"),
                 ],
             )
@@ -3632,7 +3665,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(
                 edit.call_args_list[3][0][3],
                 [
-                    ("◀️ Indietro", "menu:main"),
+                    ("◀️ Indietro", "menu:back"),
                     ("🏠 Home", "menu:main"),
                 ],
             )
@@ -3677,6 +3710,16 @@ class BuySellFlowTests(unittest.TestCase):
             },
             timeout=12,
         )
+        with patch.object(watch, "telegram_api") as api_empty:
+            self.assertTrue(watch.edit_telegram_message(1, 9, "ciao"))
+        self.assertEqual(
+            api_empty.call_args[0][1]["reply_markup"],
+            {"inline_keyboard": []},
+        )
+        with patch.object(
+            watch, "telegram_api", side_effect=RuntimeError("message is not modified")
+        ):
+            self.assertTrue(watch.edit_telegram_message(1, 9, "ciao"))
         with patch.object(watch, "telegram_api", side_effect=RuntimeError("old")):
             self.assertFalse(watch.edit_telegram_message(1, 9, "ciao"))
 
@@ -3732,6 +3775,151 @@ class BuySellFlowTests(unittest.TestCase):
             pending.assert_called_once_with("AMD", spath)
             lst.assert_not_called()
             delete.assert_called_once_with(41)
+
+    def test_deliver_text_keeps_one_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=False),
+                patch.object(watch, "send_telegram_buttons", return_value=10),
+                patch.object(watch, "send_telegram", return_value=10),
+            ):
+                watch.deliver_text(spath, watch.MENU_MAIN_TEXT, watch.MENU_MAIN_BUTTONS)
+            self.assertEqual(watch.load_state(spath)["bot_message_id"], 10)
+            self.assertEqual(watch.load_state(spath)["menu_message_id"], 10)
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.deliver_text(spath, "💰 Conto", with_nav=True)
+            edit.assert_called_once()
+            self.assertEqual(edit.call_args[0][1], 10)
+            send.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["balance_message_id"], 10)
+
+    def test_clip_text_ellipsis(self) -> None:
+        self.assertEqual(watch.clip_text("ciao", 10), "ciao")
+        self.assertEqual(watch.clip_text("abcdef", 4), "abc…")
+
+    def test_start_and_home_clear_pending_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {"type": "BUY", "step": "ticker"},
+                    "menu_message_id": 70,
+                    "menu_page": "trading",
+                    "menu_nav_stack": ["main"],
+                },
+            )
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=True),
+            ):
+                self.assertTrue(watch.apply_telegram_start("/start", spath))
+            state = watch.load_state(spath)
+            self.assertIsNone(state["pending_flow"])
+            self.assertEqual(state["menu_page"], "main")
+            self.assertEqual(state["menu_nav_stack"], [])
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {"type": "SELL", "step": "quantity"},
+                    "menu_message_id": 70,
+                    "menu_page": "conto",
+                    "menu_nav_stack": ["main"],
+                },
+            )
+            with patch.object(watch, "edit_telegram_message", return_value=True):
+                watch.process_callback_query("menu:main", 1, "cbh", spath, 70)
+            state = watch.load_state(spath)
+            self.assertIsNone(state["pending_flow"])
+            self.assertEqual(state["menu_page"], "main")
+
+    def test_menu_back_pops_without_clearing_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {"type": "BUY", "step": "ticker"},
+                    "menu_message_id": 70,
+                    "menu_page": "watchlist",
+                    "menu_nav_stack": ["main"],
+                },
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+            ):
+                self.assertIsNone(
+                    watch.process_callback_query("menu:back", 1, "cbb", spath, 70)
+                )
+            state = watch.load_state(spath)
+            self.assertEqual(state["pending_flow"]["type"], "BUY")
+            self.assertEqual(state["menu_page"], "main")
+            self.assertEqual(state["menu_nav_stack"], [])
+            self.assertEqual(edit.call_args[0][2], watch.MENU_MAIN_TEXT)
+
+    def test_replacing_message_edits_when_possible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"balance_message_id": 99})
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                watch._send_replacing_message(spath, "balance_message_id", "💰 ok")
+            edit.assert_called_once_with("-100", 99, "💰 ok", watch.MENU_NAV_BUTTONS)
+            send.assert_not_called()
+            delete.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["balance_message_id"], 99)
+
+    def test_flow_message_edits_same_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"flow_message_id": 40})
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                mid = watch._send_flow_message(spath, "A che prezzo?")
+            self.assertEqual(mid, 40)
+            edit.assert_called_once()
+            send.assert_not_called()
+            self.assertEqual(
+                watch.load_state(spath)["order_messages"][0]["ttl_seconds"], 120
+            )
+
+    def test_apply_menu_action_shows_loading_then_restores(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {"menu_message_id": 70, "menu_page": "conto", "menu_nav_stack": ["main"]},
+            )
+            edits: list[str] = []
+
+            def fake_edit(chat_id, message_id, text, buttons=None) -> bool:
+                edits.append(text)
+                return True
+
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", side_effect=fake_edit),
+                patch.object(watch, "apply_telegram_balance") as bal,
+            ):
+                watch.apply_menu_action("saldo", wpath, spath)
+            bal.assert_called_once_with("/saldo", spath)
+            self.assertEqual(edits[0], watch.IBKR_LOADING_TEXT)
+            self.assertNotIn(watch.MENU_CONTO_TEXT, edits)
 
 
 class GitSyncTests(unittest.TestCase):

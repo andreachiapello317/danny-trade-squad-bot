@@ -52,6 +52,8 @@ WATCH_HOUR_END = 22  # inclusivo: 15:00–22:59 ora italiana
 ALERT_TTL = timedelta(hours=8)
 ORDER_MESSAGE_TTL = timedelta(seconds=60)
 FLOW_MESSAGE_TTL = timedelta(seconds=120)
+TELEGRAM_MAX_LEN = 4096
+IBKR_LOADING_TEXT = "⏳ Un attimo, sto interrogando IBKR…"
 MISSING_TOKEN_MSG = (
     "Manca TELEGRAM_BOT_TOKEN: mettilo una volta in .env e aggiungi il bot "
     "al gruppo (Group Privacy OFF su @BotFather). Poi gira da solo."
@@ -131,7 +133,7 @@ MENU_MAIN_BUTTONS = [
     ("ℹ️ Info", "menu:info"),
 ]
 MENU_NAV_BUTTONS = [
-    ("◀️ Indietro", "menu:main"),
+    ("◀️ Indietro", "menu:back"),
     ("🏠 Home", "menu:main"),
 ]
 MENU_WATCHLIST_TEXT = (
@@ -161,10 +163,53 @@ MENU_INFO_TEXT = (
     "Esempio: /prezzo AMD\n\n"
     "/info TICKER"
 )
+BOT_MESSAGE_KEY = "bot_message_id"
+LEGACY_MESSAGE_KEYS = (
+    "menu_message_id",
+    "summary_message_id",
+    "balance_message_id",
+    "positions_message_id",
+    "orders_message_id",
+    "price_message_id",
+    "flow_message_id",
+)
+MENU_PAGES: dict[str, tuple[str, list[tuple[str, str]] | None, bool]] = {
+    "main": (MENU_MAIN_TEXT, MENU_MAIN_BUTTONS, False),
+    "watchlist": (
+        MENU_WATCHLIST_TEXT,
+        [("📋 Lista attuale", "action:list")],
+        True,
+    ),
+    "trading": (
+        MENU_TRADING_TEXT,
+        [("🟢 Compra", "action:buyflow"), ("🔴 Vendi", "action:sellflow")],
+        True,
+    ),
+    "conto": (
+        MENU_CONTO_TEXT,
+        [
+            ("💰 Saldo", "action:saldo"),
+            ("📊 Posizioni", "action:posizioni"),
+            ("📋 Ordini", "action:ordini"),
+        ],
+        True,
+    ),
+    "info": (MENU_INFO_TEXT, None, True),
+}
 
 
 def parse_num(raw: str) -> float:
     return float(raw.strip().replace(",", "."))
+
+
+def clip_text(text: str, limit: int = TELEGRAM_MAX_LEN) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _is_not_modified(exc: BaseException) -> bool:
+    return "not modified" in str(exc).lower()
 
 
 def to_yahoo(ticker: str) -> str:
@@ -361,19 +406,12 @@ def merge_ticket(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str
 
 
 def refresh_watchlist_summary(watchlist_path: Path, state_path: Path) -> None:
-    state = load_state(state_path)
-    old_id = state.get("summary_message_id")
-    if old_id is not None:
-        delete_telegram_message(old_id)
     items = load_watchlist(watchlist_path)
     if not items:
         body = "Watchlist vuota."
     else:
         body = "\n".join(fmt_ticket_line(it) for it in items)
-    new_id = send_telegram(body)
-    if isinstance(new_id, int):
-        state["summary_message_id"] = new_id
-        save_state(state_path, state)
+    _send_replacing_message(state_path, "summary_message_id", body)
 
 
 def send_watchlist_summary(
@@ -396,14 +434,7 @@ def send_watchlist_summary(
         lines.append("Watchlist vuota.")
     else:
         lines.extend(fmt_ticket_line(it) for it in items)
-    state = load_state(state_path)
-    old_id = state.get("summary_message_id")
-    if isinstance(old_id, int):
-        delete_telegram_message(old_id)
-    new_id = send_telegram("\n".join(lines))
-    if isinstance(new_id, int):
-        state["summary_message_id"] = new_id
-        save_state(state_path, state)
+    _send_replacing_message(state_path, "summary_message_id", "\n".join(lines))
 
 
 def fmt_level(value: float | None) -> str:
@@ -597,12 +628,78 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
-def _save_menu_message_id(state_path: Path, message_id: int) -> None:
+def _bot_message_id(state: dict[str, Any]) -> int | None:
+    raw = state.get(BOT_MESSAGE_KEY)
+    if isinstance(raw, int):
+        return raw
+    for key in LEGACY_MESSAGE_KEYS:
+        legacy = state.get(key)
+        if isinstance(legacy, int):
+            return legacy
+    return None
+
+
+def _remember_bot_message(state_path: Path, message_id: int) -> None:
     state = load_state(state_path)
-    if state.get("menu_message_id") == message_id:
-        return
-    state["menu_message_id"] = message_id
+    state[BOT_MESSAGE_KEY] = message_id
+    for key in LEGACY_MESSAGE_KEYS:
+        state[key] = message_id
     save_state(state_path, state)
+
+
+def deliver_text(
+    state_path: Path,
+    text: str,
+    buttons: list[tuple[str, str]] | None = None,
+    *,
+    with_nav: bool = False,
+) -> int | None:
+    """Un solo messaggio del bot: lo modifica, o lo sostituisce se l'edit fallisce."""
+    text = clip_text(text)
+    shown = list(buttons or [])
+    if with_nav:
+        shown.extend(MENU_NAV_BUTTONS)
+    old_id = _bot_message_id(load_state(state_path))
+    chat = telegram_chat_id()
+    if isinstance(old_id, int) and edit_telegram_message(chat, old_id, text, shown):
+        _remember_bot_message(state_path, old_id)
+        return old_id
+    if isinstance(old_id, int):
+        delete_telegram_message(old_id)
+    new_id = (
+        send_telegram_buttons(text, shown) if shown else send_telegram(text)
+    )
+    if isinstance(new_id, int):
+        _remember_bot_message(state_path, new_id)
+        return new_id
+    return None
+
+
+def _save_menu_message_id(state_path: Path, message_id: int) -> None:
+    _remember_bot_message(state_path, message_id)
+
+
+def _menu_nav_state(state_path: Path) -> tuple[str, list[str]]:
+    state = load_state(state_path)
+    page = state.get("menu_page")
+    if page not in MENU_PAGES:
+        page = "main"
+    raw = state.get("menu_nav_stack")
+    stack = [str(item) for item in raw] if isinstance(raw, list) else []
+    return str(page), stack
+
+
+def _save_menu_nav(state_path: Path, page: str, stack: list[str]) -> None:
+    state = load_state(state_path)
+    state["menu_page"] = page
+    state["menu_nav_stack"] = stack
+    save_state(state_path, state)
+
+
+def _clear_pending_flow(state_path: Path) -> None:
+    if _pending_flow(load_state(state_path)) is None:
+        return
+    _save_pending_flow(state_path, None)
 
 
 def _show_menu_page(
@@ -614,32 +711,65 @@ def _show_menu_page(
     *,
     with_nav: bool = False,
 ) -> None:
-    shown = list(buttons or [])
-    if with_nav:
-        shown.extend(MENU_NAV_BUTTONS)
-    if isinstance(message_id, int) and edit_telegram_message(
-        chat_id, message_id, text, shown or None
-    ):
-        _save_menu_message_id(state_path, message_id)
-        return
-    new_id = (
-        send_telegram_buttons(text, shown) if shown else send_telegram(text)
+    del chat_id, message_id
+    deliver_text(state_path, text, buttons, with_nav=with_nav)
+
+
+def _show_named_menu(
+    chat_id: Any,
+    message_id: int | None,
+    state_path: Path,
+    page: str,
+    *,
+    push: bool = False,
+    reset: bool = False,
+) -> None:
+    if page not in MENU_PAGES:
+        page = "main"
+    here, stack = _menu_nav_state(state_path)
+    if reset:
+        stack = []
+    elif push and here != page:
+        if not stack or stack[-1] != here:
+            stack.append(here)
+        if len(stack) > 8:
+            stack = stack[-8:]
+    _save_menu_nav(state_path, page, stack)
+    text, buttons, with_nav = MENU_PAGES[page]
+    _show_menu_page(
+        chat_id, message_id, text, buttons, state_path, with_nav=with_nav
     )
-    if isinstance(new_id, int):
-        _save_menu_message_id(state_path, new_id)
+
+
+def _show_menu_loading(state_path: Path) -> bool:
+    old_id = _bot_message_id(load_state(state_path))
+    if not isinstance(old_id, int):
+        return False
+    return edit_telegram_message(
+        telegram_chat_id(), old_id, IBKR_LOADING_TEXT, []
+    )
+
+
+def _push_result_nav(state_path: Path) -> None:
+    """Così ◀️ Indietro dal risultato torna alla categoria, non salta la home."""
+    here, stack = _menu_nav_state(state_path)
+    if here == "main":
+        return
+    if not stack or stack[-1] != here:
+        stack.append(here)
+        _save_menu_nav(state_path, here, stack)
 
 
 def apply_telegram_start(text: str, state_path: Path) -> bool:
     if not START_RE.match(text.strip()):
         return False
-    state = load_state(state_path)
-    old_id = state.get("menu_message_id")
-    _show_menu_page(
+    _clear_pending_flow(state_path)
+    _show_named_menu(
         telegram_chat_id(),
-        old_id if isinstance(old_id, int) else None,
-        MENU_MAIN_TEXT,
-        MENU_MAIN_BUTTONS,
+        None,
         state_path,
+        "main",
+        reset=True,
     )
     return True
 
@@ -647,6 +777,9 @@ def apply_telegram_start(text: str, state_path: Path) -> bool:
 def apply_menu_action(
     kind: str, watchlist_path: Path, state_path: Path
 ) -> None:
+    slow = kind in {"list", "saldo", "posizioni", "ordini", "sellflow"}
+    if slow:
+        _show_menu_loading(state_path)
     if kind == "list":
         apply_telegram_list("/list", watchlist_path, state_path)
         return
@@ -825,40 +958,38 @@ def ibkr_get_price(ticker: str) -> float | None:
         return None
 
 
+def _preview_loading(state_path: Path, id_key: str) -> None:
+    del id_key
+    old_id = _bot_message_id(load_state(state_path))
+    if isinstance(old_id, int):
+        edit_telegram_message(telegram_chat_id(), old_id, IBKR_LOADING_TEXT, [])
+
+
 def _send_replacing_message(
     state_path: Path,
     id_key: str,
     text: str,
     ttl: timedelta | None = None,
 ) -> None:
-    state = load_state(state_path)
-    old_id = state.get(id_key)
-    if old_id is not None:
-        delete_telegram_message(old_id)
-    new_id = send_telegram(text)
-    if isinstance(new_id, int):
-        state[id_key] = new_id
-    if ttl is not None:
-        messages = [
-            entry
-            for entry in (state.get("order_messages") or [])
-            if not (isinstance(entry, dict) and entry.get("message_id") == old_id)
+    del id_key
+    _push_result_nav(state_path)
+    mid = deliver_text(state_path, text, with_nav=True)
+    if ttl is not None and isinstance(mid, int):
+        state = load_state(state_path)
+        state["order_messages"] = [
+            {
+                "message_id": mid,
+                "sent_at": datetime.now(timezone.utc).isoformat(),
+                "ttl_seconds": int(ttl.total_seconds()),
+            }
         ]
-        if isinstance(new_id, int):
-            messages.append(
-                {
-                    "message_id": new_id,
-                    "sent_at": datetime.now(timezone.utc).isoformat(),
-                    "ttl_seconds": int(ttl.total_seconds()),
-                }
-            )
-        state["order_messages"] = messages
-    save_state(state_path, state)
+        save_state(state_path, state)
 
 
 def apply_telegram_balance(text: str, state_path: Path) -> bool:
     if not BALANCE_RE.match(text.strip()):
         return False
+    _preview_loading(state_path, "balance_message_id")
     accounts = ibkr_get("/v1/api/portfolio/accounts")
     if not isinstance(accounts, list) or not accounts:
         _send_replacing_message(
@@ -912,6 +1043,7 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
     if not m:
         return False
     ticker = m.group(1).upper()
+    _preview_loading(state_path, "price_message_id")
     price = ibkr_get_price(ticker)
     if price is None:
         _send_replacing_message(
@@ -1401,56 +1533,19 @@ def _handle_start_menu_callback(
 ) -> dict[str, Any] | None:
     kind = data.split(":", 1)[1].strip()
     if kind == "main":
-        _show_menu_page(
-            chat_id, message_id, MENU_MAIN_TEXT, MENU_MAIN_BUTTONS, state_path
-        )
+        _clear_pending_flow(state_path)
+        _show_named_menu(chat_id, message_id, state_path, "main", reset=True)
         return None
-    if kind == "watchlist":
-        _show_menu_page(
-            chat_id,
-            message_id,
-            MENU_WATCHLIST_TEXT,
-            [("📋 Lista attuale", "action:list")],
-            state_path,
-            with_nav=True,
-        )
+    if kind == "back":
+        _here, stack = _menu_nav_state(state_path)
+        previous = stack.pop() if stack else "main"
+        if previous not in MENU_PAGES:
+            previous = "main"
+        _save_menu_nav(state_path, previous, stack)
+        _show_named_menu(chat_id, message_id, state_path, previous)
         return None
-    if kind == "trading":
-        _show_menu_page(
-            chat_id,
-            message_id,
-            MENU_TRADING_TEXT,
-            [
-                ("🟢 Compra", "action:buyflow"),
-                ("🔴 Vendi", "action:sellflow"),
-            ],
-            state_path,
-            with_nav=True,
-        )
-        return None
-    if kind == "conto":
-        _show_menu_page(
-            chat_id,
-            message_id,
-            MENU_CONTO_TEXT,
-            [
-                ("💰 Saldo", "action:saldo"),
-                ("📊 Posizioni", "action:posizioni"),
-                ("📋 Ordini", "action:ordini"),
-            ],
-            state_path,
-            with_nav=True,
-        )
-        return None
-    if kind == "info":
-        _show_menu_page(
-            chat_id,
-            message_id,
-            MENU_INFO_TEXT,
-            None,
-            state_path,
-            with_nav=True,
-        )
+    if kind in MENU_PAGES and kind != "main":
+        _show_named_menu(chat_id, message_id, state_path, kind, push=True)
         return None
     return None
 
@@ -1472,6 +1567,8 @@ def process_callback_query(
     - {"action": "list"|"saldo"|"posizioni"|"ordini"|"buyflow"|"sellflow"}
     """
     answer_callback_query(callback_query_id)
+    if isinstance(message_id, int):
+        _remember_bot_message(state_path, message_id)
     data = callback_data.strip()
     if data.startswith("menu:"):
         return _handle_start_menu_callback(
@@ -1852,6 +1949,7 @@ def _fmt_position_line(pos: dict[str, Any]) -> str:
 def apply_telegram_positions(text: str, state_path: Path) -> bool:
     if not POSITIONS_RE.match(text.strip()):
         return False
+    _preview_loading(state_path, "positions_message_id")
     positions = ibkr_get_positions()
     if positions is None:
         _send_replacing_message(
@@ -1925,6 +2023,7 @@ def _fmt_order_line(order: dict[str, Any]) -> str:
 def apply_telegram_orders(text: str, state_path: Path) -> bool:
     if not ORDERS_RE.match(text.strip()):
         return False
+    _preview_loading(state_path, "orders_message_id")
     orders = ibkr_get_active_orders()
     if orders is None:
         body = "⚠️ Impossibile leggere gli ordini al momento."
@@ -2061,14 +2160,17 @@ def _average_cost_pnls(trades: list[dict[str, Any]]) -> list[float | None]:
     return pnls
 
 
-def apply_telegram_history(text: str) -> bool:
+def apply_telegram_history(text: str, state_path: Path | None = None) -> bool:
     match = HISTORY_RE.match(text.strip())
     if not match:
         return False
+    path = DEFAULT_STATE if state_path is None else state_path
     days = int(match.group(1))
     trades = ibkr_get_trades()
     if trades is None:
-        send_telegram("⚠️ Impossibile leggere lo storico ordini al momento.")
+        _send_replacing_message(
+            path, "history_message_id", "⚠️ Impossibile leggere lo storico ordini al momento."
+        )
         return True
     now = time.time()
     soglia = now - (days * 86400)
@@ -2087,7 +2189,11 @@ def apply_telegram_history(text: str) -> bool:
         if _trade_timestamp(trade) >= soglia
     ]
     if not window:
-        send_telegram(f"📭 Nessun ordine eseguito negli ultimi {days} giorni.")
+        _send_replacing_message(
+            path,
+            "history_message_id",
+            f"📭 Nessun ordine eseguito negli ultimi {days} giorni.",
+        )
         return True
     lines: list[str] = []
     totale = 0.0
@@ -2116,7 +2222,7 @@ def apply_telegram_history(text: str) -> bool:
         body += f"\nTotale fee: {totale:.2f}"
     if pnl_ok:
         body += f"\nTotale PNL: {totale_pnl:+.2f}"
-    send_telegram(body)
+    _send_replacing_message(path, "history_message_id", body)
     return True
 
 
@@ -2259,12 +2365,18 @@ def check_fyi_notifications(state_path: Path) -> None:
         title = _fyi_strip_html(title_raw)
         body = _fyi_strip_html(_fyi_field(note, "MD"))
         if title and body:
-            send_telegram(f"📢 {title}\n\n{body}")
+            line = f"📢 {title}\n\n{body}"
         elif title:
-            send_telegram(f"📢 {title}")
+            line = f"📢 {title}"
         elif body:
-            send_telegram(f"📢 {body}")
+            line = f"📢 {body}"
+        else:
+            known.add(nid)
+            continue
+        if _pending_flow(load_state(state_path)) is None:
+            deliver_text(state_path, line, with_nav=True)
         known.add(nid)
+    state = load_state(state_path)
     state["known_fyi_ids"] = list(known)
     save_state(state_path, state)
 
@@ -2305,14 +2417,21 @@ def _line_error_label(line: str) -> str:
     return token.lstrip("$").upper()
 
 
-def _send_set_summary(ok: list[str], err: list[str]) -> None:
+def _send_set_summary(
+    ok: list[str], err: list[str], state_path: Path | None = None
+) -> None:
     parts: list[str] = []
     if ok:
         parts.append(f"✅ Impostati: {', '.join(ok)}")
     if err:
         parts.append(f"⚠️ Errori: {', '.join(err)}")
-    if parts:
-        send_telegram("\n".join(parts))
+    if not parts:
+        return
+    body = "\n".join(parts)
+    if state_path is None:
+        send_telegram(body)
+        return
+    deliver_text(state_path, body, with_nav=True)
 
 
 def _parse_set_levels(
@@ -2382,7 +2501,9 @@ def _upsert_set_levels(
     )
 
 
-def apply_telegram_set(text: str, watchlist_path: Path) -> str | list[str] | None:
+def apply_telegram_set(
+    text: str, watchlist_path: Path, state_path: Path | None = None
+) -> str | list[str] | None:
     body = _multiline_command_lines(text, "set")
     if body is not None:
         ok: list[str] = []
@@ -2398,7 +2519,7 @@ def apply_telegram_set(text: str, watchlist_path: Path) -> str | list[str] | Non
                 watchlist_path, ticker, ingresso_low, ingresso_high, stop, target
             )
             ok.append(ticker)
-        _send_set_summary(ok, err)
+        _send_set_summary(ok, err, state_path)
         return ok
     m = SET_RE.match(text.strip())
     if not m:
@@ -2445,7 +2566,9 @@ def _upsert_setbuy(watchlist_path: Path, ticker: str, price: float) -> None:
     print(f"setbuy  {ticker}  {price:g}", flush=True)
 
 
-def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | list[str] | None:
+def apply_telegram_set_field(
+    text: str, watchlist_path: Path, state_path: Path | None = None
+) -> str | list[str] | None:
     body = _multiline_command_lines(text, "setbuy")
     if body is not None:
         ok: list[str] = []
@@ -2465,7 +2588,7 @@ def apply_telegram_set_field(text: str, watchlist_path: Path) -> str | list[str]
                 continue
             _upsert_setbuy(watchlist_path, ticker, price)
             ok.append(ticker)
-        _send_set_summary(ok, err)
+        _send_set_summary(ok, err, state_path)
         return ok
     m = SET_FIELD_RE.match(text.strip())
     if not m:
@@ -2744,7 +2867,7 @@ def send_telegram(
     if not telegram_token():
         return None
     chat_id = (chat_id_override or "").strip() or telegram_chat_id()
-    payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": clip_text(text)}
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     try:
@@ -2779,19 +2902,18 @@ def edit_telegram_message(
     payload: dict[str, Any] = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "text": text,
-    }
-    if buttons:
-        payload["reply_markup"] = {
+        "text": clip_text(text),
+        "reply_markup": {
             "inline_keyboard": [
-                [{"text": label, "callback_data": data}] for label, data in buttons
+                [{"text": label, "callback_data": data}] for label, data in (buttons or [])
             ]
-        }
+        },
+    }
     try:
         telegram_api("editMessageText", payload, timeout=12)
         return True
-    except Exception:
-        return False
+    except Exception as exc:
+        return _is_not_modified(exc)
 
 
 def answer_callback_query(callback_query_id: str) -> None:
@@ -2890,19 +3012,19 @@ def process_single_message(
         pass
     elif apply_telegram_orders(text, state_path):
         pass
-    elif apply_telegram_history(text):
+    elif apply_telegram_history(text, state_path):
         pass
     else:
         cleared = apply_telegram_clear(text, watchlist_path)
         if cleared is not None:
             removed.extend(cleared)
         else:
-            set_ticker = apply_telegram_set(text, watchlist_path)
+            set_ticker = apply_telegram_set(text, watchlist_path, state_path)
             if set_ticker is not None:
                 if isinstance(set_ticker, str):
                     added.append(set_ticker)
             else:
-                field_ticker = apply_telegram_set_field(text, watchlist_path)
+                field_ticker = apply_telegram_set_field(text, watchlist_path, state_path)
                 if field_ticker is not None:
                     if isinstance(field_ticker, str):
                         added.append(field_ticker)
@@ -3021,13 +3143,13 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                     removed.extend(cleared)
                     items = load_watchlist(watchlist_path)
                 else:
-                    set_ticker = apply_telegram_set(text, watchlist_path)
+                    set_ticker = apply_telegram_set(text, watchlist_path, state_path)
                     if set_ticker is not None:
                         if isinstance(set_ticker, str):
                             added.append(set_ticker)
                         items = load_watchlist(watchlist_path)
                     else:
-                        field_ticker = apply_telegram_set_field(text, watchlist_path)
+                        field_ticker = apply_telegram_set_field(text, watchlist_path, state_path)
                         if field_ticker is not None:
                             if isinstance(field_ticker, str):
                                 added.append(field_ticker)
@@ -3103,8 +3225,9 @@ def record_sent_alert(state_path: Path, message_id: int) -> None:
 
 
 def expire_sent_alerts(state_path: Path, now: datetime | None = None) -> None:
-    """Cancella gli alert Telegram più vecchi di 8 ore. Non tocca il riepilogo."""
+    """Scadenza record alert. Non cancella l'unico messaggio del bot."""
     state = load_state(state_path)
+    live_id = _bot_message_id(state)
     if now is None:
         now = datetime.now(timezone.utc)
     elif now.tzinfo is None:
@@ -3127,7 +3250,7 @@ def expire_sent_alerts(state_path: Path, now: datetime | None = None) -> None:
                 expired = False
         if expired:
             mid = entry.get("message_id")
-            if isinstance(mid, int):
+            if isinstance(mid, int) and mid != live_id:
                 delete_telegram_message(mid)
         else:
             kept.append(entry)
@@ -3153,7 +3276,8 @@ def record_order_message(
 
 
 def _send_order_message(state_path: Path, text: str) -> None:
-    mid = send_telegram(text)
+    _push_result_nav(state_path)
+    mid = deliver_text(state_path, text, with_nav=True)
     if isinstance(mid, int):
         record_order_message(state_path, mid)
 
@@ -3163,18 +3287,18 @@ def _send_flow_message(
     text: str,
     buttons: list[tuple[str, str]] | None = None,
 ) -> int | None:
-    if buttons:
-        mid = send_telegram_buttons(text, buttons)
-    else:
-        mid = send_telegram(text)
+    shown = list(buttons or [])
+    shown.extend(MENU_NAV_BUTTONS)
+    mid = deliver_text(state_path, text, shown)
     if isinstance(mid, int):
         record_order_message(state_path, mid, ttl=FLOW_MESSAGE_TTL)
     return mid
 
 
 def expire_order_messages(state_path: Path, now: datetime | None = None) -> None:
-    """Cancella i messaggi Telegram scaduti (60s ordini, 120s flusso guidato)."""
+    """Scadenza record. Non cancella l'unico messaggio del bot."""
     state = load_state(state_path)
+    live_id = _bot_message_id(state)
     if now is None:
         now = datetime.now(timezone.utc)
     elif now.tzinfo is None:
@@ -3202,10 +3326,8 @@ def expire_order_messages(state_path: Path, now: datetime | None = None) -> None
                 expired = False
         if expired:
             mid = entry.get("message_id")
-            if isinstance(mid, int):
+            if isinstance(mid, int) and mid != live_id:
                 delete_telegram_message(mid)
-                if state.get("orders_message_id") == mid:
-                    state["orders_message_id"] = None
         else:
             kept.append(entry)
     state["order_messages"] = kept
@@ -3414,7 +3536,9 @@ def maybe_send_daily_summary(items: list[dict[str, Any]], state_path: Path) -> N
         body = "📋 Riepilogo giornaliero\nWatchlist vuota."
     else:
         body = "📋 Riepilogo giornaliero\n" + "\n".join(format_priced_watchlist_lines(items))
-    send_telegram(body)
+    if _pending_flow(state) is None:
+        deliver_text(state_path, body, with_nav=True)
+    state = load_state(state_path)
     state["last_daily_summary"] = today
     save_state(state_path, state)
 

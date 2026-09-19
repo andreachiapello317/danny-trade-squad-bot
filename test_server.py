@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -184,6 +185,31 @@ class WebhookTests(unittest.TestCase):
             resp = client.post("/webhook", json=payload)
         self.assertEqual(resp.status_code, 200)
         cb.assert_not_called()
+
+    def test_webhook_secret_rejects_wrong_header(self) -> None:
+        client = server.app.test_client()
+        payload = {"update_id": 1, "message": _msg(text="$AMD", message_id=1)}
+        with (
+            patch.dict(os.environ, {"WEBHOOK_SECRET": "s3cret"}, clear=False),
+            patch.object(server, "process_single_message") as proc,
+        ):
+            resp = client.post("/webhook", json=payload)
+        self.assertEqual(resp.status_code, 403)
+        proc.assert_not_called()
+        with (
+            patch.dict(os.environ, {"WEBHOOK_SECRET": "s3cret"}, clear=False),
+            patch.object(
+                server, "process_single_message", return_value=([], [])
+            ) as proc,
+            patch.object(server, "send_watchlist_summary"),
+        ):
+            resp = client.post(
+                "/webhook",
+                json=payload,
+                headers={"X-Telegram-Bot-Api-Secret-Token": "s3cret"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        proc.assert_called()
 
     def test_returns_200_on_internal_error(self) -> None:
         client = server.app.test_client()
