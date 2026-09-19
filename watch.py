@@ -1891,28 +1891,23 @@ def _on_step_trail_fill(
         _save_auto_trails(state_path, trails)
 
 
-def check_step_trails(state_path: Path) -> None:
+def apply_step_trail_price(state_path: Path, ticker: str, price: float) -> None:
+    """Alza lo stop sul tick, senza aspettare il ciclo da 60s."""
+    ticker = ticker.strip().upper()
     trails = _auto_trails(load_state(state_path))
-    active = [
-        trail
-        for trail in trails
-        if str(trail.get("status") or "") in {"watching", "armed"}
-    ]
-    if not active:
-        return
     changed = False
-    for trail in active:
-        ticker = str(trail.get("ticker") or "").upper()
+    for trail in trails:
+        if str(trail.get("ticker") or "").strip().upper() != ticker:
+            continue
+        if str(trail.get("status") or "") not in {"watching", "armed"}:
+            continue
         breakeven = _float_or_none(trail.get("breakeven"))
         delta = _float_or_none(trail.get("delta"))
         try:
             qty = int(trail.get("quantity") or 0)
         except (TypeError, ValueError):
             qty = 0
-        if not ticker or breakeven is None or delta is None or qty < 1:
-            continue
-        price = ibkr_get_price(ticker)
-        if price is None:
+        if breakeven is None or delta is None or qty < 1:
             continue
         wanted = step_trail_stop_price(price, breakeven, delta)
         if wanted is None:
@@ -1948,6 +1943,23 @@ def check_step_trails(state_path: Path) -> None:
             )
     if changed:
         _save_auto_trails(state_path, trails)
+
+
+def check_step_trails(state_path: Path) -> None:
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for trail in _auto_trails(load_state(state_path)):
+        if str(trail.get("status") or "") not in {"watching", "armed"}:
+            continue
+        ticker = str(trail.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    for ticker in tickers:
+        price = ibkr_get_price(ticker)
+        if price is not None:
+            apply_step_trail_price(state_path, ticker, price)
 
 
 def _new_pending_flow(kind: str) -> dict[str, Any]:
@@ -3347,7 +3359,6 @@ def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
     state = load_state(state_path)
     state["known_order_status"] = known
     save_state(state_path, state)
-    check_step_trails(state_path)
 
 
 def check_order_fills(state_path: Path) -> None:
@@ -3418,10 +3429,107 @@ def orders_from_ws_message(raw: Any) -> list[dict[str, Any]]:
     return []
 
 
-def handle_ibkr_ws_message(raw: Any, state_path: Path) -> None:
+def _parse_ws_payload(raw: Any) -> Any:
+    data: Any = raw
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped or stripped in {"tic", "pong"}:
+            return None
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return None
+    return data
+
+
+def market_price_from_ws_message(raw: Any) -> tuple[str | None, float | None]:
+    data = _parse_ws_payload(raw)
+    if not isinstance(data, dict):
+        return None, None
+    topic = str(data.get("topic") or "")
+    if topic and not topic.startswith("smd"):
+        return None, None
+    conid = str(data.get("conid") or data.get("conidEx") or "").strip()
+    if not conid and topic.startswith("smd"):
+        parts = topic.split("+")
+        if len(parts) >= 2 and parts[1]:
+            conid = parts[1].strip()
+    raw_px = data.get("31", data.get("_price"))
+    price = _float_or_none(raw_px)
+    if price is None and raw_px is not None:
+        match = _IBKR_PRICE_RE.search(str(raw_px).replace(",", "."))
+        if match:
+            try:
+                price = float(match.group(0))
+            except ValueError:
+                price = None
+    if not conid or price is None:
+        return None, None
+    return conid, price
+
+
+def _ticker_for_conid(conid: str) -> str | None:
+    needle = str(conid)
+    for key, value in _CONID_CACHE.items():
+        if str(value) == needle:
+            return str(key).strip().upper()
+    return None
+
+
+def trail_md_wanted(state_path: Path) -> dict[str, str]:
+    """conid IBKR → ticker, per i Trail watching/armed."""
+    wanted: dict[str, str] = {}
+    for trail in _auto_trails(load_state(state_path)):
+        if str(trail.get("status") or "") not in {"watching", "armed"}:
+            continue
+        ticker = str(trail.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        conid = ibkr_lookup_conid(ticker)
+        if conid:
+            wanted[str(conid)] = ticker
+    return wanted
+
+
+def sync_trail_md_subs(
+    sock: Any, subscribed: set[str], state_path: Path
+) -> dict[str, str]:
+    wanted = trail_md_wanted(state_path)
+    for conid in list(subscribed - set(wanted)):
+        try:
+            sock.send(f"umd+{conid}+{{}}")
+        except Exception:
+            pass
+        subscribed.discard(conid)
+    for conid in wanted:
+        if conid in subscribed:
+            continue
+        sock.send(f'smd+{conid}+{{"fields":["31"]}}')
+        subscribed.add(conid)
+    return wanted
+
+
+def handle_ibkr_ws_message(
+    raw: Any,
+    state_path: Path,
+    conid_tickers: dict[str, str] | None = None,
+) -> None:
     orders = orders_from_ws_message(raw)
     if orders:
         apply_order_status_updates(orders, state_path)
+        return
+    conid, price = market_price_from_ws_message(raw)
+    if conid is None or price is None:
+        return
+    ticker = None
+    if conid_tickers:
+        ticker = conid_tickers.get(str(conid))
+    if not ticker:
+        ticker = _ticker_for_conid(conid)
+    if ticker:
+        apply_step_trail_price(state_path, ticker, price)
 
 
 def _open_ibkr_ws() -> Any:
@@ -3445,7 +3553,7 @@ def run_ibkr_order_socket(
     pause: float = 5.0,
     lock: threading.Lock | None = None,
 ) -> None:
-    """Tiene aperto il WebSocket ordini IBKR e notifica i fill in tempo reale."""
+    """WebSocket IBKR: fill ordini + tick prezzi per alzare i Trail."""
     held = lock if lock is not None else nullcontext()
     open_sock = opener if opener is not None else _open_ibkr_ws
     while stop is None or not stop.is_set():
@@ -3458,6 +3566,10 @@ def run_ibkr_order_socket(
                 time.sleep(pause)
                 continue
             sock.send("sor+{}")
+            subscribed: set[str] = set()
+            md_map: dict[str, str] = {}
+            with held:
+                md_map = sync_trail_md_subs(sock, subscribed, state_path)
             last_ping = time.monotonic()
             while stop is None or not stop.is_set():
                 now = time.monotonic()
@@ -3465,11 +3577,14 @@ def run_ibkr_order_socket(
                     sock.send("tic")
                     ibkr_tickle()
                     last_ping = now
+                    with held:
+                        md_map = sync_trail_md_subs(sock, subscribed, state_path)
                 raw = sock.recv()
                 if raw in (None, "", b""):
                     break
                 with held:
-                    handle_ibkr_ws_message(raw, state_path)
+                    handle_ibkr_ws_message(raw, state_path, md_map)
+                    md_map = sync_trail_md_subs(sock, subscribed, state_path)
         except Exception as exc:
             print(f"IBKR websocket: {exc}", file=sys.stderr)
         finally:

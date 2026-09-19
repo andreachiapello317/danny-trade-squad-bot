@@ -2190,6 +2190,58 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.load_state(spath)["known_order_status"]["5"], "Submitted"
             )
 
+    def test_ws_market_tick_raises_trail_stop(self) -> None:
+        self.assertEqual(
+            watch.market_price_from_ws_message(
+                json.dumps({"topic": "smd+4391", "conid": 4391, "31": "C 105.10"})
+            ),
+            ("4391", 105.10),
+        )
+        self.assertEqual(
+            watch.market_price_from_ws_message({"topic": "sor", "args": []}),
+            (None, None),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 2,
+                            "delta": 2.0,
+                            "breakeven": 101.0,
+                            "status": "watching",
+                        }
+                    ]
+                },
+            )
+            tick = json.dumps({"topic": "smd+4391", "conid": 4391, "31": "105.0"})
+            with (
+                patch.object(
+                    watch, "ibkr_place_stop", return_value=(None, "88")
+                ) as place,
+                patch.object(watch, "send_telegram", return_value=2) as send,
+            ):
+                watch.handle_ibkr_ws_message(tick, spath, {"4391": "AMD"})
+            place.assert_called_once_with("AMD", 2, 103.0)
+            self.assertIn("stop attivato a 103.00", sent_text(send))
+            trail = watch.load_state(spath)["auto_trails"][0]
+            self.assertEqual(trail["status"], "armed")
+            self.assertEqual(trail["stop_level"], 103.0)
+            sent: list[str] = []
+
+            class FakeSock:
+                def send(self, msg: str) -> None:
+                    sent.append(msg)
+
+            with patch.object(watch, "ibkr_lookup_conid", return_value="4391"):
+                wanted = watch.sync_trail_md_subs(FakeSock(), set(), spath)
+            self.assertEqual(wanted, {"4391": "AMD"})
+            self.assertEqual(sent, ['smd+4391+{"fields":["31"]}'])
+
     def test_ibkr_get_fyi_notifications_shapes(self) -> None:
         with patch.object(watch, "ibkr_get", return_value=None):
             self.assertIsNone(watch.ibkr_get_fyi_notifications())
