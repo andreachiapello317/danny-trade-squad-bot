@@ -26,7 +26,7 @@
     "META||ingresso": "2026-09-17"
   },
   "sent_alerts": [],
-  "summary_message_id": 1789,
+  "summary_message_id": 1793,
   "last_daily_summary": "2026-09-18",
   "order_messages": [],
   "known_order_status": {
@@ -116,10 +116,10 @@
     "1395799703": "PendingCancel"
   },
   "pending_flow": null,
-  "positions_message_id": 1789,
-  "orders_message_id": 1789,
-  "balance_message_id": 1789,
-  "price_message_id": 1789,
+  "positions_message_id": 1793,
+  "orders_message_id": 1793,
+  "balance_message_id": 1793,
+  "price_message_id": 1793,
   "known_fyi_ids": [
     "2026091728835790",
     "2026091616042826",
@@ -129,11 +129,11 @@
     "2026091618405756",
     "2026091618785743"
   ],
-  "menu_message_id": 1789,
+  "menu_message_id": 1793,
   "menu_page": "main",
   "menu_nav_stack": [],
-  "bot_message_id": 1789,
-  "flow_message_id": 1789,
+  "bot_message_id": 1793,
+  "flow_message_id": 1793,
   "quote_fields": [
     "price"
   ]
