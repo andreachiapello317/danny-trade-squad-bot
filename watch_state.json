@@ -26,12 +26,12 @@
     "META||ingresso": "2026-09-17"
   },
   "sent_alerts": [],
-  "summary_message_id": 1795,
+  "summary_message_id": 1806,
   "last_daily_summary": "2026-09-18",
   "order_messages": [
     {
-      "message_id": 1795,
-      "sent_at": "2026-09-19T23:00:39.897971+00:00",
+      "message_id": 1806,
+      "sent_at": "2026-09-19T23:02:14.100838+00:00",
       "ttl_seconds": 60
     }
   ],
@@ -124,10 +124,10 @@
     "1395799723": "PreSubmitted"
   },
   "pending_flow": null,
-  "positions_message_id": 1795,
-  "orders_message_id": 1795,
-  "balance_message_id": 1795,
-  "price_message_id": 1795,
+  "positions_message_id": 1806,
+  "orders_message_id": 1806,
+  "balance_message_id": 1806,
+  "price_message_id": 1806,
   "known_fyi_ids": [
     "2026091728835790",
     "2026091618785743",
@@ -137,14 +137,14 @@
     "2026091618405756",
     "2026091611588154"
   ],
-  "menu_message_id": 1795,
+  "menu_message_id": 1806,
   "menu_page": "conto",
   "menu_nav_stack": [
     "main",
     "conto"
   ],
-  "bot_message_id": 1795,
-  "flow_message_id": 1795,
+  "bot_message_id": 1806,
+  "flow_message_id": 1806,
   "quote_fields": [
     "price"
   ],
