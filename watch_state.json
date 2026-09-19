@@ -31,7 +31,7 @@
   "order_messages": [
     {
       "message_id": 1795,
-      "sent_at": "2026-09-19T22:59:50.446142+00:00",
+      "sent_at": "2026-09-19T23:00:39.897971+00:00",
       "ttl_seconds": 60
     }
   ],
@@ -140,7 +140,8 @@
   "menu_message_id": 1795,
   "menu_page": "conto",
   "menu_nav_stack": [
-    "main"
+    "main",
+    "conto"
   ],
   "bot_message_id": 1795,
   "flow_message_id": 1795,
@@ -172,7 +173,7 @@
       "breakeven": null,
       "stop_level": null,
       "stop_order_id": null,
-      "status": "buying"
+      "status": "stopped"
     }
   ]
 }
