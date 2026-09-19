@@ -31,7 +31,17 @@
   "order_messages": [
     {
       "message_id": 1806,
-      "sent_at": "2026-09-19T23:02:14.100838+00:00",
+      "sent_at": "2026-09-19T23:02:19.722716+00:00",
+      "ttl_seconds": 60
+    },
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-19T23:02:33.844918+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-19T23:02:38.737447+00:00",
       "ttl_seconds": 60
     }
   ],
@@ -121,7 +131,7 @@
     "1395799702": "PendingCancel",
     "1395799703": "PendingCancel",
     "1395799722": "Cancelled",
-    "1395799723": "PreSubmitted"
+    "1395799723": "PendingCancel"
   },
   "pending_flow": null,
   "positions_message_id": 1806,
@@ -138,11 +148,8 @@
     "2026091611588154"
   ],
   "menu_message_id": 1806,
-  "menu_page": "conto",
-  "menu_nav_stack": [
-    "main",
-    "conto"
-  ],
+  "menu_page": "main",
+  "menu_nav_stack": [],
   "bot_message_id": 1806,
   "flow_message_id": 1806,
   "quote_fields": [
