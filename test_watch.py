@@ -965,6 +965,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value="U123"),
                 patch.object(watch, "ibkr_get_price", return_value=100.0),
+                patch.object(watch, "ibkr_get", return_value=None),
                 patch.object(
                     watch, "ibkr_post", return_value=[{"order_id": 99}]
                 ) as post,
@@ -1091,6 +1092,192 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.apply_order_status_updates([sell], spath)
             self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "done")
+
+    def test_step_trail_does_not_arm_without_stop_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 2,
+                            "delta": 2.0,
+                            "breakeven": 100.0,
+                            "status": "watching",
+                        }
+                    ]
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=105.0),
+                patch.object(
+                    watch, "ibkr_place_stop", return_value=(None, None)
+                ) as place,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_step_trails(spath)
+            place.assert_called_once()
+            send.assert_not_called()
+            trail = watch.load_state(spath)["auto_trails"][0]
+            self.assertEqual(trail["status"], "watching")
+            self.assertIsNone(trail.get("stop_level"))
+
+    def test_step_trail_uses_filled_qty_and_closes_on_manual_sell(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 10,
+                            "delta": 2.0,
+                            "buy_order_id": "77",
+                            "status": "buying",
+                        }
+                    ]
+                },
+            )
+            order = {
+                "orderId": 77,
+                "status": "Filled",
+                "side": "BUY",
+                "filledQuantity": 3,
+                "ticker": "AMD",
+                "avgPrice": 100,
+            }
+            with (
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=1),
+                patch.object(watch, "commit_state_to_git"),
+            ):
+                watch.apply_order_status_updates([order], spath)
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["quantity"], 3)
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=105.0),
+                patch.object(
+                    watch, "ibkr_place_stop", return_value=(None, "88")
+                ) as place,
+                patch.object(watch, "send_telegram", return_value=2),
+            ):
+                watch.check_step_trails(spath)
+            place.assert_called_once_with("AMD", 3, 102.02)
+            manual = {
+                "orderId": 99,
+                "status": "Filled",
+                "side": "SELL",
+                "filledQuantity": 3,
+                "ticker": "AMD",
+                "avgPrice": 104,
+            }
+            with (
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=3),
+                patch.object(watch, "commit_state_to_git"),
+                patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+                patch.object(watch, "_ibkr_delete_orders") as delete,
+            ):
+                watch.apply_order_status_updates([manual], spath)
+            delete.assert_called_once_with("U123", ["88"])
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "done")
+
+    def test_step_trail_cancelled_buy_and_rejects_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr2",
+                            "ticker": "NVDA",
+                            "quantity": 1,
+                            "delta": 1.0,
+                            "buy_order_id": "10",
+                            "status": "buying",
+                        }
+                    ]
+                },
+            )
+            with patch.object(watch, "send_telegram", return_value=2) as send:
+                watch.apply_order_status_updates(
+                    [{"orderId": 10, "status": "Cancelled", "ticker": "NVDA"}],
+                    spath,
+                )
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "error")
+            self.assertIn("buy Cancelled", sent_text(send))
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr3",
+                            "ticker": "AMD",
+                            "status": "watching",
+                            "delta": 2,
+                            "quantity": 1,
+                        }
+                    ]
+                },
+            )
+            self.assertIn(
+                "già un Trail attivo su AMD",
+                watch.start_step_trail("AMD", 2, 2, spath),
+            )
+
+    def test_step_trail_attaches_fill_already_on_ibkr(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            filled = {
+                "orderId": 99,
+                "status": "Filled",
+                "side": "BUY",
+                "filledQuantity": 3,
+                "ticker": "AMD",
+                "avgPrice": 100,
+            }
+            with (
+                patch.object(watch, "ibkr_place_order_ex", return_value=("✅ ok", "99")),
+                patch.object(watch, "ibkr_get", return_value={"orders": [filled]}),
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=1),
+                patch.object(watch, "commit_state_to_git"),
+            ):
+                msg = watch.start_step_trail("AMD", 10, 2, spath)
+            self.assertIn("Delta 2%", msg)
+            trail = watch.load_state(spath)["auto_trails"][0]
+            self.assertEqual(trail["status"], "watching")
+            self.assertEqual(trail["quantity"], 3)
+            self.assertEqual(trail["breakeven"], 102.0202)
+
+    def test_step_trail_replace_stop_keeps_outside_rth(self) -> None:
+        watch._ACCOUNT_ID_CACHE = None
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(
+                watch, "ibkr_post", return_value=[{"order_id": "88"}]
+            ) as post,
+        ):
+            self.assertIsNone(watch.ibkr_replace_stop("88", "AMD", 2, 102.02))
+        self.assertEqual(
+            post.call_args[0][1],
+            {
+                "conid": 4391,
+                "orderType": "STP",
+                "side": "SELL",
+                "quantity": 2,
+                "price": 102.02,
+                "auxPrice": 102.02,
+                "tif": "GTC",
+                "outsideRTH": True,
+            },
+        )
 
     def test_ibkr_cancel_order_one_and_many(self) -> None:
         payload = {
