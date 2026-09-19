@@ -1249,11 +1249,32 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "commit_state_to_git"),
             ):
                 msg = watch.start_step_trail("AMD", 10, 2, spath)
-            self.assertIn("Delta 2%", msg)
+            self.assertIn("fill @ 100", msg)
+            self.assertIn("già eseguito", msg)
             trail = watch.load_state(spath)["auto_trails"][0]
             self.assertEqual(trail["status"], "watching")
             self.assertEqual(trail["quantity"], 3)
             self.assertEqual(trail["breakeven"], 102.0202)
+
+    def test_step_trail_start_says_when_buy_already_cancelled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            cancelled = {
+                "orderId": 22,
+                "status": "Cancelled",
+                "side": "BUY",
+                "ticker": "SLNH",
+            }
+            with (
+                patch.object(
+                    watch, "ibkr_place_order_ex", return_value=("✅ ok", "22")
+                ),
+                patch.object(watch, "ibkr_get", return_value={"orders": [cancelled]}),
+                patch.object(watch, "send_telegram", return_value=1),
+            ):
+                msg = watch.start_step_trail("SLNH", 5, 2, spath)
+            self.assertIn("cancellato o rifiutato", msg)
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "error")
 
     def test_step_trail_replace_stop_keeps_outside_rth(self) -> None:
         watch._ACCOUNT_ID_CACHE = None
@@ -1911,6 +1932,25 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(
                 [m["message_id"] for m in state["order_messages"]], [23]
             )
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "ticker": "SLNH",
+                            "status": "error",
+                            "buy_order_id": "22",
+                        }
+                    ]
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_active_orders", return_value=[]),
+                patch.object(watch, "send_telegram", return_value=24) as send,
+            ):
+                self.assertTrue(watch.apply_telegram_orders("/ordini", spath))
+            self.assertIn("Nessun ordine attivo.", sent_text(send))
+            self.assertIn("SLNH: buy/stop cancellato, strategia ferma", sent_text(send))
 
     def test_fmt_order_line_shows_trail_not_mkt(self) -> None:
         self.assertEqual(

@@ -1855,12 +1855,7 @@ def start_step_trail(
     )
     _save_auto_trails(state_path, trails)
     check_order_fills(state_path)
-    return (
-        f"{message}\n"
-        f"Trail {ticker}: nessuno stop sotto. "
-        f"Delta {delta:g}%. Attendo il fill per il break-even "
-        f"(1% entrata + 1% uscita)."
-    )
+    return f"{message}\n{_trail_start_followup(state_path, ticker, order_id, delta)}"
 
 
 def stop_step_trail(state_path: Path, ticker: str | None = None) -> str:
@@ -1903,6 +1898,78 @@ def stop_step_trail(state_path: Path, ticker: str | None = None) -> str:
         f"🛑 Trail fermato: {', '.join(names)}. "
         "Stop IBKR tolto. Puoi vendere tu."
     )
+
+
+def _trail_by_buy(state_path: Path, ticker: str, order_id: str | None) -> dict[str, Any] | None:
+    ticker = ticker.strip().upper()
+    wanted = str(order_id or "")
+    found: dict[str, Any] | None = None
+    for trail in _auto_trails(load_state(state_path)):
+        if str(trail.get("ticker") or "").strip().upper() != ticker:
+            continue
+        if wanted and str(trail.get("buy_order_id") or "") == wanted:
+            return trail
+        found = trail
+    return found
+
+
+def _trail_start_followup(
+    state_path: Path, ticker: str, order_id: str | None, delta: float
+) -> str:
+    trail = _trail_by_buy(state_path, ticker, order_id)
+    status = str((trail or {}).get("status") or "buying")
+    if status == "error":
+        return (
+            f"⚠️ Trail {ticker}: il buy è stato cancellato o rifiutato da IBKR. "
+            "Non c'è un ordine attivo. Riprova (in orario di mercato se è weekend)."
+        )
+    if status == "watching":
+        avg = trail.get("avg_price") if trail else None
+        be = trail.get("breakeven") if trail else None
+        avg_s = f"{avg:g}" if isinstance(avg, (int, float)) else "?"
+        be_s = f"{be:g}" if isinstance(be, (int, float)) else "?"
+        return (
+            f"Trail {ticker}: fill @ {avg_s} · break-even {be_s} "
+            f"(1% entrata + 1% uscita). Nessuno stop sotto. "
+            f"Attendo +{delta:g}% sul BE. "
+            "Il buy non è più tra gli ordini aperti perché è già eseguito."
+        )
+    return (
+        f"Trail {ticker}: nessuno stop sotto. "
+        f"Delta {delta:g}%. Attendo il fill per il break-even "
+        f"(1% entrata + 1% uscita)."
+    )
+
+
+def format_trail_status_lines(trails: list[dict[str, Any]]) -> list[str]:
+    labels = {
+        "buying": "buy inviato, attendo fill",
+        "watching": "in posizione, stop non ancora armato",
+        "armed": "stop attivo",
+        "error": "buy/stop cancellato, strategia ferma",
+        "stopped": "fermato a mano",
+        "done": "chiuso",
+    }
+    lines: list[str] = []
+    for trail in trails:
+        if not isinstance(trail, dict):
+            continue
+        status = str(trail.get("status") or "")
+        if status not in {"buying", "watching", "armed", "error"}:
+            continue
+        ticker = str(trail.get("ticker") or "?").upper()
+        label = labels.get(status, status)
+        extra = ""
+        if status == "armed":
+            level = trail.get("stop_level")
+            if level is not None:
+                extra = f" @ {level}"
+        elif status == "watching":
+            be = trail.get("breakeven")
+            if be is not None:
+                extra = f" · BE {be}"
+        lines.append(f"{ticker}: {label}{extra}")
+    return lines
 
 
 def apply_telegram_trail(
@@ -3254,16 +3321,20 @@ def apply_telegram_orders(text: str, state_path: Path) -> bool:
         return False
     _preview_loading(state_path, "orders_message_id")
     orders = ibkr_get_active_orders()
+    trail_lines = format_trail_status_lines(_auto_trails(load_state(state_path)))
+    trail_note = ""
+    if trail_lines:
+        trail_note = "\n\nTrail:\n" + "\n".join(trail_lines)
     if orders is None:
-        body = "⚠️ Impossibile leggere gli ordini al momento."
+        body = "⚠️ Impossibile leggere gli ordini al momento." + trail_note
     elif not orders:
-        body = "📭 Nessun ordine attivo."
+        body = "📭 Nessun ordine attivo." + trail_note
     else:
         lines = [_fmt_order_line(o) for o in orders if isinstance(o, dict)]
         if not lines:
-            body = "📭 Nessun ordine attivo."
+            body = "📭 Nessun ordine attivo." + trail_note
         else:
-            body = "📋 Ordini attivi:\n\n" + "\n".join(lines)
+            body = "📋 Ordini attivi:\n\n" + "\n".join(lines) + trail_note
     _send_replacing_message(
         state_path, "orders_message_id", body, ttl=ORDER_MESSAGE_TTL
     )
