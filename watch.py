@@ -2978,13 +2978,7 @@ def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
     return "n/d"
 
 
-def check_order_fills(state_path: Path) -> None:
-    data = ibkr_get("/v1/api/iserver/account/orders")
-    if data is None:
-        return
-    orders = data.get("orders") if isinstance(data, dict) else None
-    if not isinstance(orders, list):
-        return
+def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
     state = load_state(state_path)
     raw_known = state.get("known_order_status")
     known: dict[str, Any] = dict(raw_known) if isinstance(raw_known, dict) else {}
@@ -3010,6 +3004,139 @@ def check_order_fills(state_path: Path) -> None:
     state = load_state(state_path)
     state["known_order_status"] = known
     save_state(state_path, state)
+
+
+def check_order_fills(state_path: Path) -> None:
+    data = ibkr_get("/v1/api/iserver/account/orders")
+    if data is None:
+        return
+    orders = data.get("orders") if isinstance(data, dict) else None
+    if not isinstance(orders, list):
+        return
+    apply_order_status_updates(orders, state_path)
+
+
+def ibkr_ws_url() -> str:
+    base = IBKR_BASE_URL.rstrip("/")
+    if base.startswith("https://"):
+        return "wss://" + base[len("https://") :] + "/v1/api/ws"
+    if base.startswith("http://"):
+        return "ws://" + base[len("http://") :] + "/v1/api/ws"
+    return base + "/v1/api/ws"
+
+
+def ibkr_tickle() -> bool:
+    return ibkr_get("/v1/api/tickle") is not None
+
+
+def orders_from_ws_message(raw: Any) -> list[dict[str, Any]]:
+    data: Any = raw
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped or stripped in {"tic", "pong"}:
+            return []
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(data, list):
+        return [
+            item
+            for item in data
+            if isinstance(item, dict) and item.get("orderId") is not None
+        ]
+    if not isinstance(data, dict):
+        return []
+    topic = str(data.get("topic") or "")
+    if topic and not topic.startswith("sor"):
+        return []
+    args = data.get("args")
+    if isinstance(args, list):
+        return [
+            item
+            for item in args
+            if isinstance(item, dict) and item.get("orderId") is not None
+        ]
+    if isinstance(args, dict):
+        if args.get("orderId") is not None:
+            return [args]
+        inner = args.get("orders")
+        if isinstance(inner, list):
+            return [
+                item
+                for item in inner
+                if isinstance(item, dict) and item.get("orderId") is not None
+            ]
+    if data.get("orderId") is not None:
+        return [data]
+    return []
+
+
+def handle_ibkr_ws_message(raw: Any, state_path: Path) -> None:
+    orders = orders_from_ws_message(raw)
+    if orders:
+        apply_order_status_updates(orders, state_path)
+
+
+def _open_ibkr_ws() -> Any:
+    try:
+        import ssl
+
+        import websocket
+    except ImportError:
+        return None
+    sock = websocket.WebSocket(sslopt={"cert_reqs": ssl.CERT_NONE})
+    sock.settimeout(30)
+    sock.connect(ibkr_ws_url())
+    return sock
+
+
+def run_ibkr_order_socket(
+    state_path: Path,
+    *,
+    opener: Any = None,
+    stop: threading.Event | None = None,
+    pause: float = 5.0,
+    lock: threading.Lock | None = None,
+) -> None:
+    """Tiene aperto il WebSocket ordini IBKR e notifica i fill in tempo reale."""
+    held = lock if lock is not None else nullcontext()
+    open_sock = opener if opener is not None else _open_ibkr_ws
+    while stop is None or not stop.is_set():
+        sock: Any = None
+        try:
+            ibkr_tickle()
+            ibkr_get("/v1/api/iserver/account/orders")
+            sock = open_sock()
+            if sock is None:
+                time.sleep(pause)
+                continue
+            sock.send("sor+{}")
+            last_ping = time.monotonic()
+            while stop is None or not stop.is_set():
+                now = time.monotonic()
+                if now - last_ping >= 50:
+                    sock.send("tic")
+                    ibkr_tickle()
+                    last_ping = now
+                raw = sock.recv()
+                if raw in (None, "", b""):
+                    break
+                with held:
+                    handle_ibkr_ws_message(raw, state_path)
+        except Exception as exc:
+            print(f"IBKR websocket: {exc}", file=sys.stderr)
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+        if stop is not None and stop.is_set():
+            return
+        time.sleep(pause)
 
 
 def ibkr_get_fyi_notifications() -> list[Any] | None:

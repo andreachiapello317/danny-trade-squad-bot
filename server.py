@@ -39,6 +39,7 @@ from watch import (
     process_callback_query,
     process_single_message,
     rome_now,
+    run_ibkr_order_socket,
     save_watchlist,
     send_watchlist_summary,
     telegram_chat_id,
@@ -53,6 +54,8 @@ WATCHLIST_PATH = DEFAULT_WATCHLIST
 STATE_PATH = DEFAULT_STATE
 
 _price_thread: threading.Thread | None = None
+_ws_thread: threading.Thread | None = None
+_ws_stop = threading.Event()
 
 
 def in_scheduled_window() -> bool:
@@ -97,6 +100,24 @@ def start_price_loop() -> None:
         return
     _price_thread = threading.Thread(target=price_loop, daemon=True, name="watch-price-loop")
     _price_thread.start()
+
+
+def start_ibkr_order_socket() -> None:
+    global _ws_thread
+    if _ws_thread is not None and _ws_thread.is_alive():
+        return
+    _ws_stop.clear()
+    _ws_thread = threading.Thread(
+        target=run_ibkr_order_socket,
+        kwargs={
+            "state_path": STATE_PATH,
+            "stop": _ws_stop,
+            "lock": STATE_LOCK,
+        },
+        daemon=True,
+        name="ibkr-order-ws",
+    )
+    _ws_thread.start()
 
 
 def _commit_watchlist_reset() -> None:
@@ -243,9 +264,11 @@ def webhook() -> tuple[str, int]:
 if os.environ.get("SERVER_SOFTWARE", "").lower().startswith("gunicorn"):
     reset_watchlist_on_boot()
     start_price_loop()
+    start_ibkr_order_socket()
 
 
 if __name__ == "__main__":
     reset_watchlist_on_boot()
     start_price_loop()
+    start_ibkr_order_socket()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

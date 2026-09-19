@@ -1958,6 +1958,103 @@ class TelegramExtractTests(unittest.TestCase):
             send.assert_not_called()
             sync.assert_not_called()
 
+    def test_ibkr_ws_url_and_orders_from_message(self) -> None:
+        self.assertEqual(
+            watch.ibkr_ws_url(), "wss://danny-ibeam:5000/v1/api/ws"
+        )
+        with patch.object(watch, "IBKR_BASE_URL", "http://localhost:5001"):
+            self.assertEqual(watch.ibkr_ws_url(), "ws://localhost:5001/v1/api/ws")
+        filled = {
+            "orderId": 77,
+            "status": "Filled",
+            "side": "BUY",
+            "filledQuantity": 2,
+            "ticker": "AMD",
+            "avgPrice": 148.2,
+        }
+        self.assertEqual(
+            watch.orders_from_ws_message(
+                json.dumps({"topic": "sor", "args": [filled]})
+            ),
+            [filled],
+        )
+        self.assertEqual(
+            watch.orders_from_ws_message({"topic": "sor", "args": filled}),
+            [filled],
+        )
+        self.assertEqual(watch.orders_from_ws_message({"topic": "sts"}), [])
+        self.assertEqual(watch.orders_from_ws_message("tic"), [])
+
+    def test_handle_ibkr_ws_message_notifies_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            payload = {
+                "topic": "sor",
+                "args": [
+                    {
+                        "orderId": 88,
+                        "status": "Filled",
+                        "side": "SELL",
+                        "filledQuantity": 1,
+                        "ticker": "NVDA",
+                        "avgPrice": 120,
+                    }
+                ],
+            }
+            with (
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=9) as send,
+                patch.object(watch, "commit_state_to_git") as sync,
+            ):
+                watch.handle_ibkr_ws_message(json.dumps(payload), spath)
+                watch.handle_ibkr_ws_message(json.dumps(payload), spath)
+            self.assertEqual(
+                sent_text(send), "✅ ESEGUITO: SELL 1 NVDA @ 120 · fee: n/d"
+            )
+            sync.assert_called_once_with()
+            self.assertEqual(watch.load_state(spath)["known_order_status"]["88"], "Filled")
+
+    def test_run_ibkr_order_socket_subscribes_and_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            stop = threading.Event()
+            sent: list[str] = []
+
+            class FakeSock:
+                def send(self, msg: str) -> None:
+                    sent.append(msg)
+
+                def recv(self) -> str:
+                    stop.set()
+                    return json.dumps(
+                        {
+                            "topic": "sor",
+                            "args": [
+                                {
+                                    "orderId": 5,
+                                    "status": "Submitted",
+                                    "ticker": "AMD",
+                                }
+                            ],
+                        }
+                    )
+
+                def close(self) -> None:
+                    return None
+
+            with (
+                patch.object(watch, "ibkr_tickle", return_value=True) as tickle,
+                patch.object(watch, "ibkr_get", return_value={"orders": []}),
+            ):
+                watch.run_ibkr_order_socket(
+                    spath, opener=FakeSock, stop=stop, pause=0
+                )
+            self.assertEqual(sent[0], "sor+{}")
+            tickle.assert_called()
+            self.assertEqual(
+                watch.load_state(spath)["known_order_status"]["5"], "Submitted"
+            )
+
     def test_ibkr_get_fyi_notifications_shapes(self) -> None:
         with patch.object(watch, "ibkr_get", return_value=None):
             self.assertIsNone(watch.ibkr_get_fyi_notifications())
