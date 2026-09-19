@@ -334,5 +334,19 @@ class ResetWatchlistOnBootTests(unittest.TestCase):
         self.assertFalse(any("watch_state.json" in line for line in joined))
 
 
+class OrderSocketTests(unittest.TestCase):
+    def test_start_ibkr_order_socket_once(self) -> None:
+        server._ws_thread = None
+        with patch.object(server.threading, "Thread") as thread_cls:
+            thread = thread_cls.return_value
+            thread.is_alive.return_value = True
+            server.start_ibkr_order_socket()
+            server.start_ibkr_order_socket()
+        thread_cls.assert_called_once()
+        thread.start.assert_called_once()
+        self.assertEqual(thread_cls.call_args.kwargs["name"], "ibkr-order-ws")
+        server._ws_thread = None
+
+
 if __name__ == "__main__":
     unittest.main()
