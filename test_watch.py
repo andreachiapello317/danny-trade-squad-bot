@@ -3396,6 +3396,55 @@ class WatchlistTrailTriggerTests(unittest.TestCase):
             self.assertIn("ha toccato entry 120", sent_text(send))
             self.assertEqual(watch.load_watchlist(wpath)[0]["status"], "fired")
 
+    def test_fire_keeps_waiting_if_trail_start_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            items = [self._item()]
+            with (
+                patch.object(
+                    watch,
+                    "start_step_trail",
+                    return_value="⚠️ Impossibile trovare AMD su IBKR.",
+                ) as start,
+                patch.object(watch, "send_telegram", return_value=1) as send,
+            ):
+                watch.fire_watchlist_triggers(items, {"AMD": 119.0}, spath, wpath)
+            start.assert_called_once()
+            self.assertIn("non è partita", sent_text(send))
+            saved = watch.load_watchlist(wpath)[0]
+            self.assertEqual(saved["status"], "waiting")
+            self.assertIn("Impossibile trovare AMD", saved["last_error"])
+            with (
+                patch.object(
+                    watch,
+                    "start_step_trail",
+                    return_value="⚠️ Impossibile trovare AMD su IBKR.",
+                ) as start,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.fire_watchlist_triggers(
+                    watch.load_watchlist(wpath), {"AMD": 119.0}, spath, wpath
+                )
+            start.assert_called_once()
+            send.assert_not_called()
+
+    def test_fire_marks_fired_if_trail_already_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            items = [self._item()]
+            with (
+                patch.object(
+                    watch,
+                    "start_step_trail",
+                    return_value="⚠️ C'è già un Trail attivo su AMD. Fermalo prima di aprirne un altro.",
+                ),
+                patch.object(watch, "send_telegram", return_value=1),
+            ):
+                watch.fire_watchlist_triggers(items, {"AMD": 119.0}, spath, wpath)
+            self.assertEqual(watch.load_watchlist(wpath)[0]["status"], "fired")
+
     def test_ws_tick_starts_waiting_trail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -4826,6 +4875,39 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(item["delta"], 2.0)
             self.assertEqual(item["params"], {"quantity": 5, "delta": 2.0})
             self.assertEqual(item["status"], "waiting")
+
+    def test_setbuy_rejects_fractional_shares_and_bad_delta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {
+                        "type": "SETBUY",
+                        "step": "quantity",
+                        "ticker": "AMD",
+                        "entry": 120.0,
+                        "strategy": "trail",
+                    }
+                },
+            )
+            with patch.object(watch, "send_telegram") as send:
+                self.assertTrue(
+                    watch.process_pending_flow_text("3.5", spath, wpath)
+                )
+            self.assertIn("Numero non valido", sent_text(send))
+            self.assertEqual(
+                watch.load_state(spath)["pending_flow"]["step"], "quantity"
+            )
+            with patch.object(watch, "send_telegram") as send:
+                watch.process_pending_flow_text("3", spath, wpath)
+            self.assertIn("delta in %", sent_text(send).lower())
+            with patch.object(watch, "send_telegram") as send:
+                watch.process_pending_flow_text("150", spath, wpath)
+            self.assertIn("non valido", sent_text(send).lower())
+            self.assertEqual(watch.load_watchlist(wpath), [])
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "delta")
 
     def test_flowticker_and_history_and_clear_buttons(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

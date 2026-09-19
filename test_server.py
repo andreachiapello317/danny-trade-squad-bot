@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from datetime import datetime
@@ -316,43 +315,30 @@ class WebhookTests(unittest.TestCase):
 
 
 class ResetWatchlistOnBootTests(unittest.TestCase):
-    def test_empties_watchlist_and_keeps_known_order_status(self) -> None:
+    def test_boot_keeps_waiting_setbuy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
-            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": "daily"}])
+            item = {
+                "ticker": "AMD",
+                "entry": 120,
+                "strategy": "trail",
+                "quantity": 3,
+                "delta": 2,
+                "status": "waiting",
+            }
+            watch.save_watchlist(wpath, [item])
             watch.save_state(spath, {"known_order_status": {"77": "Filled"}})
             with (
                 patch.object(server, "WATCHLIST_PATH", wpath),
                 patch.object(server, "STATE_PATH", spath),
-                patch.object(server, "_commit_watchlist_reset") as commit,
             ):
                 server.reset_watchlist_on_boot()
-            self.assertEqual(json.loads(wpath.read_text(encoding="utf-8")), [])
+            kept = watch.load_watchlist(wpath)
+            self.assertEqual(kept[0]["ticker"], "AMD")
+            self.assertEqual(kept[0]["status"], "waiting")
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["known_order_status"], {"77": "Filled"})
-            commit.assert_called_once()
-
-    def test_git_commit_only_watchlist_json(self) -> None:
-        calls: list[list[str]] = []
-
-        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            calls.append(list(args))
-            result = subprocess.CompletedProcess(args, 0, "", "")
-            if "diff" in args:
-                result.returncode = 1
-            return result
-
-        with (
-            patch.object(server, "WATCHLIST_PATH", Path("watchlist.json")),
-            patch.object(server.subprocess, "run", side_effect=fake_run),
-        ):
-            server._commit_watchlist_reset()
-        self.assertTrue(any(c[:2] == ["git", "add"] for c in calls))
-        self.assertTrue(any("commit" in c for c in calls))
-        joined = [" ".join(c) for c in calls]
-        self.assertTrue(any("watchlist.json" in line for line in joined))
-        self.assertFalse(any("watch_state.json" in line for line in joined))
 
 
 class OrderSocketTests(unittest.TestCase):

@@ -2436,9 +2436,13 @@ def _begin_strategy_params(flow: dict[str, Any], state_path: Path) -> None:
 def _parse_strategy_param(param: dict[str, Any], raw: float) -> Any | None:
     kind = str(param.get("kind") or "")
     if kind == "shares":
-        qty = int(raw)
+        if abs(raw - round(raw)) > 1e-9:
+            return None
+        qty = int(round(raw))
         return qty if qty >= 1 else None
-    if kind in {"percent", "number"}:
+    if kind == "percent":
+        return raw if 0 < raw <= 100 else None
+    if kind == "number":
         return raw if raw > 0 else None
     return raw
 
@@ -2457,21 +2461,41 @@ def _finish_armed_strategy(
             _save_pending_flow(state_path, None)
             _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
             return
+        if delta <= 0 or delta > 100:
+            _send_flow_message(
+                state_path, "⚠️ Delta non valido. Usa una percentuale, es. 2."
+            )
+            return
         upsert_strategy_trigger(
             watchlist_path, ticker, entry, strategy, qty, delta
         )
         _save_pending_flow(state_path, None)
         label = AUTO_STRATEGIES.get(strategy, {}).get("label") or strategy.title()
+        extra = ""
+        if any(
+            str(trail.get("ticker") or "").strip().upper() == ticker
+            for trail in _active_step_trails(state_path)
+        ):
+            extra = (
+                f"\n⚠️ C'è già un Trail attivo su {ticker}: "
+                "quando l'entry scatta non ne parte un secondo."
+            )
         _send_flow_message(
             state_path,
             f"✅ {ticker} in watchlist: entry {entry:g} · "
             f"{label} {qty} az · Δ {delta:g}%. "
-            "Parte da solo quando il prezzo tocca l'entry.",
+            "Parte da solo quando il prezzo tocca l'entry."
+            f"{extra}",
         )
         return
     if qty is None or delta is None:
         _save_pending_flow(state_path, None)
         _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+        return
+    if delta <= 0 or delta > 100:
+        _send_flow_message(
+            state_path, "⚠️ Delta non valido. Usa una percentuale, es. 2."
+        )
         return
     _save_pending_flow(state_path, None)
     _send_order_message(
@@ -2488,7 +2512,10 @@ def _collect_strategy_param_text(
     strategy = str(flow.get("strategy") or "").strip().lower()
     if not strategy:
         return False
-    param = _strategy_param_for_step(strategy, str(flow.get("step") or ""))
+    step = str(flow.get("step") or "")
+    if strategy == "trail" and step == "amount":
+        step = "delta"
+    param = _strategy_param_for_step(strategy, step)
     if param is None:
         return False
     raw = _parse_flow_number(stripped)
@@ -3844,8 +3871,11 @@ def _ticker_for_conid(conid: str) -> str | None:
     return None
 
 
-def trail_md_wanted(state_path: Path) -> dict[str, str]:
+def trail_md_wanted(
+    state_path: Path, watchlist_path: Path | None = None
+) -> dict[str, str]:
     """conid IBKR → ticker, per Trail e entry in attesa."""
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     wanted: dict[str, str] = {}
     for trail in _auto_trails(load_state(state_path)):
         if str(trail.get("status") or "") not in {"watching", "armed"}:
@@ -3856,7 +3886,7 @@ def trail_md_wanted(state_path: Path) -> dict[str, str]:
         conid = ibkr_lookup_conid(ticker)
         if conid:
             wanted[str(conid)] = ticker
-    for item in load_watchlist(DEFAULT_WATCHLIST):
+    for item in load_watchlist(wpath):
         if str(item.get("status") or "") != "waiting":
             continue
         if not item.get("strategy"):
@@ -3871,9 +3901,12 @@ def trail_md_wanted(state_path: Path) -> dict[str, str]:
 
 
 def sync_trail_md_subs(
-    sock: Any, subscribed: set[str], state_path: Path
+    sock: Any,
+    subscribed: set[str],
+    state_path: Path,
+    watchlist_path: Path | None = None,
 ) -> dict[str, str]:
-    wanted = trail_md_wanted(state_path)
+    wanted = trail_md_wanted(state_path, watchlist_path)
     for conid in list(subscribed - set(wanted)):
         try:
             sock.send(f"umd+{conid}+{{}}")
@@ -3892,6 +3925,7 @@ def handle_ibkr_ws_message(
     raw: Any,
     state_path: Path,
     conid_tickers: dict[str, str] | None = None,
+    watchlist_path: Path | None = None,
 ) -> None:
     orders = orders_from_ws_message(raw)
     if orders:
@@ -3907,7 +3941,8 @@ def handle_ibkr_ws_message(
         ticker = _ticker_for_conid(conid)
     if ticker:
         apply_step_trail_price(state_path, ticker, price)
-        apply_watchlist_trigger_price(DEFAULT_WATCHLIST, state_path, ticker, price)
+        wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
+        apply_watchlist_trigger_price(wpath, state_path, ticker, price)
 
 
 def _open_ibkr_ws() -> Any:
@@ -3930,6 +3965,7 @@ def run_ibkr_order_socket(
     stop: threading.Event | None = None,
     pause: float = 5.0,
     lock: threading.Lock | None = None,
+    watchlist_path: Path | None = None,
 ) -> None:
     """WebSocket IBKR: fill ordini + tick prezzi per alzare i Trail."""
     held = lock if lock is not None else nullcontext()
@@ -3947,7 +3983,9 @@ def run_ibkr_order_socket(
             subscribed: set[str] = set()
             md_map: dict[str, str] = {}
             with held:
-                md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                md_map = sync_trail_md_subs(
+                    sock, subscribed, state_path, watchlist_path
+                )
             last_ping = time.monotonic()
             while stop is None or not stop.is_set():
                 now = time.monotonic()
@@ -3956,13 +3994,19 @@ def run_ibkr_order_socket(
                     ibkr_tickle()
                     last_ping = now
                     with held:
-                        md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                        md_map = sync_trail_md_subs(
+                            sock, subscribed, state_path, watchlist_path
+                        )
                 raw = sock.recv()
                 if raw in (None, "", b""):
                     break
                 with held:
-                    handle_ibkr_ws_message(raw, state_path, md_map)
-                    md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                    handle_ibkr_ws_message(
+                        raw, state_path, md_map, watchlist_path
+                    )
+                    md_map = sync_trail_md_subs(
+                        sock, subscribed, state_path, watchlist_path
+                    )
         except Exception as exc:
             print(f"IBKR websocket: {exc}", file=sys.stderr)
         finally:
@@ -4819,13 +4863,26 @@ def _run_auto_strategy(
     ticker: str, item: dict[str, Any], state_path: Path
 ) -> str:
     strategy = str(item.get("strategy") or "").strip().lower()
+    params = item.get("params") if isinstance(item.get("params"), dict) else {}
     if strategy == "trail":
-        qty = _share_qty(item.get("quantity"))
-        delta = _float_or_none(item.get("delta"))
+        qty = _share_qty(
+            item.get("quantity")
+            if item.get("quantity") is not None
+            else params.get("quantity")
+        )
+        delta = _float_or_none(
+            item.get("delta") if item.get("delta") is not None else params.get("delta")
+        )
         if qty is None or delta is None:
             return f"⚠️ Trail incompleto per {ticker}."
         return start_step_trail(ticker, qty, delta, state_path)
     return f"⚠️ Strategia {strategy or '?'} non ancora disponibile."
+
+
+def _auto_start_done(result: str) -> bool:
+    if not result.startswith("⚠️"):
+        return True
+    return "già un Trail attivo" in result
 
 
 def upsert_strategy_trigger(
@@ -4878,9 +4935,21 @@ def fire_watchlist_triggers(
             continue
         if price > entry + 1e-9:
             continue
-        item["status"] = "fired"
-        changed = True
         result = _run_auto_strategy(ticker, item, state_path)
+        if not _auto_start_done(result):
+            prev = str(item.get("last_error") or "")
+            if prev != result:
+                item["last_error"] = result
+                changed = True
+                _send_order_message(
+                    state_path,
+                    f"🎯 {ticker} ha toccato entry {entry:g} @ {price:g}, "
+                    f"ma la strategia non è partita.\n{result}",
+                )
+            continue
+        item["status"] = "fired"
+        item.pop("last_error", None)
+        changed = True
         _send_order_message(
             state_path,
             f"🎯 {ticker} ha toccato entry {entry:g} @ {price:g}.\n{result}",
