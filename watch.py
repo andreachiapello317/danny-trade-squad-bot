@@ -125,6 +125,9 @@ TRAIL_RE = re.compile(
     r"^/trail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
 )
 START_RE = re.compile(r"^/(start|menu)\s*$", re.I)
+INGRESSO_INPUT_RE = re.compile(
+    rf"^{NUM}(?:\s*{RANGE_SEP}\s*{NUM})?\s*$"
+)
 MENU_MAIN_TEXT = "🤖 Danny Trade Squad Bot\n\nScegli una categoria:"
 MENU_MAIN_BUTTONS = [
     ("📋 Watchlist", "menu:watchlist"),
@@ -136,33 +139,35 @@ MENU_NAV_BUTTONS = [
     ("◀️ Indietro", "menu:back"),
     ("🏠 Home", "menu:main"),
 ]
-MENU_WATCHLIST_TEXT = (
-    "📋 Watchlist\n\n"
-    "/set TICKER INGRESSO STOP TARGET\n"
-    "Esempio: /set AMD 130-134 124 148\n\n"
-    "/setbuy TICKER PREZZO\n"
-    "/settarget TICKER PREZZO\n"
-    "/setstop TICKER PREZZO\n"
-    "/rm TICKER\n"
-    "/clear"
-)
-MENU_TRADING_TEXT = (
-    "💰 Trading\n\n"
-    "/annulla TICKER\n"
-    "/modifica TICKER PREZZO\n"
-    "/trail TICKER QTY AMT"
-)
-MENU_CONTO_TEXT = (
-    "📊 Conto\n\n"
-    "/storico N\n"
-    "Esempio: /storico 7"
-)
-MENU_INFO_TEXT = (
-    "ℹ️ Info\n\n"
-    "/prezzo TICKER\n"
-    "Esempio: /prezzo AMD\n\n"
-    "/info TICKER"
-)
+MENU_WATCHLIST_TEXT = "📋 Watchlist\n\nScegli un'azione:"
+MENU_WATCHLIST_BUTTONS = [
+    ("📋 Lista attuale", "action:list"),
+    ("✏️ Set livelli", "action:set"),
+    ("🟢 Set buy", "action:setbuy"),
+    ("🎯 Set target", "action:settarget"),
+    ("🛑 Set stop", "action:setstop"),
+    ("🗑️ Rimuovi", "action:rm"),
+    ("🧹 Svuota", "action:clear"),
+]
+MENU_TRADING_TEXT = "💰 Trading\n\nScegli un'azione:"
+MENU_TRADING_BUTTONS = [
+    ("🟢 Compra", "action:buyflow"),
+    ("🔴 Vendi", "action:sellflow"),
+    ("🚫 Annulla", "action:cancel"),
+    ("✏️ Modifica", "action:modify"),
+    ("📉 Trail", "action:trail"),
+]
+MENU_CONTO_TEXT = "📊 Conto\n\nScegli un'azione:"
+MENU_CONTO_BUTTONS = [
+    ("💰 Saldo", "action:saldo"),
+    ("📊 Posizioni", "action:posizioni"),
+    ("📋 Ordini", "action:ordini"),
+    ("📜 Storico", "action:history"),
+]
+MENU_INFO_TEXT = "ℹ️ Info\n\nScegli un'azione:"
+MENU_INFO_BUTTONS = [
+    ("📈 Prezzo", "action:price"),
+]
 BOT_MESSAGE_KEY = "bot_message_id"
 LEGACY_MESSAGE_KEYS = (
     "menu_message_id",
@@ -175,26 +180,52 @@ LEGACY_MESSAGE_KEYS = (
 )
 MENU_PAGES: dict[str, tuple[str, list[tuple[str, str]] | None, bool]] = {
     "main": (MENU_MAIN_TEXT, MENU_MAIN_BUTTONS, False),
-    "watchlist": (
-        MENU_WATCHLIST_TEXT,
-        [("📋 Lista attuale", "action:list")],
-        True,
-    ),
-    "trading": (
-        MENU_TRADING_TEXT,
-        [("🟢 Compra", "action:buyflow"), ("🔴 Vendi", "action:sellflow")],
-        True,
-    ),
-    "conto": (
-        MENU_CONTO_TEXT,
-        [
-            ("💰 Saldo", "action:saldo"),
-            ("📊 Posizioni", "action:posizioni"),
-            ("📋 Ordini", "action:ordini"),
-        ],
-        True,
-    ),
-    "info": (MENU_INFO_TEXT, None, True),
+    "watchlist": (MENU_WATCHLIST_TEXT, MENU_WATCHLIST_BUTTONS, True),
+    "trading": (MENU_TRADING_TEXT, MENU_TRADING_BUTTONS, True),
+    "conto": (MENU_CONTO_TEXT, MENU_CONTO_BUTTONS, True),
+    "info": (MENU_INFO_TEXT, MENU_INFO_BUTTONS, True),
+}
+MENU_ACTION_KINDS = {
+    "list",
+    "saldo",
+    "posizioni",
+    "ordini",
+    "buyflow",
+    "sellflow",
+    "set",
+    "setbuy",
+    "settarget",
+    "setstop",
+    "rm",
+    "clear",
+    "cancel",
+    "modify",
+    "trail",
+    "history",
+    "price",
+}
+MENU_SLOW_ACTIONS = {
+    "list",
+    "saldo",
+    "posizioni",
+    "ordini",
+    "sellflow",
+    "cancel",
+    "modify",
+    "trail",
+}
+MENU_FLOW_KINDS = {
+    "set": "SET",
+    "setbuy": "SETBUY",
+    "settarget": "SETTARGET",
+    "setstop": "SETSTOP",
+    "rm": "RM",
+    "clear": "CLEAR",
+    "cancel": "CANCEL",
+    "modify": "MODIFY",
+    "trail": "TRAIL",
+    "history": "HISTORY",
+    "price": "PRICE",
 }
 
 
@@ -736,6 +767,8 @@ def _show_named_menu(
             stack = stack[-8:]
     _save_menu_nav(state_path, page, stack)
     text, buttons, with_nav = MENU_PAGES[page]
+    if page == "main":
+        text = format_home_text(live=True)
     _show_menu_page(
         chat_id, message_id, text, buttons, state_path, with_nav=with_nav
     )
@@ -777,8 +810,7 @@ def apply_telegram_start(text: str, state_path: Path) -> bool:
 def apply_menu_action(
     kind: str, watchlist_path: Path, state_path: Path
 ) -> None:
-    slow = kind in {"list", "saldo", "posizioni", "ordini", "sellflow"}
-    if slow:
+    if kind in MENU_SLOW_ACTIONS:
         _show_menu_loading(state_path)
     if kind == "list":
         apply_telegram_list("/list", watchlist_path, state_path)
@@ -797,6 +829,10 @@ def apply_menu_action(
         return
     if kind == "sellflow":
         apply_telegram_sell_flow_start("/vendi", state_path)
+        return
+    flow_kind = MENU_FLOW_KINDS.get(kind)
+    if flow_kind:
+        _start_guided_flow(flow_kind, watchlist_path, state_path)
 
 
 def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
@@ -882,6 +918,70 @@ def ibkr_get_account_id() -> str | None:
         return None
     _ACCOUNT_ID_CACHE = str(first["accountId"])
     return _ACCOUNT_ID_CACHE
+
+
+def ibkr_account_snapshot() -> dict[str, Any] | None:
+    accounts = ibkr_get("/v1/api/portfolio/accounts")
+    if not isinstance(accounts, list) or not accounts:
+        return None
+    first = accounts[0]
+    if not isinstance(first, dict) or not first.get("accountId"):
+        return None
+    account_id = str(first["accountId"])
+    ledger = ibkr_get(f"/v1/api/portfolio/{account_id}/ledger")
+    cashbalance: Any = None
+    netliquidationvalue: Any = None
+    currency = ""
+    if isinstance(ledger, dict):
+        raw = ledger.get("BASE")
+        if not isinstance(raw, dict):
+            raw = next(iter(ledger.values()), None)
+        if isinstance(raw, dict):
+            cashbalance = raw.get("cashbalance")
+            netliquidationvalue = raw.get("netliquidationvalue")
+            currency = str(raw.get("currency") or "")
+    return {
+        "account_id": account_id,
+        "cashbalance": cashbalance,
+        "netliquidationvalue": netliquidationvalue,
+        "currency": currency,
+    }
+
+
+def format_account_lines(snapshot: dict[str, Any] | None) -> str:
+    if snapshot is None:
+        return "Conto: n/d\nContanti: n/d\nValore netto: n/d"
+    account_id = str(snapshot.get("account_id") or "").strip() or "n/d"
+    currency = str(snapshot.get("currency") or "").strip()
+    cash = snapshot.get("cashbalance")
+    nlv = snapshot.get("netliquidationvalue")
+    cash_s = "n/d" if cash is None else f"{cash} {currency}".strip()
+    nlv_s = "n/d" if nlv is None else f"{nlv} {currency}".strip()
+    return f"Conto: {account_id}\nContanti: {cash_s}\nValore netto: {nlv_s}"
+
+
+def format_home_text(
+    snapshot: dict[str, Any] | None = None, *, live: bool = False
+) -> str:
+    if live:
+        snapshot = ibkr_account_snapshot()
+    return (
+        "🤖 Danny Trade Squad Bot\n\n"
+        f"{format_account_lines(snapshot)}\n\n"
+        "Scegli una categoria:"
+    )
+
+
+def maybe_refresh_home(state_path: Path) -> None:
+    """Ri-legge saldo e conto sulla home, se è quella a schermo."""
+    state = load_state(state_path)
+    if _pending_flow(state) is not None:
+        return
+    if state.get("menu_page") != "main":
+        return
+    if not isinstance(_bot_message_id(state), int):
+        return
+    deliver_text(state_path, format_home_text(live=True), MENU_MAIN_BUTTONS)
 
 
 def ibkr_lookup_conid(ticker: str) -> str | None:
@@ -1413,6 +1513,248 @@ def apply_telegram_sell_flow_start(text: str, state_path: Path) -> bool:
     return True
 
 
+def _watchlist_tickers(watchlist_path: Path) -> list[str]:
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for item in load_watchlist(watchlist_path):
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    return tickers
+
+
+def _order_tickers(limit_only: bool = False) -> list[str] | None:
+    orders = ibkr_get_active_orders()
+    if orders is None:
+        return None
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if limit_only and not _ibkr_is_limit_order(order):
+            continue
+        ticker = str(order.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    return tickers
+
+
+def _flow_ticker_buttons(tickers: list[str]) -> list[tuple[str, str]]:
+    return [(ticker, f"flowticker:{ticker}") for ticker in tickers]
+
+
+def _parse_ingresso_input(text: str) -> tuple[float, float] | None:
+    match = INGRESSO_INPUT_RE.match(text.strip())
+    if not match:
+        return None
+    try:
+        low = parse_num(match.group(1))
+        high_raw = match.group(2)
+        high = parse_num(high_raw) if high_raw else low
+    except (TypeError, ValueError):
+        return None
+    if low > high:
+        low, high = high, low
+    return low, high
+
+
+def _complete_clear_flow(watchlist_path: Path, state_path: Path) -> None:
+    _save_pending_flow(state_path, None)
+    cleared = apply_telegram_clear("/clear", watchlist_path)
+    count = len(cleared or [])
+    if count:
+        _send_flow_message(state_path, f"🧹 Watchlist svuotata ({count} ticker).")
+    else:
+        _send_flow_message(state_path, "🧹 Watchlist già vuota.")
+
+
+def _start_guided_flow(
+    kind: str, watchlist_path: Path, state_path: Path
+) -> None:
+    if kind == "CLEAR":
+        if not _watchlist_tickers(watchlist_path):
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, "📭 Watchlist già vuota.")
+            return
+        flow = _new_pending_flow("CLEAR")
+        flow["step"] = "confirm"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Svuotare tutta la watchlist?",
+            [("Sì, svuota", "confirm:yes"), ("No", "confirm:no")],
+        )
+        return
+    if kind == "HISTORY":
+        flow = _new_pending_flow("HISTORY")
+        flow["step"] = "days"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quanti giorni di storico?",
+            [
+                ("1 giorno", "days:1"),
+                ("7 giorni", "days:7"),
+                ("30 giorni", "days:30"),
+            ],
+        )
+        return
+    if kind == "CANCEL":
+        tickers = _order_tickers()
+        if tickers is None:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, "⚠️ Impossibile leggere gli ordini aperti."
+            )
+            return
+        if not tickers:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, "📭 Nessun ordine attivo da annullare."
+            )
+            return
+        flow = _new_pending_flow("CANCEL")
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quale ticker vuoi annullare?",
+            _flow_ticker_buttons(tickers),
+        )
+        return
+    if kind == "MODIFY":
+        tickers = _order_tickers(limit_only=True)
+        if tickers is None:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, "⚠️ Impossibile leggere gli ordini aperti."
+            )
+            return
+        if not tickers:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, "📭 Nessun ordine a limite da modificare."
+            )
+            return
+        flow = _new_pending_flow("MODIFY")
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quale ticker vuoi modificare?",
+            _flow_ticker_buttons(tickers),
+        )
+        return
+    if kind == "RM":
+        tickers = _watchlist_tickers(watchlist_path)
+        if not tickers:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, "📭 Watchlist vuota.")
+            return
+        flow = _new_pending_flow("RM")
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quale ticker vuoi togliere?",
+            _flow_ticker_buttons(tickers),
+        )
+        return
+    if kind == "TRAIL":
+        tickers = _held_position_tickers(ibkr_get_positions())
+        flow = _new_pending_flow("TRAIL")
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quale ticker per il trailing stop?",
+            _flow_ticker_buttons(tickers) if tickers else None,
+        )
+        return
+    prompts = {
+        "SET": "Quale ticker vuoi impostare?",
+        "SETBUY": "Quale ticker per l'ingresso?",
+        "SETTARGET": "Quale ticker per il target?",
+        "SETSTOP": "Quale ticker per lo stop?",
+        "PRICE": "Di quale ticker vuoi il prezzo?",
+    }
+    prompt = prompts.get(kind)
+    if not prompt:
+        return
+    flow = _new_pending_flow(kind)
+    _save_pending_flow(state_path, flow)
+    shortcuts = _watchlist_tickers(watchlist_path)
+    _send_flow_message(
+        state_path,
+        prompt,
+        _flow_ticker_buttons(shortcuts) if shortcuts else None,
+    )
+
+
+def _advance_flow_after_ticker(
+    flow: dict[str, Any],
+    ticker: str,
+    state_path: Path,
+    watchlist_path: Path,
+) -> None:
+    kind = str(flow.get("type") or "")
+    flow["ticker"] = ticker
+    if kind == "SET":
+        flow["step"] = "ingresso"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path, f"{ticker}: ingresso? (es. 130 o 130-134)"
+        )
+        return
+    if kind in {"SETBUY", "SETTARGET", "SETSTOP"}:
+        labels = {
+            "SETBUY": "ingresso",
+            "SETTARGET": "target",
+            "SETSTOP": "stop",
+        }
+        flow["step"] = "price"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(state_path, f"{ticker}: prezzo di {labels[kind]}?")
+        return
+    if kind == "PRICE":
+        _save_pending_flow(state_path, None)
+        apply_telegram_price(f"/prezzo {ticker}", state_path)
+        return
+    if kind == "CANCEL":
+        _save_pending_flow(state_path, None)
+        _send_order_message(state_path, ibkr_cancel_order(ticker))
+        return
+    if kind == "MODIFY":
+        flow["step"] = "price"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(state_path, f"{ticker}: nuovo prezzo limite?")
+        return
+    if kind == "TRAIL":
+        flow["step"] = "quantity"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(state_path, f"{ticker}: quante azioni?")
+        return
+    if kind == "RM":
+        _save_pending_flow(state_path, None)
+        gone = apply_telegram_remove(f"/rm {ticker}", watchlist_path)
+        if gone:
+            _send_flow_message(
+                state_path, f"🗑️ {ticker} rimosso dalla watchlist."
+            )
+        else:
+            _send_flow_message(
+                state_path, f"⚠️ {ticker} non era in watchlist."
+            )
+        return
+    if kind == "BUY":
+        flow["step"] = "size_type"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path, "Azioni o Dollari?", _size_type_buttons(flow)
+        )
+
+
 def _parse_flow_number(text: str) -> float | None:
     try:
         value = parse_num(text.strip())
@@ -1476,32 +1818,89 @@ def _execute_flow_order(flow: dict[str, Any], state_path: Path) -> str:
     return _emit_flow_result(result, state_path)
 
 
-def process_pending_flow_text(text: str, state_path: Path) -> bool:
+def process_pending_flow_text(
+    text: str, state_path: Path, watchlist_path: Path | None = None
+) -> bool:
     state = load_state(state_path)
     flow = _pending_flow(state)
     if flow is None:
         return False
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
+    kind = str(flow.get("type") or "")
     step = flow.get("step")
     stripped = text.strip()
     if step == "ticker":
-        if str(flow.get("type") or "") == "SELL":
+        if kind == "SELL":
             return False
         match = FLOW_TICKER_RE.match(stripped)
         ticker = match.group(1).upper() if match else ""
         if not ticker or not is_valid_symbol(ticker):
             _send_flow_message(state_path, "⚠️ Ticker non valido, riprova.")
             return True
-        flow["ticker"] = ticker
-        flow["step"] = "size_type"
+        _advance_flow_after_ticker(flow, ticker, state_path, wpath)
+        return True
+    if step == "ingresso":
+        parsed = _parse_ingresso_input(stripped)
+        if parsed is None:
+            _send_flow_message(
+                state_path,
+                "⚠️ Ingresso non valido, riprova. Es. 130 o 130-134",
+            )
+            return True
+        flow["ingresso_low"], flow["ingresso_high"] = parsed
+        flow["step"] = "stop"
         _save_pending_flow(state_path, flow)
+        _send_flow_message(state_path, f"{flow.get('ticker')}: stop?")
+        return True
+    if step == "stop" and kind == "SET":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            _send_flow_message(state_path, "⚠️ Stop non valido, riprova.")
+            return True
+        flow["stop"] = value
+        flow["step"] = "target"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(state_path, f"{flow.get('ticker')}: target?")
+        return True
+    if step == "target":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            _send_flow_message(state_path, "⚠️ Target non valido, riprova.")
+            return True
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        try:
+            low = float(flow.get("ingresso_low"))
+            high = float(flow.get("ingresso_high"))
+            stop = float(flow.get("stop"))
+        except (TypeError, ValueError):
+            _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+            _save_pending_flow(state_path, None)
+            return True
+        _upsert_set_levels(wpath, ticker, low, high, stop, value)
+        ing = f"{low:g}" if low == high else f"{low:g}-{high:g}"
+        _save_pending_flow(state_path, None)
         _send_flow_message(
-            state_path, "Azioni o Dollari?", _size_type_buttons(flow)
+            state_path,
+            f"✅ {ticker} impostato: ing {ing}  stop {stop:g}  tgt {value:g}",
         )
         return True
     if step == "quantity":
         value = _parse_flow_number(stripped)
         if value is None:
             _send_flow_message(state_path, "⚠️ Numero non valido, riprova.")
+            return True
+        if kind == "TRAIL":
+            qty = int(value)
+            if qty < 1:
+                _send_flow_message(state_path, "⚠️ Numero non valido, riprova.")
+                return True
+            flow["quantity"] = qty
+            flow["step"] = "amount"
+            _save_pending_flow(state_path, flow)
+            _send_flow_message(
+                state_path,
+                f"{flow.get('ticker')}: trailing amount in dollari?",
+            )
             return True
         flow["quantity"] = value
         flow["step"] = "price_type"
@@ -1512,15 +1911,82 @@ def process_pending_flow_text(text: str, state_path: Path) -> bool:
             [("A mercato", "price:market"), ("A limite", "price:limit")],
         )
         return True
+    if step == "amount":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            _send_flow_message(state_path, "⚠️ Importo non valido, riprova.")
+            return True
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        try:
+            qty = int(flow.get("quantity"))
+        except (TypeError, ValueError):
+            _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+            _save_pending_flow(state_path, None)
+            return True
+        _save_pending_flow(state_path, None)
+        _send_order_message(state_path, ibkr_place_trail(ticker, qty, value))
+        return True
     if step == "price":
         value = _parse_flow_number(stripped)
         if value is None:
             _send_flow_message(state_path, "⚠️ Prezzo non valido, riprova.")
             return True
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        if kind == "MODIFY":
+            _save_pending_flow(state_path, None)
+            _send_order_message(state_path, ibkr_modify_order(ticker, value))
+            return True
+        if kind == "SETBUY":
+            _upsert_setbuy(wpath, ticker, value)
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, f"✅ {ticker} ingresso {value:g}"
+            )
+            return True
+        if kind in {"SETTARGET", "SETSTOP"}:
+            command = "settarget" if kind == "SETTARGET" else "setstop"
+            apply_telegram_set_field(
+                f"/{command} {ticker} {value}", wpath, state_path
+            )
+            label = "target" if kind == "SETTARGET" else "stop"
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path, f"✅ {ticker} {label} {value:g}"
+            )
+            return True
         flow["price"] = value
         _save_pending_flow(state_path, flow)
         _execute_flow_order(flow, state_path)
         _save_pending_flow(state_path, None)
+        return True
+    if step == "days":
+        try:
+            days = int(stripped)
+        except ValueError:
+            _send_flow_message(
+                state_path, "⚠️ Inserisci un numero di giorni, es. 7"
+            )
+            return True
+        if days < 1 or days > 365:
+            _send_flow_message(
+                state_path, "⚠️ I giorni devono essere tra 1 e 365."
+            )
+            return True
+        _save_pending_flow(state_path, None)
+        apply_telegram_history(f"/storico {days}", state_path)
+        return True
+    if step == "confirm" and kind == "CLEAR":
+        low = stripped.lower()
+        if low in {"si", "sì", "yes", "s"}:
+            _complete_clear_flow(wpath, state_path)
+            return True
+        if low in {"no", "n"}:
+            _save_pending_flow(state_path, None)
+            _show_named_menu(telegram_chat_id(), None, state_path, "watchlist")
+            return True
+        _send_flow_message(
+            state_path, "Conferma con Sì o No, oppure usa i bottoni."
+        )
         return True
     return False
 
@@ -1556,17 +2022,20 @@ def process_callback_query(
     callback_query_id: str,
     state_path: Path,
     message_id: int | None = None,
+    watchlist_path: Path | None = None,
 ) -> dict[str, Any] | None:
-    """Aggiorna pending_flow o il menu /start. Non chiama IBKR.
+    """Aggiorna pending_flow o il menu /start. Non chiama IBKR
+    sulle azioni lente: quelle tornano al caller.
 
     Ritorna None se non serve altro, altrimenti un'azione da eseguire
     fuori dal lock:
 
     - {"action": "execute_order", "flow": {...}} → _execute_flow_order
     - {"action": "sell_all", "ticker": str, "price": float|None} → ibkr_sell_all
-    - {"action": "list"|"saldo"|"posizioni"|"ordini"|"buyflow"|"sellflow"}
+    - {"action": "<menu action>"} → apply_menu_action
     """
     answer_callback_query(callback_query_id)
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     if isinstance(message_id, int):
         _remember_bot_message(state_path, message_id)
     data = callback_data.strip()
@@ -1576,20 +2045,39 @@ def process_callback_query(
         )
     if data.startswith("action:"):
         kind = data.split(":", 1)[1].strip()
-        if kind in {
-            "list",
-            "saldo",
-            "posizioni",
-            "ordini",
-            "buyflow",
-            "sellflow",
-        }:
+        if kind in MENU_ACTION_KINDS:
             return {"action": kind}
         return None
     flow = _pending_flow(load_state(state_path))
     if flow is None:
         return None
     step = flow.get("step")
+    if data.startswith("flowticker:"):
+        if step != "ticker":
+            return None
+        ticker = data.split(":", 1)[1].strip().upper()
+        if not ticker:
+            return None
+        _advance_flow_after_ticker(flow, ticker, state_path, wpath)
+        return None
+    if data.startswith("days:") and step == "days":
+        try:
+            days = int(data.split(":", 1)[1])
+        except ValueError:
+            return None
+        if days < 1 or days > 365:
+            return None
+        _save_pending_flow(state_path, None)
+        apply_telegram_history(f"/storico {days}", state_path)
+        return None
+    if data.startswith("confirm:") and str(flow.get("type") or "") == "CLEAR":
+        choice = data.split(":", 1)[1].strip().lower()
+        if choice == "yes":
+            _complete_clear_flow(wpath, state_path)
+        elif choice == "no":
+            _save_pending_flow(state_path, None)
+            _show_named_menu(chat_id, message_id, state_path, "watchlist")
+        return None
     if data.startswith("sellticker:"):
         if str(flow.get("type") or "") != "SELL":
             return None
@@ -2990,7 +3478,7 @@ def process_single_message(
         pass
     elif apply_telegram_sell_flow_start(text, state_path):
         pass
-    elif process_pending_flow_text(text, state_path):
+    elif process_pending_flow_text(text, state_path, watchlist_path):
         pass
     elif apply_telegram_list(text, watchlist_path, state_path):
         pass
