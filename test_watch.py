@@ -2649,6 +2649,29 @@ class TelegramExtractTests(unittest.TestCase):
             send.assert_called_once()
             self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-17")
 
+    def test_maybe_alert_sends_new_message_not_the_bot_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "bot_message_id": 70,
+                    "pending_flow": {"type": "BUY", "step": "ticker"},
+                },
+            )
+            item = {"ticker": "AMD", "tf": "daily"}
+            fired: dict[tuple[str, str, str], str | None] = {}
+            with (
+                patch.object(watch, "send_telegram", return_value=321) as send,
+                patch.object(watch, "deliver_text") as deliver,
+            ):
+                watch.maybe_alert(
+                    item, "ingresso", "ALERT AMD ingresso 130", True, fired, spath
+                )
+            send.assert_called_once_with("ALERT AMD ingresso 130")
+            deliver.assert_not_called()
+            self.assertEqual(watch.load_state(spath)["bot_message_id"], 70)
+
     def test_fired_roundtrip(self) -> None:
         fired = {
             ("AMD", "daily", "ingresso"): "2026-09-16",

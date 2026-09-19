@@ -3349,10 +3349,7 @@ def maybe_alert(
     if fired.get(key) == today:
         return
     print(line, flush=True)
-    if _pending_flow(load_state(state_path)) is not None:
-        fired[key] = today
-        return
-    mid = deliver_text(state_path, line, with_nav=True)
+    mid = send_telegram(line)
     fired[key] = today
     if isinstance(mid, int):
         record_sent_alert(state_path, mid)
