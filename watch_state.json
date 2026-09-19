@@ -31,11 +31,6 @@
   "order_messages": [
     {
       "message_id": 1793,
-      "sent_at": "2026-09-19T17:31:13.950885+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1793,
       "sent_at": "2026-09-19T17:31:16.888399+00:00",
       "ttl_seconds": 120
     }
@@ -141,10 +136,8 @@
     "2026091618785743"
   ],
   "menu_message_id": 1793,
-  "menu_page": "watchlist",
-  "menu_nav_stack": [
-    "main"
-  ],
+  "menu_page": "main",
+  "menu_nav_stack": [],
   "bot_message_id": 1793,
   "flow_message_id": 1793,
   "quote_fields": [
