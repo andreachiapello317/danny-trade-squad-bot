@@ -2014,6 +2014,58 @@ class TelegramExtractTests(unittest.TestCase):
             sync.assert_called_once_with()
             self.assertEqual(watch.load_state(spath)["known_order_status"]["88"], "Filled")
 
+    def test_ws_then_poll_same_fill_notifies_once(self) -> None:
+        filled = {
+            "orderId": 42,
+            "status": "Filled",
+            "side": "BUY",
+            "filledQuantity": 3,
+            "ticker": "AMD",
+            "avgPrice": 150,
+        }
+        rest = {"orders": [filled]}
+        ws = json.dumps({"topic": "sor", "args": [filled]})
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get", side_effect=[rest, []]),
+                patch.object(watch, "_commission_from_trades", return_value="0.5"),
+                patch.object(watch, "send_telegram", return_value=7) as send,
+                patch.object(watch, "commit_state_to_git"),
+            ):
+                watch.handle_ibkr_ws_message(ws, spath)
+                watch.check_order_fills(spath)
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(
+                sent_text(send), "✅ ESEGUITO: BUY 3 AMD @ 150 · fee: 0.5"
+            )
+
+    def test_poll_then_ws_same_fill_notifies_once(self) -> None:
+        filled = {
+            "orderId": 43,
+            "status": "Filled",
+            "side": "SELL",
+            "filledQuantity": 1,
+            "ticker": "NVDA",
+            "avgPrice": 120,
+        }
+        rest = {"orders": [filled]}
+        ws = json.dumps({"topic": "sor", "args": [filled]})
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "ibkr_get", side_effect=[rest, []]),
+                patch.object(watch, "_commission_from_trades", return_value="n/d"),
+                patch.object(watch, "send_telegram", return_value=8) as send,
+                patch.object(watch, "commit_state_to_git"),
+            ):
+                watch.check_order_fills(spath)
+                watch.handle_ibkr_ws_message(ws, spath)
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(
+                sent_text(send), "✅ ESEGUITO: SELL 1 NVDA @ 120 · fee: n/d"
+            )
+
     def test_run_ibkr_order_socket_subscribes_and_handles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
