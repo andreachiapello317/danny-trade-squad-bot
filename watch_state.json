@@ -28,7 +28,18 @@
   "sent_alerts": [],
   "summary_message_id": 1795,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1795,
+      "sent_at": "2026-09-19T22:58:48.316841+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1795,
+      "sent_at": "2026-09-19T22:58:53.853635+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -131,7 +142,7 @@
     "2026091611588154"
   ],
   "menu_message_id": 1795,
-  "menu_page": "conto",
+  "menu_page": "automatico",
   "menu_nav_stack": [
     "main"
   ],
