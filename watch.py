@@ -123,6 +123,17 @@ TRAIL_RE = re.compile(
     r"^/trail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
 )
 START_RE = re.compile(r"^/(start|menu)\s*$", re.I)
+MENU_MAIN_TEXT = "🤖 Danny Trade Squad Bot\n\nScegli una categoria:"
+MENU_MAIN_BUTTONS = [
+    ("📋 Watchlist", "menu:watchlist"),
+    ("💰 Trading", "menu:trading"),
+    ("📊 Conto", "menu:conto"),
+    ("ℹ️ Info", "menu:info"),
+]
+MENU_NAV_BUTTONS = [
+    ("◀️ Indietro", "menu:main"),
+    ("🏠 Home", "menu:main"),
+]
 MENU_WATCHLIST_TEXT = (
     "📋 Watchlist\n\n"
     "/set TICKER INGRESSO STOP TARGET\n"
@@ -586,17 +597,49 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
-def apply_telegram_start(text: str) -> bool:
+def _save_menu_message_id(state_path: Path, message_id: int) -> None:
+    state = load_state(state_path)
+    if state.get("menu_message_id") == message_id:
+        return
+    state["menu_message_id"] = message_id
+    save_state(state_path, state)
+
+
+def _show_menu_page(
+    chat_id: Any,
+    message_id: int | None,
+    text: str,
+    buttons: list[tuple[str, str]] | None,
+    state_path: Path,
+    *,
+    with_nav: bool = False,
+) -> None:
+    shown = list(buttons or [])
+    if with_nav:
+        shown.extend(MENU_NAV_BUTTONS)
+    if isinstance(message_id, int) and edit_telegram_message(
+        chat_id, message_id, text, shown or None
+    ):
+        _save_menu_message_id(state_path, message_id)
+        return
+    new_id = (
+        send_telegram_buttons(text, shown) if shown else send_telegram(text)
+    )
+    if isinstance(new_id, int):
+        _save_menu_message_id(state_path, new_id)
+
+
+def apply_telegram_start(text: str, state_path: Path) -> bool:
     if not START_RE.match(text.strip()):
         return False
-    send_telegram_buttons(
-        "🤖 Danny Trade Squad Bot\n\nScegli una categoria:",
-        [
-            ("📋 Watchlist", "menu:watchlist"),
-            ("💰 Trading", "menu:trading"),
-            ("📊 Conto", "menu:conto"),
-            ("ℹ️ Info", "menu:info"),
-        ],
+    state = load_state(state_path)
+    old_id = state.get("menu_message_id")
+    _show_menu_page(
+        telegram_chat_id(),
+        old_id if isinstance(old_id, int) else None,
+        MENU_MAIN_TEXT,
+        MENU_MAIN_BUTTONS,
+        state_path,
     )
     return True
 
@@ -1350,35 +1393,64 @@ def process_pending_flow_text(text: str, state_path: Path) -> bool:
     return False
 
 
-def _handle_start_menu_callback(data: str) -> dict[str, Any] | None:
+def _handle_start_menu_callback(
+    data: str,
+    chat_id: Any,
+    message_id: int | None,
+    state_path: Path,
+) -> dict[str, Any] | None:
     kind = data.split(":", 1)[1].strip()
+    if kind == "main":
+        _show_menu_page(
+            chat_id, message_id, MENU_MAIN_TEXT, MENU_MAIN_BUTTONS, state_path
+        )
+        return None
     if kind == "watchlist":
-        send_telegram_buttons(
+        _show_menu_page(
+            chat_id,
+            message_id,
             MENU_WATCHLIST_TEXT,
             [("📋 Lista attuale", "action:list")],
+            state_path,
+            with_nav=True,
         )
         return None
     if kind == "trading":
-        send_telegram_buttons(
+        _show_menu_page(
+            chat_id,
+            message_id,
             MENU_TRADING_TEXT,
             [
                 ("🟢 Compra", "action:buyflow"),
                 ("🔴 Vendi", "action:sellflow"),
             ],
+            state_path,
+            with_nav=True,
         )
         return None
     if kind == "conto":
-        send_telegram_buttons(
+        _show_menu_page(
+            chat_id,
+            message_id,
             MENU_CONTO_TEXT,
             [
                 ("💰 Saldo", "action:saldo"),
                 ("📊 Posizioni", "action:posizioni"),
                 ("📋 Ordini", "action:ordini"),
             ],
+            state_path,
+            with_nav=True,
         )
         return None
     if kind == "info":
-        send_telegram(MENU_INFO_TEXT)
+        _show_menu_page(
+            chat_id,
+            message_id,
+            MENU_INFO_TEXT,
+            None,
+            state_path,
+            with_nav=True,
+        )
         return None
     return None
 
@@ -1388,6 +1460,7 @@ def process_callback_query(
     chat_id: Any,
     callback_query_id: str,
     state_path: Path,
+    message_id: int | None = None,
 ) -> dict[str, Any] | None:
     """Aggiorna pending_flow o il menu /start. Non chiama IBKR.
 
@@ -1401,7 +1474,9 @@ def process_callback_query(
     answer_callback_query(callback_query_id)
     data = callback_data.strip()
     if data.startswith("menu:"):
-        return _handle_start_menu_callback(data)
+        return _handle_start_menu_callback(
+            data, chat_id, message_id, state_path
+        )
     if data.startswith("action:"):
         kind = data.split(":", 1)[1].strip()
         if kind in {
@@ -2695,6 +2770,30 @@ def send_telegram_buttons(text: str, buttons: list[tuple[str, str]]) -> int | No
     return send_telegram(text, reply_markup=markup)
 
 
+def edit_telegram_message(
+    chat_id: Any,
+    message_id: int,
+    text: str,
+    buttons: list[tuple[str, str]] | None = None,
+) -> bool:
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+    }
+    if buttons:
+        payload["reply_markup"] = {
+            "inline_keyboard": [
+                [{"text": label, "callback_data": data}] for label, data in buttons
+            ]
+        }
+    try:
+        telegram_api("editMessageText", payload, timeout=12)
+        return True
+    except Exception:
+        return False
+
+
 def answer_callback_query(callback_query_id: str) -> None:
     try:
         telegram_api(
@@ -2763,7 +2862,7 @@ def process_single_message(
 ) -> tuple[list[str], list[str]]:
     added: list[str] = []
     removed: list[str] = []
-    if apply_telegram_start(text):
+    if apply_telegram_start(text, state_path):
         pass
     elif apply_telegram_buy_flow_start(text, state_path):
         pass

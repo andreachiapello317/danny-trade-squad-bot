@@ -93,6 +93,7 @@ class WebhookTests(unittest.TestCase):
                 int(watch.DEFAULT_CHAT_ID),
                 "cb9",
                 spath,
+                70,
             )
             proc.assert_not_called()
 
