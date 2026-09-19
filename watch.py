@@ -2979,6 +2979,7 @@ def _commission_from_trades(order: dict[str, Any], order_id: str) -> str:
 
 
 def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
+    """WebSocket e poll da 60s passano di qui: un fill, un solo ✅ ESEGUITO."""
     state = load_state(state_path)
     raw_known = state.get("known_order_status")
     known: dict[str, Any] = dict(raw_known) if isinstance(raw_known, dict) else {}
