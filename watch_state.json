@@ -26,9 +26,15 @@
     "META||ingresso": "2026-09-17"
   },
   "sent_alerts": [],
-  "summary_message_id": 558,
+  "summary_message_id": 1783,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1783,
+      "sent_at": "2026-09-19T16:35:41.970626+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -114,11 +120,18 @@
     "1169398497": "Filled",
     "1395799702": "PendingCancel"
   },
-  "pending_flow": null,
-  "positions_message_id": 1752,
-  "orders_message_id": null,
-  "balance_message_id": 1753,
-  "price_message_id": 1514,
+  "pending_flow": {
+    "type": "BUY",
+    "step": "ticker",
+    "ticker": null,
+    "size_type": null,
+    "quantity": null,
+    "price_type": null
+  },
+  "positions_message_id": 1783,
+  "orders_message_id": 1783,
+  "balance_message_id": 1783,
+  "price_message_id": 1783,
   "known_fyi_ids": [
     "2026091618405756",
     "2026091616042826",
@@ -128,5 +141,11 @@
     "2026091728835790",
     "2026091841691370"
   ],
-  "menu_message_id": 1772
+  "menu_message_id": 1783,
+  "menu_page": "watchlist",
+  "menu_nav_stack": [
+    "main"
+  ],
+  "bot_message_id": 1783,
+  "flow_message_id": 1783
 }
