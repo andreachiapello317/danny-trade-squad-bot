@@ -53,6 +53,16 @@
       "message_id": 1785,
       "sent_at": "2026-09-19T16:54:15.408131+00:00",
       "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:38.628966+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:44.294765+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -139,7 +149,7 @@
     "1169398424": "Filled",
     "1169398497": "Filled",
     "1395799702": "PendingCancel",
-    "1395799703": "PreSubmitted"
+    "1395799703": "PendingCancel"
   },
   "pending_flow": null,
   "positions_message_id": 1785,
@@ -156,7 +166,7 @@
     "2026091618405756"
   ],
   "menu_message_id": 1785,
-  "menu_page": "trading",
+  "menu_page": "info",
   "menu_nav_stack": [
     "main"
   ],
