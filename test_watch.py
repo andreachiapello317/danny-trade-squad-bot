@@ -3672,7 +3672,7 @@ class BuySellFlowTests(unittest.TestCase):
                     "action:sellflow",
                     "action:cancel",
                     "action:modify",
-                    "action:trail",
+                    "menu:automatico",
                 ],
             )
             self.assertEqual(
@@ -3711,6 +3711,29 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(edit.call_args_list[4][0][2], watch.format_home_text(None))
             self.assertEqual(edit.call_args_list[4][0][3], watch.MENU_MAIN_BUTTONS)
             self.assertEqual(watch.load_state(spath)["menu_message_id"], 70)
+
+    def test_trading_automatico_is_under_trading_with_trail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+            ):
+                watch.process_callback_query("menu:trading", 1, "cbt", spath, 70)
+                watch.process_callback_query("menu:automatico", 1, "cba", spath, 70)
+                watch.process_callback_query("menu:back", 1, "cbb", spath, 70)
+            self.assertIn("Trading automatico", edit.call_args_list[1][0][2])
+            auto_buttons = edit.call_args_list[1][0][3]
+            self.assertEqual(auto_buttons[0], ("📉 Trail", "action:trail"))
+            self.assertEqual(
+                auto_buttons[-2:],
+                [
+                    ("◀️ Indietro", "menu:back"),
+                    ("🏠 Home", "menu:main"),
+                ],
+            )
+            self.assertEqual(edit.call_args_list[2][0][2], watch.MENU_TRADING_TEXT)
+            self.assertEqual(watch.load_state(spath)["menu_page"], "trading")
 
     def test_process_callback_query_menu_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

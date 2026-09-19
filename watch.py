@@ -155,6 +155,10 @@ MENU_TRADING_BUTTONS = [
     ("🔴 Vendi", "action:sellflow"),
     ("🚫 Annulla", "action:cancel"),
     ("✏️ Modifica", "action:modify"),
+    ("🤖 Trading automatico", "menu:automatico"),
+]
+MENU_AUTO_TEXT = "🤖 Trading automatico\n\nScegli un'azione:"
+MENU_AUTO_BUTTONS = [
     ("📉 Trail", "action:trail"),
 ]
 MENU_CONTO_TEXT = "📊 Conto\n\nScegli un'azione:"
@@ -195,6 +199,7 @@ MENU_PAGES: dict[str, tuple[str, list[tuple[str, str]] | None, bool]] = {
     "main": (MENU_MAIN_TEXT, MENU_MAIN_BUTTONS, False),
     "watchlist": (MENU_WATCHLIST_TEXT, MENU_WATCHLIST_BUTTONS, True),
     "trading": (MENU_TRADING_TEXT, MENU_TRADING_BUTTONS, True),
+    "automatico": (MENU_AUTO_TEXT, MENU_AUTO_BUTTONS, True),
     "conto": (MENU_CONTO_TEXT, MENU_CONTO_BUTTONS, True),
     "info": (MENU_INFO_TEXT, MENU_INFO_BUTTONS, True),
 }
