@@ -698,7 +698,24 @@ class TelegramExtractTests(unittest.TestCase):
             watch.ensure_reply_suppression()
         post.assert_called_once_with(
             "/v1/api/iserver/questions/suppress",
-            {"messageIds": ["o10151", "o10153", "o10164", "o10223", "o354"]},
+            {
+                "messageIds": [
+                    "o163",
+                    "o354",
+                    "o382",
+                    "o383",
+                    "o403",
+                    "o451",
+                    "o10151",
+                    "o10152",
+                    "o10153",
+                    "o10164",
+                    "o10223",
+                    "o10331",
+                    "o10336",
+                    "p12",
+                ]
+            },
         )
         with patch.object(watch, "ibkr_post", side_effect=RuntimeError("down")):
             watch.ensure_reply_suppression()
@@ -789,8 +806,69 @@ class TelegramExtractTests(unittest.TestCase):
         ):
             self.assertEqual(
                 watch.ibkr_place_order("AMD", 1, "SELL", 9),
-                "⚠️ Ordine non confermato per AMD, controlla manualmente su IBKR.",
+                "⚠️ IBKR ha chiesto troppe conferme.",
             )
+
+    def test_ibkr_place_order_confirms_message_ids_only(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                side_effect=[
+                    [{"id": "q1", "messageIds": ["o163"]}],
+                    [{"order_id": 44, "order_status": "Submitted"}],
+                ],
+            ) as post,
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("SLNH", 1, "BUY", 1.01),
+                "✅ Ordine BUY 1 SLNH @ 1.01 inviato.",
+            )
+        self.assertEqual(
+            post.call_args_list[1][0],
+            ("/v1/api/iserver/reply/q1", {"confirmed": True}),
+        )
+
+    def test_ibkr_place_order_reads_order_id_not_first(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                return_value=[
+                    {"encrypt_message": "1"},
+                    {"order_id": 55, "order_status": "Submitted"},
+                ],
+            ),
+        ):
+            self.assertEqual(
+                watch.ibkr_place_order("SLNH", 1, "BUY", 1.01),
+                "✅ Ordine BUY 1 SLNH @ 1.01 inviato.",
+            )
+
+    def test_ibkr_place_order_shows_ibkr_error(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="1"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(
+                watch,
+                "ibkr_post",
+                return_value={
+                    "error": (
+                        "We cannot accept an order at the limit price you "
+                        "selected. Please submit your order using a limit "
+                        "price that is closer to the current market price "
+                        "of 2.00."
+                    )
+                },
+            ),
+        ):
+            msg = watch.ibkr_place_order("SLNH", 1, "BUY", 1.01)
+        self.assertTrue(msg.startswith("⚠️ We cannot accept an order"))
+        self.assertIn("closer to the current market price", msg)
 
     def test_apply_telegram_buy_and_sell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3423,6 +3501,127 @@ class BuySellFlowTests(unittest.TestCase):
             {"callback_query_id": "cb2"},
             timeout=12,
         )
+
+    def test_apply_telegram_start_sends_category_buttons(self) -> None:
+        with patch.object(watch, "send_telegram_buttons") as buttons:
+            self.assertTrue(watch.apply_telegram_start("/start"))
+            self.assertTrue(watch.apply_telegram_start("/MENU"))
+            self.assertFalse(watch.apply_telegram_start("/list"))
+        self.assertEqual(buttons.call_count, 2)
+        text, rows = buttons.call_args[0]
+        self.assertIn("Danny Trade Squad Bot", text)
+        self.assertEqual(
+            [label for label, _ in rows],
+            ["📋 Watchlist", "💰 Trading", "📊 Conto", "ℹ️ Info"],
+        )
+        self.assertEqual(
+            [data for _, data in rows],
+            ["menu:watchlist", "menu:trading", "menu:conto", "menu:info"],
+        )
+
+    def test_process_single_message_runs_start_before_pending_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"pending_flow": {"type": "BUY", "step": "ticker"}})
+            with (
+                patch.object(watch, "apply_telegram_start", return_value=True) as start,
+                patch.object(watch, "process_pending_flow_text") as pending,
+                patch.object(watch, "delete_telegram_message") as delete,
+            ):
+                added, removed = watch.process_single_message(
+                    "/start", 50, wpath, spath
+                )
+            self.assertEqual((added, removed), ([], []))
+            start.assert_called_once_with("/start")
+            pending.assert_not_called()
+            delete.assert_called_once_with(50)
+
+    def test_process_callback_query_menu_categories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "answer_callback_query") as ack,
+                patch.object(watch, "send_telegram_buttons") as buttons,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertIsNone(
+                    watch.process_callback_query("menu:watchlist", 1, "cbm1", spath)
+                )
+                self.assertIsNone(
+                    watch.process_callback_query("menu:trading", 1, "cbm2", spath)
+                )
+                self.assertIsNone(
+                    watch.process_callback_query("menu:conto", 1, "cbm3", spath)
+                )
+                self.assertIsNone(
+                    watch.process_callback_query("menu:info", 1, "cbm4", spath)
+                )
+            self.assertEqual(ack.call_count, 4)
+            self.assertEqual(buttons.call_count, 3)
+            self.assertIn("/set TICKER", buttons.call_args_list[0][0][0])
+            self.assertEqual(
+                buttons.call_args_list[0][0][1],
+                [("📋 Lista attuale", "action:list")],
+            )
+            self.assertIn("/annulla TICKER", buttons.call_args_list[1][0][0])
+            self.assertEqual(
+                [label for label, _ in buttons.call_args_list[1][0][1]],
+                ["🟢 Compra", "🔴 Vendi"],
+            )
+            self.assertIn("/storico N", buttons.call_args_list[2][0][0])
+            self.assertEqual(
+                [data for _, data in buttons.call_args_list[2][0][1]],
+                ["action:saldo", "action:posizioni", "action:ordini"],
+            )
+            send.assert_called_once()
+            self.assertIn("/prezzo TICKER", send.call_args[0][0])
+            self.assertIn("/info TICKER", send.call_args[0][0])
+
+    def test_process_callback_query_menu_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "answer_callback_query"):
+                self.assertEqual(
+                    watch.process_callback_query("action:list", 1, "cba1", spath),
+                    {"action": "list"},
+                )
+                self.assertEqual(
+                    watch.process_callback_query("action:buyflow", 1, "cba2", spath),
+                    {"action": "buyflow"},
+                )
+                self.assertEqual(
+                    watch.process_callback_query("action:sellflow", 1, "cba3", spath),
+                    {"action": "sellflow"},
+                )
+                self.assertIsNone(
+                    watch.process_callback_query("action:unknown", 1, "cba4", spath)
+                )
+
+    def test_apply_menu_action_reuses_existing_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "apply_telegram_list") as lst,
+                patch.object(watch, "apply_telegram_balance") as bal,
+                patch.object(watch, "apply_telegram_positions") as pos,
+                patch.object(watch, "apply_telegram_orders") as orders,
+                patch.object(watch, "apply_telegram_buy_flow_start") as buy,
+                patch.object(watch, "apply_telegram_sell_flow_start") as sell,
+            ):
+                watch.apply_menu_action("list", wpath, spath)
+                watch.apply_menu_action("saldo", wpath, spath)
+                watch.apply_menu_action("posizioni", wpath, spath)
+                watch.apply_menu_action("ordini", wpath, spath)
+                watch.apply_menu_action("buyflow", wpath, spath)
+                watch.apply_menu_action("sellflow", wpath, spath)
+            lst.assert_called_once_with("/list", wpath, spath)
+            bal.assert_called_once_with("/saldo", spath)
+            pos.assert_called_once_with("/posizioni", spath)
+            orders.assert_called_once_with("/ordini", spath)
+            buy.assert_called_once_with("/compra", spath)
+            sell.assert_called_once_with("/vendi", spath)
 
     def test_process_single_message_starts_flow_before_inline_buy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

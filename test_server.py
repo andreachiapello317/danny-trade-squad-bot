@@ -144,10 +144,12 @@ class WebhookTests(unittest.TestCase):
     def test_run_callback_action_dispatches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
+            wpath = Path(tmp) / "watchlist.json"
             with (
                 patch.object(server, "_execute_flow_order") as exe,
                 patch.object(server, "ibkr_sell_all", return_value="✅ sold") as sell,
                 patch.object(server, "_send_flow_message") as send,
+                patch.object(server, "apply_menu_action") as menu,
             ):
                 server.run_callback_action(None, spath)
                 server.run_callback_action({"action": "noop"}, spath)
@@ -159,9 +161,13 @@ class WebhookTests(unittest.TestCase):
                     {"action": "sell_all", "ticker": "NVDA", "price": None},
                     spath,
                 )
+                server.run_callback_action(
+                    {"action": "saldo"}, spath, wpath
+                )
             exe.assert_called_once_with({"ticker": "AMD"}, spath)
             sell.assert_called_once_with("NVDA", None)
             send.assert_called_once_with(spath, "✅ sold")
+            menu.assert_called_once_with("saldo", wpath, spath)
 
     def test_ignores_callback_query_from_other_chat(self) -> None:
         payload = {

@@ -122,6 +122,34 @@ HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
 TRAIL_RE = re.compile(
     r"^/trail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
 )
+START_RE = re.compile(r"^/(start|menu)\s*$", re.I)
+MENU_WATCHLIST_TEXT = (
+    "📋 Watchlist\n\n"
+    "/set TICKER INGRESSO STOP TARGET\n"
+    "Esempio: /set AMD 130-134 124 148\n\n"
+    "/setbuy TICKER PREZZO\n"
+    "/settarget TICKER PREZZO\n"
+    "/setstop TICKER PREZZO\n"
+    "/rm TICKER\n"
+    "/clear"
+)
+MENU_TRADING_TEXT = (
+    "💰 Trading\n\n"
+    "/annulla TICKER\n"
+    "/modifica TICKER PREZZO\n"
+    "/trail TICKER QTY AMT"
+)
+MENU_CONTO_TEXT = (
+    "📊 Conto\n\n"
+    "/storico N\n"
+    "Esempio: /storico 7"
+)
+MENU_INFO_TEXT = (
+    "ℹ️ Info\n\n"
+    "/prezzo TICKER\n"
+    "Esempio: /prezzo AMD\n\n"
+    "/info TICKER"
+)
 
 
 def parse_num(raw: str) -> float:
@@ -558,6 +586,43 @@ def chat_matches(chat: Any, want: str) -> bool:
     return str(chat.get("id", "")).strip() == str(want).strip()
 
 
+def apply_telegram_start(text: str) -> bool:
+    if not START_RE.match(text.strip()):
+        return False
+    send_telegram_buttons(
+        "🤖 Danny Trade Squad Bot\n\nScegli una categoria:",
+        [
+            ("📋 Watchlist", "menu:watchlist"),
+            ("💰 Trading", "menu:trading"),
+            ("📊 Conto", "menu:conto"),
+            ("ℹ️ Info", "menu:info"),
+        ],
+    )
+    return True
+
+
+def apply_menu_action(
+    kind: str, watchlist_path: Path, state_path: Path
+) -> None:
+    if kind == "list":
+        apply_telegram_list("/list", watchlist_path, state_path)
+        return
+    if kind == "saldo":
+        apply_telegram_balance("/saldo", state_path)
+        return
+    if kind == "posizioni":
+        apply_telegram_positions("/posizioni", state_path)
+        return
+    if kind == "ordini":
+        apply_telegram_orders("/ordini", state_path)
+        return
+    if kind == "buyflow":
+        apply_telegram_buy_flow_start("/compra", state_path)
+        return
+    if kind == "sellflow":
+        apply_telegram_sell_flow_start("/vendi", state_path)
+
+
 def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
     if not LIST_RE.match(text.strip()):
         return False
@@ -820,37 +885,129 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
     return True
 
 
+_IBKR_SUPPRESS_MESSAGE_IDS = [
+    "o163",
+    "o354",
+    "o382",
+    "o383",
+    "o403",
+    "o451",
+    "o10151",
+    "o10152",
+    "o10153",
+    "o10164",
+    "o10223",
+    "o10331",
+    "o10336",
+    "p12",
+]
+
+
 def ensure_reply_suppression() -> None:
     try:
         ibkr_post(
             "/v1/api/iserver/questions/suppress",
-            {"messageIds": ["o10151", "o10153", "o10164", "o10223", "o354"]},
+            {"messageIds": list(_IBKR_SUPPRESS_MESSAGE_IDS)},
         )
     except Exception as exc:
         print(f"IBKR suppress: {exc}", file=sys.stderr)
 
 
+def _ibkr_payload_items(
+    result: dict[str, Any] | list[Any] | None,
+) -> list[dict[str, Any]]:
+    if isinstance(result, dict):
+        return [result]
+    if isinstance(result, list):
+        return [item for item in result if isinstance(item, dict)]
+    return []
+
+
+def _ibkr_error_text(result: dict[str, Any] | list[Any] | None) -> str | None:
+    for item in _ibkr_payload_items(result):
+        err = item.get("error") or item.get("errorMessage")
+        if err:
+            return " ".join(str(err).split())
+        if item.get("id") is not None:
+            continue
+        raw = item.get("message")
+        if isinstance(raw, list):
+            text = " ".join(str(part) for part in raw if part)
+        elif raw:
+            text = str(raw)
+        else:
+            continue
+        text = " ".join(text.split())
+        if text:
+            return text
+    return None
+
+
+def _ibkr_is_question(item: dict[str, Any]) -> bool:
+    if item.get("id") is None:
+        return False
+    return item.get("message") is not None or item.get("messageIds") is not None
+
+
+def _ibkr_is_submitted(item: dict[str, Any]) -> bool:
+    if item.get("order_id") is not None or item.get("orderId") is not None:
+        return True
+    if item.get("local_order_id") is not None:
+        return True
+    status = str(item.get("order_status") or item.get("status") or "").lower()
+    return status in {
+        "submitted",
+        "presubmitted",
+        "pendingsubmit",
+        "filled",
+        "cancelled",
+        "canceled",
+    }
+
+
 def _confirm_order_replies(
     result: dict[str, Any] | list[Any] | None,
 ) -> dict[str, Any] | None:
-    for _ in range(5):
-        if isinstance(result, dict):
-            result = [result]
-        if not isinstance(result, list) or not result:
-            return None
-        first = result[0]
-        if not isinstance(first, dict):
-            return None
-        if first.get("id") is not None and first.get("message") is not None:
-            result = ibkr_post(
-                f"/v1/api/iserver/reply/{first['id']}",
-                {"confirmed": True},
-            )
-            continue
-        if first.get("order_id") is not None or first.get("orderId") is not None:
-            return first
-        return None
-    return None
+    confirmed, _ = _confirm_order_replies_detail(result)
+    return confirmed
+
+
+def _confirm_order_replies_detail(
+    result: dict[str, Any] | list[Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    last = result
+    for _ in range(8):
+        items = _ibkr_payload_items(last)
+        if not items:
+            err = _ibkr_error_text(last)
+            return None, err
+        for item in items:
+            if _ibkr_is_submitted(item):
+                return item, None
+        question = next((item for item in items if _ibkr_is_question(item)), None)
+        if question is None:
+            err = _ibkr_error_text(last)
+            if err:
+                return None, err
+            print(f"IBKR confirm fail: {last}", file=sys.stderr)
+            return None, None
+        last = ibkr_post(
+            f"/v1/api/iserver/reply/{question['id']}",
+            {"confirmed": True},
+        )
+        if last is None:
+            return None, "IBKR non ha risposto alla conferma."
+    return None, "IBKR ha chiesto troppe conferme."
+
+
+def _order_not_confirmed(ticker: str, detail: str | None) -> str:
+    if detail:
+        if len(detail) > 280:
+            detail = detail[:277] + "..."
+        return f"⚠️ {detail}"
+    return (
+        f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
+    )
 
 
 def ibkr_place_order(
@@ -891,7 +1048,7 @@ def ibkr_place_order(
     )
     if result is None:
         return "⚠️ Errore nell'invio dell'ordine."
-    confirmed = _confirm_order_replies(result)
+    confirmed, err = _confirm_order_replies_detail(result)
     if confirmed is not None:
         if auto_price:
             return (
@@ -899,9 +1056,7 @@ def ibkr_place_order(
                 f"(auto, ~mercato) inviato."
             )
         return f"✅ Ordine {side} {quantity} {ticker} @ {price} inviato."
-    return (
-        f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
-    )
+    return _order_not_confirmed(ticker, err)
 
 
 def ibkr_place_cash_order(ticker: str, side: str, cash_amount: float) -> str:
@@ -929,11 +1084,9 @@ def ibkr_place_cash_order(ticker: str, side: str, cash_amount: float) -> str:
     )
     if result is None:
         return "⚠️ Errore nell'invio dell'ordine."
-    confirmed = _confirm_order_replies(result)
+    confirmed, err = _confirm_order_replies_detail(result)
     if confirmed is None:
-        return (
-            f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
-        )
+        return _order_not_confirmed(ticker, err)
     return (
         f"✅ Ordine {side} {ticker} ${cash_amount:.2f} (MKT, cashQty) inviato."
     )
@@ -994,11 +1147,9 @@ def ibkr_place_trail(ticker: str, quantity: int, trailing_amount: float) -> str:
     )
     if result is None:
         return "⚠️ Errore nell'invio dell'ordine."
-    confirmed = _confirm_order_replies(result)
+    confirmed, err = _confirm_order_replies_detail(result)
     if confirmed is None:
-        return (
-            f"⚠️ Ordine non confermato per {ticker}, controlla manualmente su IBKR."
-        )
+        return _order_not_confirmed(ticker, err)
     return (
         f"✅ Ordine SELL {quantity} {ticker} TRAIL {trailing_amount:g} inviato."
     )
@@ -1199,25 +1350,73 @@ def process_pending_flow_text(text: str, state_path: Path) -> bool:
     return False
 
 
+def _handle_start_menu_callback(data: str) -> dict[str, Any] | None:
+    kind = data.split(":", 1)[1].strip()
+    if kind == "watchlist":
+        send_telegram_buttons(
+            MENU_WATCHLIST_TEXT,
+            [("📋 Lista attuale", "action:list")],
+        )
+        return None
+    if kind == "trading":
+        send_telegram_buttons(
+            MENU_TRADING_TEXT,
+            [
+                ("🟢 Compra", "action:buyflow"),
+                ("🔴 Vendi", "action:sellflow"),
+            ],
+        )
+        return None
+    if kind == "conto":
+        send_telegram_buttons(
+            MENU_CONTO_TEXT,
+            [
+                ("💰 Saldo", "action:saldo"),
+                ("📊 Posizioni", "action:posizioni"),
+                ("📋 Ordini", "action:ordini"),
+            ],
+        )
+        return None
+    if kind == "info":
+        send_telegram(MENU_INFO_TEXT)
+        return None
+    return None
+
+
 def process_callback_query(
     callback_data: str,
     chat_id: Any,
     callback_query_id: str,
     state_path: Path,
 ) -> dict[str, Any] | None:
-    """Aggiorna pending_flow. Non chiama IBKR.
+    """Aggiorna pending_flow o il menu /start. Non chiama IBKR.
 
     Ritorna None se non serve altro, altrimenti un'azione da eseguire
     fuori dal lock:
 
     - {"action": "execute_order", "flow": {...}} → _execute_flow_order
     - {"action": "sell_all", "ticker": str, "price": float|None} → ibkr_sell_all
+    - {"action": "list"|"saldo"|"posizioni"|"ordini"|"buyflow"|"sellflow"}
     """
     answer_callback_query(callback_query_id)
+    data = callback_data.strip()
+    if data.startswith("menu:"):
+        return _handle_start_menu_callback(data)
+    if data.startswith("action:"):
+        kind = data.split(":", 1)[1].strip()
+        if kind in {
+            "list",
+            "saldo",
+            "posizioni",
+            "ordini",
+            "buyflow",
+            "sellflow",
+        }:
+            return {"action": kind}
+        return None
     flow = _pending_flow(load_state(state_path))
     if flow is None:
         return None
-    data = callback_data.strip()
     step = flow.get("step")
     if data.startswith("sellticker:"):
         if str(flow.get("type") or "") != "SELL":
@@ -1435,10 +1634,9 @@ def _ibkr_replace_limit_order(
             "tif": "DAY",
         },
     )
-    if result is None or _confirm_order_replies(result) is None:
-        return (
-            f"⚠️ Modifica non confermata per {ticker}, controlla manualmente su IBKR."
-        )
+    confirmed, err = _confirm_order_replies_detail(result)
+    if confirmed is None:
+        return _order_not_confirmed(ticker, err)
     return None
 
 
@@ -2565,7 +2763,9 @@ def process_single_message(
 ) -> tuple[list[str], list[str]]:
     added: list[str] = []
     removed: list[str] = []
-    if apply_telegram_buy_flow_start(text, state_path):
+    if apply_telegram_start(text):
+        pass
+    elif apply_telegram_buy_flow_start(text, state_path):
         pass
     elif apply_telegram_sell_flow_start(text, state_path):
         pass

@@ -17,6 +17,7 @@ from watch import (
     DEFAULT_WATCHLIST,
     _execute_flow_order,
     _send_flow_message,
+    apply_menu_action,
     chat_matches,
     check_fyi_notifications,
     check_order_fills,
@@ -151,11 +152,16 @@ def reset_watchlist_on_boot() -> None:
     _commit_watchlist_reset()
 
 
-def run_callback_action(action: dict | None, state_path: Path | None = None) -> None:
+def run_callback_action(
+    action: dict | None,
+    state_path: Path | None = None,
+    watchlist_path: Path | None = None,
+) -> None:
     """Esegue l'azione lenta restituita da process_callback_query, senza lock."""
     if not isinstance(action, dict):
         return
     path = STATE_PATH if state_path is None else state_path
+    wpath = WATCHLIST_PATH if watchlist_path is None else watchlist_path
     kind = action.get("action")
     if kind == "execute_order":
         flow = action.get("flow")
@@ -166,6 +172,9 @@ def run_callback_action(action: dict | None, state_path: Path | None = None) -> 
         ticker = str(action.get("ticker") or "").strip()
         if ticker:
             _send_flow_message(path, ibkr_sell_all(ticker, action.get("price")))
+        return
+    if kind in {"list", "saldo", "posizioni", "ordini", "buyflow", "sellflow"}:
+        apply_menu_action(str(kind), wpath, path)
 
 
 @app.post("/webhook")
@@ -193,7 +202,7 @@ def webhook() -> tuple[str, int]:
                                 str(cq_id),
                                 STATE_PATH,
                             )
-                        run_callback_action(action, STATE_PATH)
+                        run_callback_action(action, STATE_PATH, WATCHLIST_PATH)
             return "ok", 200
         msg = update_payload(update)
         print(f"DEBUG msg: {msg}, chat_id atteso: {telegram_chat_id()}", file=sys.stderr)
