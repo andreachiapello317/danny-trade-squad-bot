@@ -28,7 +28,78 @@
   "sent_alerts": [],
   "summary_message_id": 1789,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:18.122827+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:22.265087+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:24.268387+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:26.257758+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:27.164605+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:30.789605+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:32.957863+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:44.428781+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:50.729303+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:51.782948+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:52.738012+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:53.734400+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:18:55.485183+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1789,
+      "sent_at": "2026-09-19T17:19:01.958004+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -122,16 +193,21 @@
   "price_message_id": 1789,
   "known_fyi_ids": [
     "2026091618785743",
-    "2026091611588154",
+    "2026091841691370",
     "2026091728835790",
-    "2026091731347783",
     "2026091618405756",
+    "2026091731347783",
     "2026091616042826",
-    "2026091841691370"
+    "2026091611588154"
   ],
   "menu_message_id": 1789,
-  "menu_page": "main",
-  "menu_nav_stack": [],
+  "menu_page": "trading",
+  "menu_nav_stack": [
+    "main"
+  ],
   "bot_message_id": 1789,
-  "flow_message_id": 1789
+  "flow_message_id": 1789,
+  "quote_fields": [
+    "price"
+  ]
 }
