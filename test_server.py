@@ -231,6 +231,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "in_scheduled_window", return_value=True),
                 patch.object(server, "cycle") as cyc,
                 patch.object(server, "check_order_fills") as fills,
+                patch.object(server, "check_step_trails") as trails,
                 patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
@@ -244,6 +245,7 @@ class WebhookTests(unittest.TestCase):
             cyc.assert_called_once()
             self.assertEqual(cyc.call_args.kwargs.get("lock"), server.STATE_LOCK)
             fills.assert_called_once_with(spath)
+            trails.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)
             suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
@@ -276,6 +278,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(server, "in_scheduled_window", return_value=False),
                 patch.object(server, "check_order_fills") as fills,
+                patch.object(server, "check_step_trails") as trails,
                 patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
@@ -287,6 +290,7 @@ class WebhookTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     server.price_loop()
             fills.assert_called_once_with(spath)
+            trails.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)
             suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
