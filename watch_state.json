@@ -31,38 +31,8 @@
   "order_messages": [
     {
       "message_id": 1785,
-      "sent_at": "2026-09-19T16:53:56.212901+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
-      "sent_at": "2026-09-19T16:54:01.958232+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
-      "sent_at": "2026-09-19T16:54:03.889561+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
-      "sent_at": "2026-09-19T16:54:06.669616+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
-      "sent_at": "2026-09-19T16:54:15.408131+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
       "sent_at": "2026-09-19T16:54:38.628966+00:00",
       "ttl_seconds": 120
-    },
-    {
-      "message_id": 1785,
-      "sent_at": "2026-09-19T16:54:44.294765+00:00",
-      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
