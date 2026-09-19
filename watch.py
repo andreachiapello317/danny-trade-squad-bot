@@ -1464,12 +1464,20 @@ def _ibkr_is_question(item: dict[str, Any]) -> bool:
     return item.get("message") is not None or item.get("messageIds") is not None
 
 
+def _ibkr_item_status(item: dict[str, Any]) -> str:
+    return str(item.get("order_status") or item.get("status") or "").strip().lower()
+
+
+def _ibkr_item_is_dead(item: dict[str, Any]) -> bool:
+    return _ibkr_item_status(item) in _STEP_TRAIL_DEAD
+
+
 def _ibkr_is_submitted(item: dict[str, Any]) -> bool:
     if item.get("order_id") is not None or item.get("orderId") is not None:
         return True
     if item.get("local_order_id") is not None:
         return True
-    status = str(item.get("order_status") or item.get("status") or "").lower()
+    status = _ibkr_item_status(item)
     return status in {
         "submitted",
         "presubmitted",
@@ -1601,6 +1609,9 @@ def ibkr_place_order_ex(
         return "⚠️ Errore nell'invio dell'ordine.", None
     confirmed, err = _confirm_order_replies_detail(result)
     if confirmed is not None:
+        if _ibkr_item_is_dead(confirmed):
+            status = _ibkr_item_status(confirmed) or "cancellato"
+            return f"⚠️ Ordine {ticker} non attivo ({status}).", None
         oid = _confirmed_order_id(confirmed)
         if auto_price:
             return (
@@ -1682,7 +1693,6 @@ _STEP_TRAIL_DEAD = {
     "canceled",
     "rejected",
     "expired",
-    "inactive",
     "apicancelled",
 }
 
@@ -1779,6 +1789,12 @@ def ibkr_place_stop(
             continue
         confirmed, err = _confirm_order_replies_detail(result)
         if confirmed is not None:
+            if _ibkr_item_is_dead(confirmed):
+                last_err = (
+                    f"⚠️ Stop {ticker} non attivo "
+                    f"({_ibkr_item_status(confirmed) or 'cancellato'})."
+                )
+                continue
             oid = _confirmed_order_id(confirmed)
             if oid:
                 return None, oid
@@ -1950,7 +1966,7 @@ def format_trail_status_lines(trails: list[dict[str, Any]]) -> list[str]:
         "stopped": "fermato a mano",
         "done": "chiuso",
     }
-    lines: list[str] = []
+    latest: dict[str, dict[str, Any]] = {}
     for trail in trails:
         if not isinstance(trail, dict):
             continue
@@ -1958,6 +1974,10 @@ def format_trail_status_lines(trails: list[dict[str, Any]]) -> list[str]:
         if status not in {"buying", "watching", "armed", "error"}:
             continue
         ticker = str(trail.get("ticker") or "?").upper()
+        latest[ticker] = trail
+    lines: list[str] = []
+    for ticker, trail in latest.items():
+        status = str(trail.get("status") or "")
         label = labels.get(status, status)
         extra = ""
         if status == "armed":
@@ -1980,7 +2000,13 @@ def apply_telegram_trail(
         return False
     ticker = m.group(1).upper()
     quantity = int(m.group(2))
-    delta = float(m.group(3))
+    try:
+        delta = float(m.group(3))
+    except ValueError:
+        _send_order_message(
+            state_path, "⚠️ Delta non valido. Usa una percentuale, es. 2."
+        )
+        return True
     _send_order_message(
         state_path, start_step_trail(ticker, quantity, delta, state_path)
     )
@@ -2044,6 +2070,12 @@ def _on_step_trail_fill(
             if not same_ticker:
                 continue
             stop_id = str(trail.get("stop_order_id") or "")
+            trail_qty = _share_qty(trail.get("quantity")) or 0
+            sold = _share_qty(order.get("filledQuantity")) or 0
+            is_our_stop = bool(stop_id) and stop_id == order_id
+            covers = sold >= trail_qty >= 1
+            if not is_our_stop and not covers:
+                continue
             if stop_id and stop_id != order_id:
                 account_id = ibkr_get_account_id()
                 if account_id:
@@ -2135,22 +2167,32 @@ def apply_step_trail_price(state_path: Path, ticker: str, price: float) -> None:
             continue
         stop_id = str(trail.get("stop_order_id") or "")
         if stop_id:
+            known = load_state(state_path).get("known_order_status")
+            if (
+                isinstance(known, dict)
+                and str(known.get(stop_id) or "").lower() == "filled"
+            ):
+                trail["status"] = "done"
+                trail["stop_order_id"] = None
+                changed = True
+                continue
             err = ibkr_replace_stop(stop_id, ticker, qty, wanted)
             if err is not None:
-                account_id = ibkr_get_account_id()
-                if account_id:
-                    _ibkr_delete_orders(account_id, [stop_id])
                 trail["stop_order_id"] = None
-                err, new_id = ibkr_place_stop(ticker, qty, wanted)
-                if err is None and new_id:
-                    trail["stop_order_id"] = new_id
+                trail["stop_level"] = None
+                trail["status"] = "watching"
+                changed = True
+                _send_order_message(state_path, err)
+                continue
         else:
             err, new_id = ibkr_place_stop(ticker, qty, wanted)
             if err is None and new_id:
                 trail["stop_order_id"] = new_id
-        if err is not None or not trail.get("stop_order_id"):
-            if err is not None:
-                _send_order_message(state_path, err)
+            if err is not None or not trail.get("stop_order_id"):
+                if err is not None:
+                    _send_order_message(state_path, err)
+                continue
+        if not trail.get("stop_order_id"):
             continue
         first = current is None
         trail["stop_level"] = wanted
@@ -3579,7 +3621,11 @@ def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
             state["known_order_status"] = known
             save_state(state_path, state)
             commit_state_to_git()
-        elif prev != status and str(status or "").lower() in _STEP_TRAIL_DEAD:
+        elif (
+            prev != "Filled"
+            and prev != status
+            and str(status or "").lower() in _STEP_TRAIL_DEAD
+        ):
             _on_step_trail_dead(state_path, order, order_id, status)
         known[order_id] = status
     state = load_state(state_path)
