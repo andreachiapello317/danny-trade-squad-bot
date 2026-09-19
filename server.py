@@ -195,12 +195,14 @@ def webhook() -> tuple[str, int]:
                     chat_id = chat.get("id") if isinstance(chat, dict) else None
                     if isinstance(data, str) and cq_id is not None:
                         action = None
+                        raw_mid = msg.get("message_id") if isinstance(msg, dict) else None
                         with STATE_LOCK:
                             action = process_callback_query(
                                 data,
                                 chat_id,
                                 str(cq_id),
                                 STATE_PATH,
+                                raw_mid if isinstance(raw_mid, int) else None,
                             )
                         run_callback_action(action, STATE_PATH, WATCHLIST_PATH)
             return "ok", 200

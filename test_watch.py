@@ -3503,21 +3503,53 @@ class BuySellFlowTests(unittest.TestCase):
         )
 
     def test_apply_telegram_start_sends_category_buttons(self) -> None:
-        with patch.object(watch, "send_telegram_buttons") as buttons:
-            self.assertTrue(watch.apply_telegram_start("/start"))
-            self.assertTrue(watch.apply_telegram_start("/MENU"))
-            self.assertFalse(watch.apply_telegram_start("/list"))
-        self.assertEqual(buttons.call_count, 2)
-        text, rows = buttons.call_args[0]
-        self.assertIn("Danny Trade Squad Bot", text)
-        self.assertEqual(
-            [label for label, _ in rows],
-            ["📋 Watchlist", "💰 Trading", "📊 Conto", "ℹ️ Info"],
-        )
-        self.assertEqual(
-            [data for _, data in rows],
-            ["menu:watchlist", "menu:trading", "menu:conto", "menu:info"],
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(watch, "edit_telegram_message", return_value=False),
+                patch.object(
+                    watch, "send_telegram_buttons", return_value=77
+                ) as buttons,
+            ):
+                self.assertTrue(watch.apply_telegram_start("/start", spath))
+                self.assertTrue(watch.apply_telegram_start("/MENU", spath))
+                self.assertFalse(watch.apply_telegram_start("/list", spath))
+            self.assertEqual(buttons.call_count, 2)
+            text, rows = buttons.call_args[0]
+            self.assertIn("Danny Trade Squad Bot", text)
+            self.assertEqual(
+                [label for label, _ in rows],
+                ["📋 Watchlist", "💰 Trading", "📊 Conto", "ℹ️ Info"],
+            )
+            self.assertEqual(
+                [data for _, data in rows],
+                ["menu:watchlist", "menu:trading", "menu:conto", "menu:info"],
+            )
+            self.assertEqual(watch.load_state(spath)["menu_message_id"], 77)
+
+    def test_apply_telegram_start_edits_existing_menu(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(spath, {"menu_message_id": 88})
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+                patch.object(watch, "send_telegram_buttons") as send,
+            ):
+                self.assertTrue(watch.apply_telegram_start("/start", spath))
+            edit.assert_called_once()
+            self.assertEqual(edit.call_args[0][:3], ("-100", 88, watch.MENU_MAIN_TEXT))
+            send.assert_not_called()
+            with (
+                patch.object(watch, "telegram_chat_id", return_value="-100"),
+                patch.object(watch, "edit_telegram_message", return_value=False),
+                patch.object(
+                    watch, "send_telegram_buttons", return_value=99
+                ) as send,
+            ):
+                self.assertTrue(watch.apply_telegram_start("/start", spath))
+            send.assert_called_once()
+            self.assertEqual(watch.load_state(spath)["menu_message_id"], 99)
 
     def test_process_single_message_runs_start_before_pending_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3533,7 +3565,7 @@ class BuySellFlowTests(unittest.TestCase):
                     "/start", 50, wpath, spath
                 )
             self.assertEqual((added, removed), ([], []))
-            start.assert_called_once_with("/start")
+            start.assert_called_once_with("/start", spath)
             pending.assert_not_called()
             delete.assert_called_once_with(50)
 
@@ -3542,41 +3574,71 @@ class BuySellFlowTests(unittest.TestCase):
             spath = Path(tmp) / "watch_state.json"
             with (
                 patch.object(watch, "answer_callback_query") as ack,
-                patch.object(watch, "send_telegram_buttons") as buttons,
+                patch.object(watch, "edit_telegram_message", return_value=True) as edit,
+                patch.object(watch, "send_telegram_buttons") as send_btns,
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertIsNone(
-                    watch.process_callback_query("menu:watchlist", 1, "cbm1", spath)
+                    watch.process_callback_query(
+                        "menu:watchlist", 1, "cbm1", spath, 70
+                    )
                 )
                 self.assertIsNone(
-                    watch.process_callback_query("menu:trading", 1, "cbm2", spath)
+                    watch.process_callback_query(
+                        "menu:trading", 1, "cbm2", spath, 70
+                    )
                 )
                 self.assertIsNone(
-                    watch.process_callback_query("menu:conto", 1, "cbm3", spath)
+                    watch.process_callback_query(
+                        "menu:conto", 1, "cbm3", spath, 70
+                    )
                 )
                 self.assertIsNone(
-                    watch.process_callback_query("menu:info", 1, "cbm4", spath)
+                    watch.process_callback_query(
+                        "menu:info", 1, "cbm4", spath, 70
+                    )
                 )
-            self.assertEqual(ack.call_count, 4)
-            self.assertEqual(buttons.call_count, 3)
-            self.assertIn("/set TICKER", buttons.call_args_list[0][0][0])
+                self.assertIsNone(
+                    watch.process_callback_query(
+                        "menu:main", 1, "cbm5", spath, 70
+                    )
+                )
+            self.assertEqual(ack.call_count, 5)
+            send_btns.assert_not_called()
+            send.assert_not_called()
+            self.assertEqual(edit.call_count, 5)
+            watchlist_buttons = edit.call_args_list[0][0][3]
+            self.assertEqual(watchlist_buttons[0], ("📋 Lista attuale", "action:list"))
             self.assertEqual(
-                buttons.call_args_list[0][0][1],
-                [("📋 Lista attuale", "action:list")],
+                watchlist_buttons[-2:],
+                [
+                    ("◀️ Indietro", "menu:main"),
+                    ("🏠 Home", "menu:main"),
+                ],
             )
-            self.assertIn("/annulla TICKER", buttons.call_args_list[1][0][0])
+            self.assertIn("/set TICKER", edit.call_args_list[0][0][2])
+            self.assertIn("/annulla TICKER", edit.call_args_list[1][0][2])
             self.assertEqual(
-                [label for label, _ in buttons.call_args_list[1][0][1]],
+                [label for label, _ in edit.call_args_list[1][0][3][:2]],
                 ["🟢 Compra", "🔴 Vendi"],
             )
-            self.assertIn("/storico N", buttons.call_args_list[2][0][0])
+            self.assertIn("/storico N", edit.call_args_list[2][0][2])
             self.assertEqual(
-                [data for _, data in buttons.call_args_list[2][0][1]],
+                [data for _, data in edit.call_args_list[2][0][3][:3]],
                 ["action:saldo", "action:posizioni", "action:ordini"],
             )
-            send.assert_called_once()
-            self.assertIn("/prezzo TICKER", send.call_args[0][0])
-            self.assertIn("/info TICKER", send.call_args[0][0])
+            self.assertIn("/prezzo TICKER", edit.call_args_list[3][0][2])
+            self.assertIn("/info TICKER", edit.call_args_list[3][0][2])
+            self.assertEqual(
+                edit.call_args_list[3][0][3],
+                [
+                    ("◀️ Indietro", "menu:main"),
+                    ("🏠 Home", "menu:main"),
+                ],
+            )
+            self.assertEqual(edit.call_args_list[4][0][2], watch.MENU_MAIN_TEXT)
+            self.assertEqual(edit.call_args_list[4][0][3], watch.MENU_MAIN_BUTTONS)
+            self.assertEqual(watch.load_state(spath)["menu_message_id"], 70)
 
     def test_process_callback_query_menu_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3597,6 +3659,26 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertIsNone(
                     watch.process_callback_query("action:unknown", 1, "cba4", spath)
                 )
+
+    def test_edit_telegram_message_best_effort(self) -> None:
+        with patch.object(watch, "telegram_api") as api:
+            self.assertTrue(
+                watch.edit_telegram_message(1, 9, "ciao", [("A", "a")])
+            )
+        api.assert_called_once_with(
+            "editMessageText",
+            {
+                "chat_id": 1,
+                "message_id": 9,
+                "text": "ciao",
+                "reply_markup": {
+                    "inline_keyboard": [[{"text": "A", "callback_data": "a"}]]
+                },
+            },
+            timeout=12,
+        )
+        with patch.object(watch, "telegram_api", side_effect=RuntimeError("old")):
+            self.assertFalse(watch.edit_telegram_message(1, 9, "ciao"))
 
     def test_apply_menu_action_reuses_existing_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
