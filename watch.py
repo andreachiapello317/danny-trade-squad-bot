@@ -132,6 +132,7 @@ MENU_MAIN_TEXT = "🤖 Danny Trade Squad Bot\n\nScegli una categoria:"
 MENU_MAIN_BUTTONS = [
     ("📋 Watchlist", "menu:watchlist"),
     ("💰 Trading", "menu:trading"),
+    ("🤖 Trading automatico", "menu:automatico"),
     ("📊 Conto", "menu:conto"),
     ("ℹ️ Info", "menu:info"),
 ]
@@ -155,7 +156,6 @@ MENU_TRADING_BUTTONS = [
     ("🔴 Vendi", "action:sellflow"),
     ("🚫 Annulla", "action:cancel"),
     ("✏️ Modifica", "action:modify"),
-    ("🤖 Trading automatico", "menu:automatico"),
 ]
 MENU_AUTO_TEXT = "🤖 Trading automatico\n\nScegli un'azione:"
 MENU_AUTO_BUTTONS = [
