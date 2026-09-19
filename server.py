@@ -16,6 +16,7 @@ from flask import Flask, request
 from watch import (
     DEFAULT_STATE,
     DEFAULT_WATCHLIST,
+    MENU_ACTION_KINDS,
     _execute_flow_order,
     _send_flow_message,
     apply_menu_action,
@@ -27,6 +28,7 @@ from watch import (
     ensure_reply_suppression,
     expire_order_messages,
     ibkr_sell_all,
+    maybe_refresh_home,
     in_watch_window,
     load_dotenv,
     load_fired,
@@ -77,6 +79,7 @@ def price_loop() -> None:
                     check_fyi_notifications(STATE_PATH)
                     ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
+                    maybe_refresh_home(STATE_PATH)
                     commit_state_to_git()
             else:
                 with STATE_LOCK:
@@ -84,6 +87,7 @@ def price_loop() -> None:
                     check_fyi_notifications(STATE_PATH)
                     ensure_reply_suppression()
                     expire_order_messages(STATE_PATH)
+                    maybe_refresh_home(STATE_PATH)
                     commit_state_to_git()
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
@@ -174,7 +178,7 @@ def run_callback_action(
         if ticker:
             _send_flow_message(path, ibkr_sell_all(ticker, action.get("price")))
         return
-    if kind in {"list", "saldo", "posizioni", "ordini", "buyflow", "sellflow"}:
+    if kind in MENU_ACTION_KINDS:
         apply_menu_action(str(kind), wpath, path)
 
 
@@ -215,6 +219,7 @@ def webhook() -> tuple[str, int]:
                                 str(cq_id),
                                 STATE_PATH,
                                 raw_mid if isinstance(raw_mid, int) else None,
+                                WATCHLIST_PATH,
                             )
                         run_callback_action(action, STATE_PATH, WATCHLIST_PATH)
             return "ok", 200

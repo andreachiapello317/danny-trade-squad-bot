@@ -3550,6 +3550,9 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(buttons.call_count, 2)
             text, rows = buttons.call_args[0]
             self.assertIn("Danny Trade Squad Bot", text)
+            self.assertIn("Conto:", text)
+            self.assertIn("Contanti:", text)
+            self.assertIn("Valore netto:", text)
             self.assertEqual(
                 [label for label, _ in rows],
                 ["📋 Watchlist", "💰 Trading", "📊 Conto", "ℹ️ Info"],
@@ -3571,7 +3574,8 @@ class BuySellFlowTests(unittest.TestCase):
             ):
                 self.assertTrue(watch.apply_telegram_start("/start", spath))
             edit.assert_called_once()
-            self.assertEqual(edit.call_args[0][:3], ("-100", 88, watch.MENU_MAIN_TEXT))
+            self.assertEqual(edit.call_args[0][:2], ("-100", 88))
+            self.assertEqual(edit.call_args[0][2], watch.format_home_text(None))
             send.assert_not_called()
             with (
                 patch.object(watch, "telegram_chat_id", return_value="-100"),
@@ -3641,7 +3645,18 @@ class BuySellFlowTests(unittest.TestCase):
             send.assert_not_called()
             self.assertEqual(edit.call_count, 5)
             watchlist_buttons = edit.call_args_list[0][0][3]
-            self.assertEqual(watchlist_buttons[0], ("📋 Lista attuale", "action:list"))
+            self.assertEqual(
+                [data for _, data in watchlist_buttons[:7]],
+                [
+                    "action:list",
+                    "action:set",
+                    "action:setbuy",
+                    "action:settarget",
+                    "action:setstop",
+                    "action:rm",
+                    "action:clear",
+                ],
+            )
             self.assertEqual(
                 watchlist_buttons[-2:],
                 [
@@ -3649,27 +3664,38 @@ class BuySellFlowTests(unittest.TestCase):
                     ("🏠 Home", "menu:main"),
                 ],
             )
-            self.assertIn("/set TICKER", edit.call_args_list[0][0][2])
-            self.assertIn("/annulla TICKER", edit.call_args_list[1][0][2])
+            self.assertIn("Scegli un'azione", edit.call_args_list[0][0][2])
             self.assertEqual(
-                [label for label, _ in edit.call_args_list[1][0][3][:2]],
-                ["🟢 Compra", "🔴 Vendi"],
+                [data for _, data in edit.call_args_list[1][0][3][:5]],
+                [
+                    "action:buyflow",
+                    "action:sellflow",
+                    "action:cancel",
+                    "action:modify",
+                    "action:trail",
+                ],
             )
-            self.assertIn("/storico N", edit.call_args_list[2][0][2])
             self.assertEqual(
-                [data for _, data in edit.call_args_list[2][0][3][:3]],
-                ["action:saldo", "action:posizioni", "action:ordini"],
+                [data for _, data in edit.call_args_list[2][0][3][:4]],
+                [
+                    "action:saldo",
+                    "action:posizioni",
+                    "action:ordini",
+                    "action:history",
+                ],
             )
-            self.assertIn("/prezzo TICKER", edit.call_args_list[3][0][2])
-            self.assertIn("/info TICKER", edit.call_args_list[3][0][2])
             self.assertEqual(
-                edit.call_args_list[3][0][3],
+                edit.call_args_list[3][0][3][0],
+                ("📈 Prezzo", "action:price"),
+            )
+            self.assertEqual(
+                edit.call_args_list[3][0][3][-2:],
                 [
                     ("◀️ Indietro", "menu:back"),
                     ("🏠 Home", "menu:main"),
                 ],
             )
-            self.assertEqual(edit.call_args_list[4][0][2], watch.MENU_MAIN_TEXT)
+            self.assertEqual(edit.call_args_list[4][0][2], watch.format_home_text(None))
             self.assertEqual(edit.call_args_list[4][0][3], watch.MENU_MAIN_BUTTONS)
             self.assertEqual(watch.load_state(spath)["menu_message_id"], 70)
 
@@ -3688,6 +3714,18 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertEqual(
                     watch.process_callback_query("action:sellflow", 1, "cba3", spath),
                     {"action": "sellflow"},
+                )
+                self.assertEqual(
+                    watch.process_callback_query("action:set", 1, "cba5", spath),
+                    {"action": "set"},
+                )
+                self.assertEqual(
+                    watch.process_callback_query("action:history", 1, "cba6", spath),
+                    {"action": "history"},
+                )
+                self.assertEqual(
+                    watch.process_callback_query("action:price", 1, "cba7", spath),
+                    {"action": "price"},
                 )
                 self.assertIsNone(
                     watch.process_callback_query("action:unknown", 1, "cba4", spath)
@@ -3734,6 +3772,7 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "apply_telegram_orders") as orders,
                 patch.object(watch, "apply_telegram_buy_flow_start") as buy,
                 patch.object(watch, "apply_telegram_sell_flow_start") as sell,
+                patch.object(watch, "_start_guided_flow") as guided,
             ):
                 watch.apply_menu_action("list", wpath, spath)
                 watch.apply_menu_action("saldo", wpath, spath)
@@ -3741,12 +3780,18 @@ class BuySellFlowTests(unittest.TestCase):
                 watch.apply_menu_action("ordini", wpath, spath)
                 watch.apply_menu_action("buyflow", wpath, spath)
                 watch.apply_menu_action("sellflow", wpath, spath)
+                watch.apply_menu_action("set", wpath, spath)
+                watch.apply_menu_action("history", wpath, spath)
             lst.assert_called_once_with("/list", wpath, spath)
             bal.assert_called_once_with("/saldo", spath)
             pos.assert_called_once_with("/posizioni", spath)
             orders.assert_called_once_with("/ordini", spath)
             buy.assert_called_once_with("/compra", spath)
             sell.assert_called_once_with("/vendi", spath)
+            self.assertEqual(
+                [call.args[0] for call in guided.call_args_list],
+                ["SET", "HISTORY"],
+            )
 
     def test_process_single_message_starts_flow_before_inline_buy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3772,7 +3817,7 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "delete_telegram_message") as delete,
             ):
                 watch.process_single_message("AMD", 41, wpath, spath)
-            pending.assert_called_once_with("AMD", spath)
+            pending.assert_called_once_with("AMD", spath, wpath)
             lst.assert_not_called()
             delete.assert_called_once_with(41)
 
@@ -3862,7 +3907,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(state["pending_flow"]["type"], "BUY")
             self.assertEqual(state["menu_page"], "main")
             self.assertEqual(state["menu_nav_stack"], [])
-            self.assertEqual(edit.call_args[0][2], watch.MENU_MAIN_TEXT)
+            self.assertEqual(edit.call_args[0][2], watch.format_home_text(None))
 
     def test_replacing_message_edits_when_possible(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3920,6 +3965,204 @@ class BuySellFlowTests(unittest.TestCase):
             bal.assert_called_once_with("/saldo", spath)
             self.assertEqual(edits[0], watch.IBKR_LOADING_TEXT)
             self.assertNotIn(watch.MENU_CONTO_TEXT, edits)
+
+    def test_format_home_text_includes_account_and_balance(self) -> None:
+        empty = watch.format_home_text(None)
+        self.assertIn("Conto: n/d", empty)
+        self.assertIn("Contanti: n/d", empty)
+        self.assertIn("Valore netto: n/d", empty)
+        body = watch.format_home_text(
+            {
+                "account_id": "U123",
+                "cashbalance": 1000.5,
+                "netliquidationvalue": 5000.25,
+                "currency": "USD",
+            }
+        )
+        self.assertIn("Conto: U123", body)
+        self.assertIn("Contanti: 1000.5 USD", body)
+        self.assertIn("Valore netto: 5000.25 USD", body)
+
+    def test_apply_telegram_start_fetches_live_saldo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_account_snapshot",
+                    return_value={
+                        "account_id": "U777",
+                        "cashbalance": 12,
+                        "netliquidationvalue": 34,
+                        "currency": "USD",
+                    },
+                ) as snap,
+                patch.object(watch, "edit_telegram_message", return_value=False),
+                patch.object(watch, "send_telegram_buttons", return_value=11) as buttons,
+            ):
+                self.assertTrue(watch.apply_telegram_start("/start", spath))
+            snap.assert_called()
+            self.assertIn("Conto: U777", buttons.call_args[0][0])
+            self.assertIn("Contanti: 12 USD", buttons.call_args[0][0])
+
+    def test_maybe_refresh_home_only_on_main_without_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "bot_message_id": 70,
+                    "menu_page": "watchlist",
+                    "pending_flow": None,
+                },
+            )
+            with patch.object(watch, "deliver_text") as deliver:
+                watch.maybe_refresh_home(spath)
+            deliver.assert_not_called()
+            watch.save_state(
+                spath,
+                {
+                    "bot_message_id": 70,
+                    "menu_page": "main",
+                    "pending_flow": {"type": "SET", "step": "ticker"},
+                },
+            )
+            with patch.object(watch, "deliver_text") as deliver:
+                watch.maybe_refresh_home(spath)
+            deliver.assert_not_called()
+            watch.save_state(
+                spath,
+                {"bot_message_id": 70, "menu_page": "main", "pending_flow": None},
+            )
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_account_snapshot",
+                    return_value={
+                        "account_id": "U1",
+                        "cashbalance": 1,
+                        "netliquidationvalue": 2,
+                        "currency": "USD",
+                    },
+                ),
+                patch.object(watch, "deliver_text") as deliver,
+            ):
+                watch.maybe_refresh_home(spath)
+            deliver.assert_called_once()
+            self.assertIn("Conto: U1", deliver.call_args[0][1])
+            self.assertEqual(deliver.call_args[0][2], watch.MENU_MAIN_BUTTONS)
+
+    def test_set_workflow_asks_then_writes_watchlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram") as send:
+                watch.apply_menu_action("set", wpath, spath)
+            self.assertEqual(sent_text(send), "Quale ticker vuoi impostare?")
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "SET")
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(
+                    watch.process_pending_flow_text("AMD", spath, wpath)
+                )
+            self.assertIn("ingresso?", sent_text(send))
+            with patch.object(watch, "send_telegram") as send:
+                watch.process_pending_flow_text("130-134", spath, wpath)
+            self.assertIn("stop?", sent_text(send))
+            with patch.object(watch, "send_telegram") as send:
+                watch.process_pending_flow_text("124", spath, wpath)
+            self.assertIn("target?", sent_text(send))
+            with patch.object(watch, "send_telegram") as send:
+                watch.process_pending_flow_text("148", spath, wpath)
+            self.assertIn("✅ AMD impostato", sent_text(send))
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+            item = watch.load_watchlist(wpath)[0]
+            self.assertEqual(item["ticker"], "AMD")
+            self.assertEqual(item["ingresso_low"], 130.0)
+            self.assertEqual(item["ingresso_high"], 134.0)
+            self.assertEqual(item["stop"], 124.0)
+            self.assertEqual(item["target"], 148.0)
+
+    def test_flowticker_and_history_and_clear_buttons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {
+                        "ticker": "AMD",
+                        "tf": "",
+                        "ingresso_low": 1,
+                        "ingresso_high": 1,
+                        "stop": 1,
+                        "target": 2,
+                    }
+                ],
+            )
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {
+                        "type": "SETBUY",
+                        "step": "ticker",
+                        "ticker": None,
+                    }
+                },
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertIsNone(
+                    watch.process_callback_query(
+                        "flowticker:AMD", 1, "cbt", spath, 70, wpath
+                    )
+                )
+            self.assertIn("prezzo di ingresso?", sent_text(send))
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["ticker"], "AMD")
+            watch.save_state(
+                spath, {"pending_flow": {"type": "HISTORY", "step": "days"}}
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "apply_telegram_history") as hist,
+            ):
+                self.assertIsNone(
+                    watch.process_callback_query("days:7", 1, "cbd", spath, 70)
+                )
+            hist.assert_called_once_with("/storico 7", spath)
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+            watch.save_state(
+                spath, {"pending_flow": {"type": "CLEAR", "step": "confirm"}}
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertIsNone(
+                    watch.process_callback_query(
+                        "confirm:yes", 1, "cbc", spath, 70, wpath
+                    )
+                )
+            self.assertIn("Watchlist svuotata", sent_text(send))
+            self.assertEqual(watch.load_watchlist(wpath), [])
+
+    def test_rm_workflow_uses_watchlist_buttons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(wpath, [{"ticker": "NVDA", "tf": ""}])
+            with patch.object(watch, "send_telegram") as send:
+                watch.apply_menu_action("rm", wpath, spath)
+            self.assertEqual(sent_text(send), "Quale ticker vuoi togliere?")
+            markup = send.call_args.kwargs.get("reply_markup") or {}
+            self.assertIn(
+                {"text": "NVDA", "callback_data": "flowticker:NVDA"},
+                markup["inline_keyboard"][0],
+            )
 
 
 class GitSyncTests(unittest.TestCase):

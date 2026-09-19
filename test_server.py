@@ -95,6 +95,7 @@ class WebhookTests(unittest.TestCase):
                 "cb9",
                 spath,
                 70,
+                server.WATCHLIST_PATH,
             )
             proc.assert_not_called()
 
@@ -234,6 +235,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "maybe_refresh_home") as home,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
             ):
@@ -247,6 +249,7 @@ class WebhookTests(unittest.TestCase):
             fyi.assert_called_once_with(spath)
             suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
+            home.assert_called_once_with(spath)
             sync.assert_called_once()
 
     def test_price_loop_keeps_going_after_error(self) -> None:
@@ -278,6 +281,7 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "ensure_reply_suppression") as suppress,
                 patch.object(server, "expire_order_messages") as expire,
+                patch.object(server, "maybe_refresh_home") as home,
                 patch.object(server, "commit_state_to_git") as sync,
                 patch.object(server, "time") as time_mod,
             ):
@@ -288,6 +292,7 @@ class WebhookTests(unittest.TestCase):
             fyi.assert_called_once_with(spath)
             suppress.assert_called_once_with()
             expire.assert_called_once_with(spath)
+            home.assert_called_once_with(spath)
             sync.assert_called_once()
 
 
