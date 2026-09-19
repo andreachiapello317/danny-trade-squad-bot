@@ -68,30 +68,26 @@ def in_scheduled_window() -> bool:
 def price_loop() -> None:
     while True:
         try:
-            if in_scheduled_window():
-                with STATE_LOCK:
-                    items = load_watchlist(WATCHLIST_PATH)
-                    fired = load_fired(load_state(STATE_PATH))
-                if items:
-                    cycle(items, fired, STATE_PATH, lock=STATE_LOCK)
-                with STATE_LOCK:
-                    persist_fired(STATE_PATH, fired)
-                    check_order_fills(STATE_PATH)
-                    check_step_trails(STATE_PATH)
-                    check_fyi_notifications(STATE_PATH)
-                    ensure_reply_suppression()
-                    expire_order_messages(STATE_PATH)
-                    maybe_refresh_home(STATE_PATH)
-                    commit_state_to_git()
-            else:
-                with STATE_LOCK:
-                    check_order_fills(STATE_PATH)
-                    check_step_trails(STATE_PATH)
-                    check_fyi_notifications(STATE_PATH)
-                    ensure_reply_suppression()
-                    expire_order_messages(STATE_PATH)
-                    maybe_refresh_home(STATE_PATH)
-                    commit_state_to_git()
+            with STATE_LOCK:
+                items = load_watchlist(WATCHLIST_PATH)
+                fired = load_fired(load_state(STATE_PATH))
+            if items:
+                cycle(
+                    items,
+                    fired,
+                    STATE_PATH,
+                    lock=STATE_LOCK,
+                    watchlist_path=WATCHLIST_PATH,
+                )
+            with STATE_LOCK:
+                persist_fired(STATE_PATH, fired)
+                check_order_fills(STATE_PATH)
+                check_step_trails(STATE_PATH)
+                check_fyi_notifications(STATE_PATH)
+                ensure_reply_suppression()
+                expire_order_messages(STATE_PATH)
+                maybe_refresh_home(STATE_PATH)
+                commit_state_to_git()
         except Exception as exc:
             print(f"Ciclo prezzi: {exc}", file=sys.stderr)
         time.sleep(60)
