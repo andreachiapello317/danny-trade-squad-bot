@@ -1087,6 +1087,95 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.apply_order_status_updates([sell], spath)
             self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "done")
 
+    def test_step_trail_does_not_arm_without_stop_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 2,
+                            "delta": 2.0,
+                            "breakeven": 101.0,
+                            "status": "watching",
+                        }
+                    ]
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=104.0),
+                patch.object(
+                    watch, "ibkr_place_stop", return_value=(None, None)
+                ) as place,
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.check_step_trails(spath)
+            place.assert_called_once()
+            send.assert_not_called()
+            trail = watch.load_state(spath)["auto_trails"][0]
+            self.assertEqual(trail["status"], "watching")
+            self.assertIsNone(trail.get("stop_level"))
+
+    def test_step_trail_ignores_unrelated_sell_and_cancelled_buy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 2,
+                            "delta": 2.0,
+                            "buy_order_id": "77",
+                            "stop_order_id": "88",
+                            "status": "armed",
+                        }
+                    ]
+                },
+            )
+            other_sell = {
+                "orderId": 99,
+                "status": "Filled",
+                "side": "SELL",
+                "filledQuantity": 2,
+                "ticker": "AMD",
+                "avgPrice": 103,
+            }
+            with (
+                patch.object(watch, "_commission_from_trades", return_value="1"),
+                patch.object(watch, "send_telegram", return_value=1),
+                patch.object(watch, "commit_state_to_git"),
+            ):
+                watch.apply_order_status_updates([other_sell], spath)
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "armed")
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr2",
+                            "ticker": "NVDA",
+                            "quantity": 1,
+                            "delta": 1.0,
+                            "buy_order_id": "10",
+                            "status": "buying",
+                        }
+                    ]
+                },
+            )
+            with patch.object(watch, "send_telegram", return_value=2) as send:
+                watch.apply_order_status_updates(
+                    [{"orderId": 10, "status": "Cancelled", "ticker": "NVDA"}],
+                    spath,
+                )
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "error")
+            self.assertIn("buy Cancelled", sent_text(send))
+
     def test_ibkr_cancel_order_one_and_many(self) -> None:
         payload = {
             "orders": [
