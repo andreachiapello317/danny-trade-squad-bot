@@ -28,13 +28,7 @@
   "sent_alerts": [],
   "summary_message_id": 1783,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [
-    {
-      "message_id": 1783,
-      "sent_at": "2026-09-19T16:35:41.970626+00:00",
-      "ttl_seconds": 120
-    }
-  ],
+  "order_messages": [],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
