@@ -164,10 +164,23 @@ MENU_CONTO_BUTTONS = [
     ("📋 Ordini", "action:ordini"),
     ("📜 Storico", "action:history"),
 ]
-MENU_INFO_TEXT = "ℹ️ Info\n\nScegli un'azione:"
+MENU_INFO_TEXT = (
+    "ℹ️ Info stock\n\n"
+    "Tocca i campi che vuoi (anche più di uno), poi Mostra."
+)
 MENU_INFO_BUTTONS = [
     ("📈 Prezzo", "action:price"),
 ]
+QUOTE_FIELDS: dict[str, dict[str, Any]] = {
+    "price": {"label": "Prezzo", "ids": ("31",)},
+    "book": {"label": "Bid / Ask", "ids": ("84", "86", "88", "85")},
+    "volume": {"label": "Volume", "ids": ("87",)},
+    "range": {"label": "Min / Max", "ids": ("71", "70")},
+    "change": {"label": "Variazione", "ids": ("82", "83")},
+    "session": {"label": "Open / Close", "ids": ("7295", "7296")},
+}
+QUOTE_ALWAYS_IDS = ("55", "58")
+QUOTE_DEFAULT_FIELDS = ["price", "volume"]
 BOT_MESSAGE_KEY = "bot_message_id"
 LEGACY_MESSAGE_KEYS = (
     "menu_message_id",
@@ -769,6 +782,9 @@ def _show_named_menu(
     text, buttons, with_nav = MENU_PAGES[page]
     if page == "main":
         text = format_home_text(live=True)
+    elif page == "info":
+        _start_quote_picker(state_path)
+        return
     _show_menu_page(
         chat_id, message_id, text, buttons, state_path, with_nav=with_nav
     )
@@ -1056,6 +1072,183 @@ def ibkr_get_price(ticker: str) -> float | None:
         return float(match.group(0))
     except ValueError:
         return None
+
+
+def ibkr_get_snapshot(
+    ticker: str, field_ids: list[str]
+) -> dict[str, Any] | None:
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return None
+    fields = ",".join(dict.fromkeys(fid for fid in field_ids if fid))
+    if not fields:
+        fields = "31"
+    path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields={fields}"
+    ibkr_get(path)
+    time.sleep(1)
+    snap = ibkr_get(path)
+    if not isinstance(snap, list) or not snap:
+        return None
+    first = snap[0]
+    return first if isinstance(first, dict) else None
+
+
+def _quote_selected_fields(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return list(QUOTE_DEFAULT_FIELDS)
+    return [key for key in QUOTE_FIELDS if key in raw]
+
+
+def _quote_field_ids(selected: list[str]) -> list[str]:
+    ids = list(QUOTE_ALWAYS_IDS)
+    for key in selected:
+        spec = QUOTE_FIELDS.get(key)
+        if spec is None:
+            continue
+        ids.extend(str(item) for item in spec["ids"])
+    return list(dict.fromkeys(ids))
+
+
+def _quote_cell(row: dict[str, Any], field_id: str) -> str | None:
+    raw = row.get(field_id)
+    if raw is None or raw == "":
+        return None
+    text = str(raw).strip()
+    if not text or text.upper() in {"N/A", "--", "—"}:
+        return None
+    return text
+
+
+def _fmt_quote_volume(raw: str) -> str:
+    match = _IBKR_PRICE_RE.search(raw.replace(",", ""))
+    if not match:
+        return raw
+    try:
+        value = float(match.group(0))
+    except ValueError:
+        return raw
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.2f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return f"{value:g}"
+
+
+def _format_quote_line(key: str, row: dict[str, Any]) -> str | None:
+    if key == "price":
+        last = _quote_cell(row, "31")
+        return f"Prezzo: {last}" if last else None
+    if key == "book":
+        bid = _quote_cell(row, "84")
+        ask = _quote_cell(row, "86")
+        bid_sz = _quote_cell(row, "88")
+        ask_sz = _quote_cell(row, "85")
+        left = f"{bid} × {bid_sz}" if bid and bid_sz else bid
+        right = f"{ask} × {ask_sz}" if ask and ask_sz else ask
+        if left and right:
+            return f"Bid / Ask: {left}  ·  {right}"
+        if left:
+            return f"Bid: {left}"
+        if right:
+            return f"Ask: {right}"
+        return None
+    if key == "volume":
+        volume = _quote_cell(row, "87")
+        return f"Volume: {_fmt_quote_volume(volume)}" if volume else None
+    if key == "range":
+        low = _quote_cell(row, "71")
+        high = _quote_cell(row, "70")
+        if low and high:
+            return f"Min / Max: {low} – {high}"
+        if low:
+            return f"Min: {low}"
+        if high:
+            return f"Max: {high}"
+        return None
+    if key == "change":
+        change = _quote_cell(row, "82")
+        pct = _quote_cell(row, "83")
+        if change and pct:
+            return f"Variazione: {change} ({pct})"
+        if change:
+            return f"Variazione: {change}"
+        if pct:
+            return f"Variazione: {pct}"
+        return None
+    if key == "session":
+        opened = _quote_cell(row, "7295")
+        closed = _quote_cell(row, "7296")
+        if opened and closed:
+            return f"Open / Close: {opened} / {closed}"
+        if opened:
+            return f"Open: {opened}"
+        if closed:
+            return f"Close: {closed}"
+        return None
+    return None
+
+
+def format_quote_card(
+    ticker: str, row: dict[str, Any] | None, selected: list[str]
+) -> str:
+    if row is None:
+        return f"⚠️ Dati IBKR non disponibili per {ticker}."
+    keys = _quote_selected_fields(selected)
+    lines = [f"📈 {ticker}"]
+    name = _quote_cell(row, "58")
+    if name and name.upper() != ticker.upper():
+        lines.append(name)
+    body = [_format_quote_line(key, row) for key in keys]
+    shown = [line for line in body if line]
+    if not shown:
+        return f"⚠️ Dati IBKR non disponibili per {ticker}."
+    lines.append("")
+    lines.extend(shown)
+    return "\n".join(lines)
+
+
+def _quote_picker_buttons(selected: list[str]) -> list[tuple[str, str]]:
+    buttons: list[tuple[str, str]] = []
+    chosen = set(selected)
+    for key, spec in QUOTE_FIELDS.items():
+        mark = "✓ " if key in chosen else ""
+        buttons.append((f"{mark}{spec['label']}", f"quotefield:{key}"))
+    buttons.append(("🔎 Mostra", "quote:go"))
+    return buttons
+
+
+def _load_quote_fields(state_path: Path) -> list[str]:
+    raw = load_state(state_path).get("quote_fields")
+    if not isinstance(raw, list):
+        return list(QUOTE_DEFAULT_FIELDS)
+    return _quote_selected_fields(raw)
+
+
+def _save_quote_fields(state_path: Path, selected: list[str]) -> None:
+    state = load_state(state_path)
+    state["quote_fields"] = _quote_selected_fields(selected)
+    save_state(state_path, state)
+
+
+def _start_quote_picker(state_path: Path) -> None:
+    selected = _load_quote_fields(state_path)
+    _send_flow_message(
+        state_path,
+        MENU_INFO_TEXT,
+        _quote_picker_buttons(selected),
+    )
+
+
+def _show_quote_for_ticker(ticker: str, flow: dict[str, Any], state_path: Path) -> None:
+    selected = _quote_selected_fields(flow.get("quote_fields"))
+    _save_pending_flow(state_path, None)
+    _preview_loading(state_path, "price_message_id")
+    row = ibkr_get_snapshot(ticker, _quote_field_ids(selected))
+    _send_replacing_message(
+        state_path, "price_message_id", format_quote_card(ticker, row, selected)
+    )
 
 
 def _preview_loading(state_path: Path, id_key: str) -> None:
@@ -1721,6 +1914,9 @@ def _advance_flow_after_ticker(
         _save_pending_flow(state_path, None)
         apply_telegram_price(f"/prezzo {ticker}", state_path)
         return
+    if kind == "QUOTE":
+        _show_quote_for_ticker(ticker, flow, state_path)
+        return
     if kind == "CANCEL":
         _save_pending_flow(state_path, None)
         _send_order_message(state_path, ibkr_cancel_order(ticker))
@@ -2047,6 +2243,41 @@ def process_callback_query(
         kind = data.split(":", 1)[1].strip()
         if kind in MENU_ACTION_KINDS:
             return {"action": kind}
+        return None
+    if data.startswith("quotefield:") or data == "quote:go":
+        selected = _load_quote_fields(state_path)
+        if data.startswith("quotefield:"):
+            key = data.split(":", 1)[1].strip()
+            if key not in QUOTE_FIELDS:
+                return None
+            if key in selected:
+                selected = [item for item in selected if item != key]
+            else:
+                selected.append(key)
+            selected = _quote_selected_fields(selected)
+            _save_quote_fields(state_path, selected)
+            _send_flow_message(
+                state_path,
+                MENU_INFO_TEXT,
+                _quote_picker_buttons(selected),
+            )
+            return None
+        if not selected:
+            _send_flow_message(
+                state_path,
+                "⚠️ Seleziona almeno un campo, poi Mostra.",
+                _quote_picker_buttons([]),
+            )
+            return None
+        flow = _new_pending_flow("QUOTE")
+        flow["quote_fields"] = selected
+        _save_pending_flow(state_path, flow)
+        shortcuts = _watchlist_tickers(wpath)
+        _send_flow_message(
+            state_path,
+            "Di quale ticker vuoi le info?",
+            _flow_ticker_buttons(shortcuts) if shortcuts else None,
+        )
         return None
     flow = _pending_flow(load_state(state_path))
     if flow is None:

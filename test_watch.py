@@ -3684,10 +3684,23 @@ class BuySellFlowTests(unittest.TestCase):
                     "action:history",
                 ],
             )
+            info_buttons = edit.call_args_list[3][0][3]
             self.assertEqual(
-                edit.call_args_list[3][0][3][0],
-                ("📈 Prezzo", "action:price"),
+                [data for _, data in info_buttons[:7]],
+                [
+                    "quotefield:price",
+                    "quotefield:book",
+                    "quotefield:volume",
+                    "quotefield:range",
+                    "quotefield:change",
+                    "quotefield:session",
+                    "quote:go",
+                ],
             )
+            self.assertEqual(info_buttons[0][0], "✓ Prezzo")
+            self.assertEqual(info_buttons[2][0], "✓ Volume")
+            self.assertEqual(info_buttons[6], ("🔎 Mostra", "quote:go"))
+            self.assertIn("campi che vuoi", edit.call_args_list[3][0][2])
             self.assertEqual(
                 edit.call_args_list[3][0][3][-2:],
                 [
@@ -4163,6 +4176,123 @@ class BuySellFlowTests(unittest.TestCase):
                 {"text": "NVDA", "callback_data": "flowticker:NVDA"},
                 markup["inline_keyboard"][0],
             )
+
+    def test_format_quote_card_compacts_selected_fields(self) -> None:
+        row = {
+            "31": "148.2",
+            "58": "Advanced Micro Devices",
+            "70": "149.8",
+            "71": "146.1",
+            "82": "+1.20",
+            "83": "+0.82%",
+            "84": "148.18",
+            "85": "6",
+            "86": "148.22",
+            "87": "12400000",
+            "88": "4",
+            "7295": "147.00",
+            "7296": "147.00",
+        }
+        body = watch.format_quote_card(
+            "AMD", row, ["price", "book", "volume", "range", "change", "session"]
+        )
+        self.assertIn("📈 AMD", body)
+        self.assertIn("Advanced Micro Devices", body)
+        self.assertIn("Prezzo: 148.2", body)
+        self.assertIn("Bid / Ask: 148.18 × 4  ·  148.22 × 6", body)
+        self.assertIn("Volume: 12.40M", body)
+        self.assertIn("Min / Max: 146.1 – 149.8", body)
+        self.assertIn("Variazione: +1.20 (+0.82%)", body)
+        self.assertIn("Open / Close: 147.00 / 147.00", body)
+        self.assertEqual(
+            watch.format_quote_card("AMD", None, ["price"]),
+            "⚠️ Dati IBKR non disponibili per AMD.",
+        )
+
+    def test_quote_field_toggle_then_asks_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(wpath, [{"ticker": "AMD", "tf": ""}])
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "edit_telegram_message", return_value=False),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_callback_query(
+                    "menu:info", 1, "cbi", spath, 70, wpath
+                )
+                watch.process_callback_query(
+                    "quotefield:book", 1, "cbt", spath, 70, wpath
+                )
+                watch.process_callback_query(
+                    "quote:go", 1, "cbg", spath, 70, wpath
+                )
+            texts = [
+                btn["text"]
+                for call in send.call_args_list
+                for row in (call.kwargs.get("reply_markup") or {}).get(
+                    "inline_keyboard", []
+                )
+                for btn in row
+            ]
+            self.assertIn("✓ Bid / Ask", texts)
+            self.assertEqual(sent_text(send), "Di quale ticker vuoi le info?")
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["type"], "QUOTE")
+            self.assertEqual(flow["step"], "ticker")
+            self.assertEqual(flow["quote_fields"], ["price", "book", "volume"])
+
+    def test_quote_ticker_fetches_selected_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {
+                        "type": "QUOTE",
+                        "step": "ticker",
+                        "quote_fields": ["price", "volume"],
+                    }
+                },
+            )
+            row = {"31": "10.5", "58": "AMD", "87": "1500"}
+            with (
+                patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "ibkr_get_snapshot", return_value=row) as snap,
+                patch.object(watch, "time"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                self.assertTrue(
+                    watch.process_pending_flow_text("AMD", spath, wpath)
+                )
+            snap.assert_called_once_with("AMD", ["55", "58", "31", "87"])
+            body = sent_text(send)
+            self.assertIn("📈 AMD", body)
+            self.assertIn("Prezzo: 10.5", body)
+            self.assertIn("Volume: 1.5K", body)
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+
+    def test_ibkr_get_snapshot_wakes_then_reads(self) -> None:
+        calls: list[str] = []
+
+        def fake_get(path: str):
+            calls.append(path)
+            if len(calls) == 1:
+                return []
+            return [{"31": "C 12.3", "87": "100"}]
+
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="123"),
+            patch.object(watch, "ibkr_get", side_effect=fake_get),
+            patch.object(watch, "time") as time_mod,
+        ):
+            row = watch.ibkr_get_snapshot("AMD", ["31", "87"])
+        self.assertEqual(row, {"31": "C 12.3", "87": "100"})
+        self.assertEqual(len(calls), 2)
+        self.assertIn("fields=31,87", calls[0])
+        time_mod.sleep.assert_called_once_with(1)
 
 
 class GitSyncTests(unittest.TestCase):
