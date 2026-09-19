@@ -31,13 +31,8 @@
   "order_messages": [
     {
       "message_id": 1795,
-      "sent_at": "2026-09-19T22:58:48.316841+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1795,
-      "sent_at": "2026-09-19T22:58:53.853635+00:00",
-      "ttl_seconds": 120
+      "sent_at": "2026-09-19T22:59:50.446142+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -125,7 +120,8 @@
     "1169398497": "Filled",
     "1395799702": "PendingCancel",
     "1395799703": "PendingCancel",
-    "1395799722": "Cancelled"
+    "1395799722": "Cancelled",
+    "1395799723": "PreSubmitted"
   },
   "pending_flow": null,
   "positions_message_id": 1795,
@@ -142,7 +138,7 @@
     "2026091611588154"
   ],
   "menu_message_id": 1795,
-  "menu_page": "automatico",
+  "menu_page": "conto",
   "menu_nav_stack": [
     "main"
   ],
@@ -164,6 +160,19 @@
       "stop_level": null,
       "stop_order_id": null,
       "status": "error"
+    },
+    {
+      "id": "tr9858774877",
+      "ticker": "SLNH",
+      "quantity": 4,
+      "delta": 2.0,
+      "buy_order_id": "1395799723",
+      "avg_price": null,
+      "buy_fee": null,
+      "breakeven": null,
+      "stop_level": null,
+      "stop_order_id": null,
+      "status": "buying"
     }
   ]
 }
