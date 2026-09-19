@@ -933,60 +933,100 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertTrue(watch.TRAIL_RE.match("/TRAIL $hood 1 0.75"))
         self.assertIsNone(watch.TRAIL_RE.match("/trail AMD 2"))
         self.assertIsNone(watch.TRAIL_RE.match("/testtrail AMD 2 1.5"))
+        amd = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 130.0,
+            "ingresso_high": 134.0,
+            "stop": 124.0,
+            "target": 148.0,
+        }
         with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram", return_value=1) as send:
+                self.assertTrue(
+                    watch.apply_telegram_trail("/trail AMD 2 1.5", spath, wpath)
+                )
+            self.assertEqual(
+                sent_text(send),
+                "⚠️ AMD non ha ingresso e target. Impostali dalla Watchlist.",
+            )
+            watch.save_watchlist(wpath, [amd])
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value=None),
-                patch.object(watch, "send_telegram", return_value=1) as send,
+                patch.object(watch, "send_telegram", return_value=2) as send,
             ):
-                self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
+                self.assertTrue(
+                    watch.apply_telegram_trail("/trail AMD 2 1.5", spath, wpath)
+                )
             self.assertEqual(sent_text(send), "⚠️ Impossibile trovare AMD su IBKR.")
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value=None),
-                patch.object(watch, "send_telegram", return_value=2) as send,
+                patch.object(watch, "send_telegram", return_value=3) as send,
             ):
-                self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
+                self.assertTrue(
+                    watch.apply_telegram_trail("/trail AMD 2 1.5", spath, wpath)
+                )
             self.assertEqual(sent_text(send), "⚠️ Impossibile leggere l'account IBKR.")
             with (
                 patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
                 patch.object(watch, "ibkr_get_account_id", return_value="U123"),
-                patch.object(watch, "ibkr_get_price", return_value=None),
-                patch.object(watch, "send_telegram", return_value=3) as send,
-            ):
-                self.assertTrue(watch.apply_telegram_trail("/trail AMD 2 1.5", spath))
-            self.assertEqual(sent_text(send), "⚠️ Impossibile determinare un prezzo per AMD.")
-            with (
-                patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
-                patch.object(watch, "ibkr_get_account_id", return_value="U123"),
-                patch.object(watch, "ibkr_get_price", return_value=148.2),
                 patch.object(
                     watch, "ibkr_post", return_value=[{"order_id": 99}]
                 ) as post,
                 patch.object(watch, "send_telegram", return_value=4) as send,
+                patch.object(watch, "_bracket_parent_coid", return_value="BAMD1000000000"),
             ):
                 self.assertTrue(
-                    watch.apply_telegram_trail("/trail $amd 3 2.25", spath)
+                    watch.apply_telegram_trail("/trail $amd 3 2.25", spath, wpath)
                 )
-                self.assertFalse(watch.apply_telegram_trail("/vendi AMD 1", spath))
+                self.assertFalse(watch.apply_telegram_trail("/vendi AMD 1", spath, wpath))
+            parent = "BAMD1000000000"
             post.assert_called_once_with(
                 "/v1/api/iserver/account/U123/orders",
                 {
                     "orders": [
                         {
+                            "cOID": parent,
+                            "conid": 4391,
+                            "orderType": "LMT",
+                            "side": "BUY",
+                            "quantity": 3,
+                            "price": 134.0,
+                            "tif": "DAY",
+                            "outsideRTH": True,
+                        },
+                        {
+                            "cOID": parent + "T",
+                            "parentId": parent,
                             "conid": 4391,
                             "orderType": "TRAIL",
                             "side": "SELL",
                             "quantity": 3,
-                            "price": 148.2,
                             "trailingAmt": 2.25,
                             "trailingType": "amt",
                             "tif": "DAY",
-                        }
+                        },
+                        {
+                            "cOID": parent + "G",
+                            "parentId": parent,
+                            "conid": 4391,
+                            "orderType": "LMT",
+                            "side": "SELL",
+                            "quantity": 3,
+                            "price": 148.0,
+                            "tif": "DAY",
+                            "outsideRTH": True,
+                        },
                     ]
                 },
             )
-            self.assertEqual(sent_text(send), "✅ Ordine SELL 3 AMD TRAIL 2.25 inviato.")
+            self.assertEqual(
+                sent_text(send),
+                "✅ Bracket AMD: BUY 3 @ 134 · TRAIL 2.25$ · target 148.",
+            )
             self.assertEqual(len(watch.load_state(spath)["order_messages"]), 4)
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
@@ -1001,8 +1041,12 @@ class TelegramExtractTests(unittest.TestCase):
                     "/trail AMD 2 1.5", 23, wpath, spath
                 )
             self.assertEqual((added, removed), ([], []))
-            trail.assert_called_once_with("/trail AMD 2 1.5", spath)
+            trail.assert_called_once_with("/trail AMD 2 1.5", spath, wpath)
             delete.assert_called_once_with(23)
+        self.assertEqual(
+            watch.ibkr_place_trail("AMD", 1, 2, 148, 134),
+            "⚠️ Target 134 deve essere sopra l'ingresso 148.",
+        )
 
     def test_ibkr_cancel_order_one_and_many(self) -> None:
         payload = {
@@ -3148,6 +3192,67 @@ class BuySellFlowTests(unittest.TestCase):
             )
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
+    def test_trail_flow_uses_watchlist_ingresso_and_target(self) -> None:
+        amd = {
+            "ticker": "AMD",
+            "tf": "daily",
+            "ingresso_low": 130.0,
+            "ingresso_high": 134.0,
+            "stop": 124.0,
+            "target": 148.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram") as send:
+                watch._start_guided_flow("TRAIL", wpath, spath)
+            self.assertEqual(
+                sent_text(send),
+                "📭 Nessun ticker con ingresso e target. Impostali dalla Watchlist.",
+            )
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+            watch.save_watchlist(wpath, [amd])
+            with patch.object(watch, "send_telegram_buttons") as buttons:
+                watch._start_guided_flow("TRAIL", wpath, spath)
+            buttons.assert_called_once_with(
+                "Quale ticker per ingresso + trail + target?",
+                with_nav([("AMD", "flowticker:AMD")]),
+            )
+            with patch.object(watch, "send_telegram") as send:
+                watch._advance_flow_after_ticker(
+                    watch.load_state(spath)["pending_flow"], "AMD", spath, wpath
+                )
+            self.assertIn("ingresso 134", sent_text(send))
+            self.assertIn("target 148", sent_text(send))
+            flow = watch.load_state(spath)["pending_flow"]
+            self.assertEqual(flow["ingresso"], 134.0)
+            self.assertEqual(flow["target"], 148.0)
+            self.assertEqual(flow["step"], "quantity")
+            watch.save_state(
+                spath,
+                {
+                    "pending_flow": {
+                        "type": "TRAIL",
+                        "step": "amount",
+                        "ticker": "AMD",
+                        "quantity": 3,
+                        "ingresso": 134.0,
+                        "target": 148.0,
+                    }
+                },
+            )
+            with (
+                patch.object(
+                    watch,
+                    "ibkr_place_trail",
+                    return_value="✅ Bracket AMD: BUY 3 @ 134 · TRAIL 2$ · target 148.",
+                ) as place,
+                patch.object(watch, "send_telegram", return_value=9),
+            ):
+                self.assertTrue(watch.process_pending_flow_text("2", spath, wpath))
+            place.assert_called_once_with("AMD", 3, 2.0, 134.0, 148.0)
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
+
     def test_process_pending_flow_text_ticker_and_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
@@ -3859,8 +3964,9 @@ class BuySellFlowTests(unittest.TestCase):
                 watch.process_callback_query("menu:automatico", 1, "cba", spath, 70)
                 watch.process_callback_query("menu:back", 1, "cbb", spath, 70)
             self.assertIn("Trading automatico", edit.call_args_list[0][0][2])
+            self.assertIn("ingresso + trail $ + target", edit.call_args_list[0][0][2])
             auto_buttons = edit.call_args_list[0][0][3]
-            self.assertEqual(auto_buttons[0], ("📉 Trail", "action:trail"))
+            self.assertEqual(auto_buttons[0], ("📉 Trail + target", "action:trail"))
             self.assertEqual(
                 auto_buttons[-2:],
                 [

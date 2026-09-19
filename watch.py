@@ -157,9 +157,12 @@ MENU_TRADING_BUTTONS = [
     ("🚫 Annulla", "action:cancel"),
     ("✏️ Modifica", "action:modify"),
 ]
-MENU_AUTO_TEXT = "🤖 Trading automatico\n\nScegli un'azione:"
+MENU_AUTO_TEXT = (
+    "🤖 Trading automatico\n\n"
+    "Trail: ingresso + trail $ + target, dai livelli della watchlist."
+)
 MENU_AUTO_BUTTONS = [
-    ("📉 Trail", "action:trail"),
+    ("📉 Trail + target", "action:trail"),
 ]
 MENU_CONTO_TEXT = "📊 Conto\n\nScegli un'azione:"
 MENU_CONTO_BUTTONS = [
@@ -230,7 +233,6 @@ MENU_SLOW_ACTIONS = {
     "sellflow",
     "cancel",
     "modify",
-    "trail",
 }
 MENU_FLOW_KINDS = {
     "set": "SET",
@@ -1589,8 +1591,73 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
     return True
 
 
-def ibkr_place_trail(ticker: str, quantity: int, trailing_amount: float) -> str:
+def _ingresso_limit_price(item: dict[str, Any]) -> float | None:
+    for key in ("ingresso_high", "ingresso_low"):
+        raw = item.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
+def _watchlist_bracket_levels(
+    watchlist_path: Path, ticker: str
+) -> dict[str, float] | None:
     ticker = ticker.strip().upper()
+    for item in load_watchlist(watchlist_path):
+        if str(item.get("ticker") or "").strip().upper() != ticker:
+            continue
+        ingresso = _ingresso_limit_price(item)
+        try:
+            target = float(item["target"]) if item.get("target") is not None else None
+        except (TypeError, ValueError):
+            target = None
+        if ingresso is None or target is None or target <= 0:
+            continue
+        return {"ingresso": ingresso, "target": target}
+    return None
+
+
+def _bracket_ready_tickers(watchlist_path: Path) -> list[str]:
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for item in load_watchlist(watchlist_path):
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        if _watchlist_bracket_levels(watchlist_path, ticker) is None:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    return tickers
+
+
+def _bracket_parent_coid(ticker: str) -> str:
+    stamp = int(time.time() * 1000) % 10**10
+    safe = "".join(ch for ch in ticker.upper() if ch.isalnum())[:6]
+    return f"B{safe}{stamp}"
+
+
+def ibkr_place_trail(
+    ticker: str,
+    quantity: int,
+    trailing_amount: float,
+    ingresso: float,
+    target: float,
+) -> str:
+    """Bracket: BUY ingresso + SELL TRAIL + SELL target."""
+    ticker = ticker.strip().upper()
+    if trailing_amount <= 0:
+        return "⚠️ Trailing amount non valido."
+    if target <= ingresso:
+        return (
+            f"⚠️ Target {target:g} deve essere sopra l'ingresso {ingresso:g}."
+        )
     conid = ibkr_lookup_conid(ticker)
     if not conid:
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
@@ -1601,22 +1668,44 @@ def ibkr_place_trail(ticker: str, quantity: int, trailing_amount: float) -> str:
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
-    prezzo_attuale = ibkr_get_price(ticker)
-    if prezzo_attuale is None:
-        return f"⚠️ Impossibile determinare un prezzo per {ticker}."
-    corpo = {
-        "conid": conid_int,
-        "orderType": "TRAIL",
-        "side": "SELL",
-        "quantity": quantity,
-        "price": prezzo_attuale,
-        "trailingAmt": trailing_amount,
-        "trailingType": "amt",
-        "tif": "DAY",
-    }
+    parent = _bracket_parent_coid(ticker)
+    orders = [
+        {
+            "cOID": parent,
+            "conid": conid_int,
+            "orderType": "LMT",
+            "side": "BUY",
+            "quantity": quantity,
+            "price": ingresso,
+            "tif": "DAY",
+            "outsideRTH": True,
+        },
+        {
+            "cOID": parent + "T",
+            "parentId": parent,
+            "conid": conid_int,
+            "orderType": "TRAIL",
+            "side": "SELL",
+            "quantity": quantity,
+            "trailingAmt": trailing_amount,
+            "trailingType": "amt",
+            "tif": "DAY",
+        },
+        {
+            "cOID": parent + "G",
+            "parentId": parent,
+            "conid": conid_int,
+            "orderType": "LMT",
+            "side": "SELL",
+            "quantity": quantity,
+            "price": target,
+            "tif": "DAY",
+            "outsideRTH": True,
+        },
+    ]
     result = ibkr_post(
         f"/v1/api/iserver/account/{account_id}/orders",
-        {"orders": [corpo]},
+        {"orders": orders},
     )
     if result is None:
         return "⚠️ Errore nell'invio dell'ordine."
@@ -1624,19 +1713,37 @@ def ibkr_place_trail(ticker: str, quantity: int, trailing_amount: float) -> str:
     if confirmed is None:
         return _order_not_confirmed(ticker, err)
     return (
-        f"✅ Ordine SELL {quantity} {ticker} TRAIL {trailing_amount:g} inviato."
+        f"✅ Bracket {ticker}: BUY {quantity} @ {ingresso:g} · "
+        f"TRAIL {trailing_amount:g}$ · target {target:g}."
     )
 
 
-def apply_telegram_trail(text: str, state_path: Path) -> bool:
+def apply_telegram_trail(
+    text: str, state_path: Path, watchlist_path: Path | None = None
+) -> bool:
     m = TRAIL_RE.match(text.strip())
     if not m:
         return False
     ticker = m.group(1).upper()
     quantity = int(m.group(2))
     trailing_amount = float(m.group(3))
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
+    levels = _watchlist_bracket_levels(wpath, ticker)
+    if levels is None:
+        _send_order_message(
+            state_path,
+            f"⚠️ {ticker} non ha ingresso e target. Impostali dalla Watchlist.",
+        )
+        return True
     _send_order_message(
-        state_path, ibkr_place_trail(ticker, quantity, trailing_amount)
+        state_path,
+        ibkr_place_trail(
+            ticker,
+            quantity,
+            trailing_amount,
+            levels["ingresso"],
+            levels["target"],
+        ),
     )
     return True
 
@@ -1861,13 +1968,20 @@ def _start_guided_flow(
         )
         return
     if kind == "TRAIL":
-        tickers = _held_position_tickers(ibkr_get_positions())
+        tickers = _bracket_ready_tickers(watchlist_path)
+        if not tickers:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path,
+                "📭 Nessun ticker con ingresso e target. Impostali dalla Watchlist.",
+            )
+            return
         flow = _new_pending_flow("TRAIL")
         _save_pending_flow(state_path, flow)
         _send_flow_message(
             state_path,
-            "Quale ticker per il trailing stop?",
-            _flow_ticker_buttons(tickers) if tickers else None,
+            "Quale ticker per ingresso + trail + target?",
+            _flow_ticker_buttons(tickers),
         )
         return
     prompts = {
@@ -1932,9 +2046,23 @@ def _advance_flow_after_ticker(
         _send_flow_message(state_path, f"{ticker}: nuovo prezzo limite?")
         return
     if kind == "TRAIL":
+        levels = _watchlist_bracket_levels(watchlist_path, ticker)
+        if levels is None:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path,
+                f"⚠️ {ticker} non ha ingresso e target. Impostali dalla Watchlist.",
+            )
+            return
+        flow["ingresso"] = levels["ingresso"]
+        flow["target"] = levels["target"]
         flow["step"] = "quantity"
         _save_pending_flow(state_path, flow)
-        _send_flow_message(state_path, f"{ticker}: quante azioni?")
+        _send_flow_message(
+            state_path,
+            f"{ticker}: ingresso {levels['ingresso']:g} · "
+            f"target {levels['target']:g}\nQuante azioni?",
+        )
         return
     if kind == "RM":
         _save_pending_flow(state_path, None)
@@ -2120,12 +2248,17 @@ def process_pending_flow_text(
         ticker = str(flow.get("ticker") or "").strip().upper()
         try:
             qty = int(flow.get("quantity"))
+            ingresso = float(flow.get("ingresso"))
+            target = float(flow.get("target"))
         except (TypeError, ValueError):
             _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
             _save_pending_flow(state_path, None)
             return True
         _save_pending_flow(state_path, None)
-        _send_order_message(state_path, ibkr_place_trail(ticker, qty, value))
+        _send_order_message(
+            state_path,
+            ibkr_place_trail(ticker, qty, value, ingresso, target),
+        )
         return True
     if step == "price":
         value = _parse_flow_number(stripped)
@@ -3854,7 +3987,7 @@ def process_single_message(
         pass
     elif apply_telegram_sell(text, state_path):
         pass
-    elif apply_telegram_trail(text, state_path):
+    elif apply_telegram_trail(text, state_path, watchlist_path):
         pass
     elif apply_telegram_cancel_order(text, state_path):
         pass
