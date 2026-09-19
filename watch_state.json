@@ -31,18 +31,8 @@
   "order_messages": [
     {
       "message_id": 1806,
-      "sent_at": "2026-09-19T23:02:19.722716+00:00",
-      "ttl_seconds": 60
-    },
-    {
-      "message_id": 1806,
       "sent_at": "2026-09-19T23:02:33.844918+00:00",
       "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-19T23:02:38.737447+00:00",
-      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
