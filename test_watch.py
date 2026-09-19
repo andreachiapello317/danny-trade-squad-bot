@@ -3270,6 +3270,74 @@ class BuySellFlowTests(unittest.TestCase):
             start.assert_called_once_with("AMD", 3, 2.0, spath)
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
+    def test_stop_step_trail_cancels_stop_and_ignores_later_ratchet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(watch, "send_telegram") as send:
+                watch._start_guided_flow("STOPTRAIL", wpath, spath)
+            self.assertEqual(sent_text(send), "📭 Nessun Trail attivo.")
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "quantity": 2,
+                            "delta": 2.0,
+                            "breakeven": 101.0,
+                            "stop_level": 101.0,
+                            "stop_order_id": "88",
+                            "status": "armed",
+                        }
+                    ]
+                },
+            )
+            with (
+                patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+                patch.object(watch, "_ibkr_delete_orders") as delete,
+            ):
+                self.assertEqual(
+                    watch.stop_step_trail(spath, "AMD"),
+                    "🛑 Trail fermato: AMD. Stop IBKR tolto. Puoi vendere tu.",
+                )
+            delete.assert_called_once_with("U123", ["88"])
+            self.assertEqual(watch.load_state(spath)["auto_trails"][0]["status"], "stopped")
+            self.assertIsNone(watch.load_state(spath)["auto_trails"][0]["stop_order_id"])
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=110.0),
+                patch.object(watch, "ibkr_place_stop") as place,
+                patch.object(watch, "ibkr_replace_stop") as replace,
+            ):
+                watch.check_step_trails(spath)
+            place.assert_not_called()
+            replace.assert_not_called()
+            watch.save_state(
+                spath,
+                {
+                    "auto_trails": [
+                        {
+                            "id": "tr1",
+                            "ticker": "AMD",
+                            "status": "armed",
+                            "stop_order_id": "1",
+                        },
+                        {
+                            "id": "tr2",
+                            "ticker": "NVDA",
+                            "status": "watching",
+                        },
+                    ]
+                },
+            )
+            with patch.object(watch, "send_telegram_buttons") as buttons:
+                watch._start_guided_flow("STOPTRAIL", wpath, spath)
+            buttons.assert_called_once_with(
+                "Quale Trail vuoi fermare?",
+                with_nav([("AMD", "flowticker:AMD"), ("NVDA", "flowticker:NVDA")]),
+            )
+
     def test_process_pending_flow_text_ticker_and_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
@@ -3984,6 +4052,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertIn("compra a mercato", edit.call_args_list[0][0][2])
             auto_buttons = edit.call_args_list[0][0][3]
             self.assertEqual(auto_buttons[0], ("📉 Trail", "action:trail"))
+            self.assertEqual(auto_buttons[1], ("🛑 Ferma Trail", "action:stoptrail"))
             self.assertEqual(
                 auto_buttons[-2:],
                 [

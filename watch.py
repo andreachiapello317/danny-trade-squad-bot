@@ -165,6 +165,7 @@ MENU_AUTO_TEXT = (
 )
 MENU_AUTO_BUTTONS = [
     ("📉 Trail", "action:trail"),
+    ("🛑 Ferma Trail", "action:stoptrail"),
 ]
 MENU_CONTO_TEXT = "📊 Conto\n\nScegli un'azione:"
 MENU_CONTO_BUTTONS = [
@@ -224,6 +225,7 @@ MENU_ACTION_KINDS = {
     "cancel",
     "modify",
     "trail",
+    "stoptrail",
     "history",
     "price",
 }
@@ -235,6 +237,7 @@ MENU_SLOW_ACTIONS = {
     "sellflow",
     "cancel",
     "modify",
+    "stoptrail",
 }
 MENU_FLOW_KINDS = {
     "set": "SET",
@@ -246,6 +249,7 @@ MENU_FLOW_KINDS = {
     "cancel": "CANCEL",
     "modify": "MODIFY",
     "trail": "TRAIL",
+    "stoptrail": "STOPTRAIL",
     "history": "HISTORY",
     "price": "PRICE",
 }
@@ -1628,11 +1632,22 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
     return True
 
 
+_ACTIVE_TRAIL_STATUSES = {"buying", "watching", "armed"}
+
+
 def _auto_trails(state: dict[str, Any]) -> list[dict[str, Any]]:
     raw = state.get("auto_trails")
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, dict)]
+
+
+def _active_step_trails(state_path: Path) -> list[dict[str, Any]]:
+    return [
+        trail
+        for trail in _auto_trails(load_state(state_path))
+        if str(trail.get("status") or "") in _ACTIVE_TRAIL_STATUSES
+    ]
 
 
 def _save_auto_trails(state_path: Path, trails: list[dict[str, Any]]) -> None:
@@ -1758,6 +1773,48 @@ def start_step_trail(
         f"{message}\n"
         f"Trail {ticker}: nessuno stop sotto. "
         f"Delta {delta:g}$. Attendo il fill per il break-even (fee incluse)."
+    )
+
+
+def stop_step_trail(state_path: Path, ticker: str | None = None) -> str:
+    """Ferma il Trail: toglie lo stop IBKR e lascia la posizione."""
+    wanted = ticker.strip().upper() if ticker else None
+    trails = _auto_trails(load_state(state_path))
+    targets = [
+        trail
+        for trail in trails
+        if str(trail.get("status") or "") in _ACTIVE_TRAIL_STATUSES
+        and (
+            wanted is None
+            or str(trail.get("ticker") or "").strip().upper() == wanted
+        )
+    ]
+    if not targets:
+        if wanted:
+            return f"📭 Nessun Trail attivo su {wanted}."
+        return "📭 Nessun Trail attivo."
+    account_id = ibkr_get_account_id()
+    names: list[str] = []
+    for trail in targets:
+        cancel_ids: list[Any] = []
+        if str(trail.get("status") or "") == "buying":
+            buy_id = trail.get("buy_order_id")
+            if buy_id:
+                cancel_ids.append(buy_id)
+        stop_id = trail.get("stop_order_id")
+        if stop_id:
+            cancel_ids.append(stop_id)
+        if account_id and cancel_ids:
+            _ibkr_delete_orders(account_id, cancel_ids)
+        trail["status"] = "stopped"
+        trail["stop_order_id"] = None
+        name = str(trail.get("ticker") or "?").upper()
+        if name not in names:
+            names.append(name)
+    _save_auto_trails(state_path, trails)
+    return (
+        f"🛑 Trail fermato: {', '.join(names)}. "
+        "Stop IBKR tolto. Puoi vendere tu."
     )
 
 
@@ -2122,6 +2179,32 @@ def _start_guided_flow(
             _flow_ticker_buttons(tickers) if tickers else None,
         )
         return
+    if kind == "STOPTRAIL":
+        actives = _active_step_trails(state_path)
+        if not actives:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, "📭 Nessun Trail attivo.")
+            return
+        tickers: list[str] = []
+        seen: set[str] = set()
+        for trail in actives:
+            name = str(trail.get("ticker") or "").strip().upper()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            tickers.append(name)
+        if len(tickers) == 1:
+            _save_pending_flow(state_path, None)
+            _send_order_message(state_path, stop_step_trail(state_path, tickers[0]))
+            return
+        flow = _new_pending_flow("STOPTRAIL")
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Quale Trail vuoi fermare?",
+            _flow_ticker_buttons(tickers),
+        )
+        return
     prompts = {
         "SET": "Quale ticker vuoi impostare?",
         "SETBUY": "Quale ticker per l'ingresso?",
@@ -2187,6 +2270,10 @@ def _advance_flow_after_ticker(
         flow["step"] = "quantity"
         _save_pending_flow(state_path, flow)
         _send_flow_message(state_path, f"{ticker}: quante azioni?")
+        return
+    if kind == "STOPTRAIL":
+        _save_pending_flow(state_path, None)
+        _send_order_message(state_path, stop_step_trail(state_path, ticker))
         return
     if kind == "RM":
         _save_pending_flow(state_path, None)
