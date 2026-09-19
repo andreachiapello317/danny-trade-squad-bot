@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import subprocess
 import sys
@@ -177,8 +178,19 @@ def run_callback_action(
         apply_menu_action(str(kind), wpath, path)
 
 
+def webhook_secret_ok() -> bool:
+    """Se WEBHOOK_SECRET manca (locale), accetta. In produzione Telegram lo rimanda."""
+    expected = (os.environ.get("WEBHOOK_SECRET") or "").strip()
+    if not expected:
+        return True
+    got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    return hmac.compare_digest(got, expected)
+
+
 @app.post("/webhook")
 def webhook() -> tuple[str, int]:
+    if not webhook_secret_ok():
+        return "forbidden", 403
     try:
         update = request.get_json(silent=True) or {}
         print(f"DEBUG webhook update: {update}", file=sys.stderr)
