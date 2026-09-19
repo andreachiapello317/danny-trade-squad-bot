@@ -3539,7 +3539,7 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertTrue(watch.process_pending_flow_text("3", spath, wpath))
             self.assertEqual(sent_text(send), "AMD: delta in %? (es. 2 = 2%)")
             flow = watch.load_state(spath)["pending_flow"]
-            self.assertEqual(flow["step"], "amount")
+            self.assertEqual(flow["step"], "delta")
             self.assertEqual(flow["quantity"], 3)
             with (
                 patch.object(
@@ -4271,7 +4271,7 @@ class BuySellFlowTests(unittest.TestCase):
                 ],
             )
             self.assertIn("Set buy", edit.call_args_list[0][0][2])
-            self.assertIn("entry sotto il prezzo attuale", edit.call_args_list[0][0][2])
+            self.assertIn("strategia di trading automatico", edit.call_args_list[0][0][2])
             self.assertEqual(
                 [data for _, data in edit.call_args_list[1][0][3][:4]],
                 [
@@ -4771,16 +4771,18 @@ class BuySellFlowTests(unittest.TestCase):
             spath = Path(tmp) / "watch_state.json"
             with patch.object(watch, "send_telegram") as send:
                 watch.apply_menu_action("setbuy", wpath, spath)
-            self.assertIn("Quale ticker vuoi armare?", sent_text(send))
+            self.assertIn("Quale ticker vuoi mettere in Set buy?", sent_text(send))
             self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "SETBUY")
             with (
                 patch.object(watch, "is_valid_symbol", return_value=True),
+                patch.object(watch, "ibkr_get_price", return_value=148.2),
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertTrue(
                     watch.process_pending_flow_text("AMD", spath, wpath)
                 )
-            self.assertIn("prezzo di entry?", sent_text(send))
+            self.assertIn("Prezzo Set buy?", sent_text(send))
+            self.assertIn("ora quota 148.2", sent_text(send))
             with (
                 patch.object(watch, "ibkr_get_price", return_value=148.2),
                 patch.object(watch, "send_telegram") as send,
@@ -4792,8 +4794,13 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.process_pending_flow_text("120", spath, wpath)
-            self.assertIn("quale strategia", sent_text(send).lower())
+            self.assertIn("strategia di trading automatico", sent_text(send).lower())
             self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "strategy")
+            markup = send.call_args.kwargs.get("reply_markup") or {}
+            self.assertIn(
+                {"text": "📉 Trail", "callback_data": "strategy:trail"},
+                markup.get("inline_keyboard", [[]])[0],
+            )
             with (
                 patch.object(watch, "answer_callback_query"),
                 patch.object(watch, "send_telegram") as send,
@@ -4802,6 +4809,7 @@ class BuySellFlowTests(unittest.TestCase):
                     "strategy:trail", 1, "cbs", spath, 70, wpath
                 )
             self.assertIn("quante azioni", sent_text(send).lower())
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["strategy"], "trail")
             with patch.object(watch, "send_telegram") as send:
                 watch.process_pending_flow_text("5", spath, wpath)
             self.assertIn("delta in %", sent_text(send).lower())
@@ -4816,6 +4824,7 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(item["strategy"], "trail")
             self.assertEqual(item["quantity"], 5)
             self.assertEqual(item["delta"], 2.0)
+            self.assertEqual(item["params"], {"quantity": 5, "delta": 2.0})
             self.assertEqual(item["status"], "waiting")
 
     def test_flowticker_and_history_and_clear_buttons(self) -> None:
@@ -4847,6 +4856,7 @@ class BuySellFlowTests(unittest.TestCase):
             )
             with (
                 patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "ibkr_get_price", return_value=148.2),
                 patch.object(watch, "send_telegram") as send,
             ):
                 self.assertIsNone(
@@ -4854,7 +4864,7 @@ class BuySellFlowTests(unittest.TestCase):
                         "flowticker:AMD", 1, "cbt", spath, 70, wpath
                     )
                 )
-            self.assertIn("prezzo di entry?", sent_text(send))
+            self.assertIn("Prezzo Set buy?", sent_text(send))
             self.assertEqual(watch.load_state(spath)["pending_flow"]["ticker"], "AMD")
             watch.save_state(
                 spath, {"pending_flow": {"type": "HISTORY", "step": "days"}}
