@@ -990,20 +990,53 @@ def format_account_lines(snapshot: dict[str, Any] | None) -> str:
     return f"Conto: {account_id}\nContanti: {cash_s}\nValore netto: {nlv_s}"
 
 
+def _open_positions(positions: list[Any] | None) -> list[dict[str, Any]]:
+    if not positions:
+        return []
+    open_rows: list[dict[str, Any]] = []
+    for pos in positions:
+        if not isinstance(pos, dict):
+            continue
+        try:
+            qty = float(pos.get("position") or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty == 0:
+            continue
+        open_rows.append(pos)
+    return open_rows
+
+
+def format_home_positions(positions: list[Any] | None) -> str:
+    if positions is None:
+        return "Posizioni: n/d"
+    rows = _open_positions(positions)
+    if not rows:
+        return "Posizioni: nessuna"
+    lines = ["Posizioni:"]
+    lines.extend(_fmt_position_line(pos) for pos in rows)
+    return "\n".join(lines)
+
+
 def format_home_text(
-    snapshot: dict[str, Any] | None = None, *, live: bool = False
+    snapshot: dict[str, Any] | None = None,
+    positions: list[Any] | None = None,
+    *,
+    live: bool = False,
 ) -> str:
     if live:
         snapshot = ibkr_account_snapshot()
+        positions = ibkr_get_positions()
     return (
         "🤖 Danny Trade Squad Bot\n\n"
         f"{format_account_lines(snapshot)}\n\n"
+        f"{format_home_positions(positions)}\n\n"
         "Scegli una categoria:"
     )
 
 
 def maybe_refresh_home(state_path: Path) -> None:
-    """Ri-legge saldo e conto sulla home, se è quella a schermo."""
+    """Ri-legge saldo, conto e posizioni sulla home, se è quella a schermo."""
     state = load_state(state_path)
     if _pending_flow(state) is not None:
         return
@@ -3163,15 +3196,7 @@ def apply_telegram_positions(text: str, state_path: Path) -> bool:
         )
         return True
     lines = ["📊 Posizioni aperte:", ""]
-    for pos in positions or []:
-        if not isinstance(pos, dict):
-            continue
-        try:
-            qty = float(pos.get("position") or 0)
-        except (TypeError, ValueError):
-            qty = 0.0
-        if qty == 0:
-            continue
+    for pos in _open_positions(positions):
         lines.append(_fmt_position_line(pos))
     if len(lines) <= 2:
         _send_replacing_message(

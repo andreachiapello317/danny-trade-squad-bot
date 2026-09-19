@@ -4580,17 +4580,45 @@ class BuySellFlowTests(unittest.TestCase):
         self.assertIn("Conto: n/d", empty)
         self.assertIn("Contanti: n/d", empty)
         self.assertIn("Valore netto: n/d", empty)
+        self.assertIn("Posizioni: n/d", empty)
         body = watch.format_home_text(
             {
                 "account_id": "U123",
                 "cashbalance": 1000.5,
                 "netliquidationvalue": 5000.25,
                 "currency": "USD",
-            }
+            },
+            [
+                {
+                    "ticker": "AMD",
+                    "position": 10,
+                    "avgCost": 100.5,
+                    "mktValue": 1100.25,
+                    "currency": "USD",
+                    "unrealizedPnl": 95.0,
+                },
+                {"ticker": "CASH", "position": 0},
+            ],
         )
         self.assertIn("Conto: U123", body)
         self.assertIn("Contanti: 1000.5 USD", body)
         self.assertIn("Valore netto: 5000.25 USD", body)
+        self.assertIn("Posizioni:", body)
+        self.assertIn("AMD: 10 @ 100.50", body)
+        self.assertNotIn("CASH", body)
+        none_open = watch.format_home_text(
+            {
+                "account_id": "U123",
+                "cashbalance": 1,
+                "netliquidationvalue": 2,
+                "currency": "USD",
+            },
+            [],
+        )
+        self.assertIn("Posizioni: nessuna", none_open)
+        account = none_open.index("Valore netto:")
+        positions = none_open.index("Posizioni:")
+        self.assertLess(account, positions)
 
     def test_apply_telegram_start_fetches_live_saldo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4606,13 +4634,31 @@ class BuySellFlowTests(unittest.TestCase):
                         "currency": "USD",
                     },
                 ) as snap,
+                patch.object(
+                    watch,
+                    "ibkr_get_positions",
+                    return_value=[
+                        {
+                            "ticker": "NVDA",
+                            "position": 2,
+                            "avgCost": 100,
+                            "mktValue": 220,
+                            "currency": "USD",
+                            "unrealizedPnl": 20,
+                        }
+                    ],
+                ) as pos,
                 patch.object(watch, "edit_telegram_message", return_value=False),
                 patch.object(watch, "send_telegram_buttons", return_value=11) as buttons,
             ):
                 self.assertTrue(watch.apply_telegram_start("/start", spath))
             snap.assert_called()
+            pos.assert_called()
             self.assertIn("Conto: U777", buttons.call_args[0][0])
             self.assertIn("Contanti: 12 USD", buttons.call_args[0][0])
+            self.assertIn("NVDA: 2 @ 100.00", buttons.call_args[0][0])
+            home = buttons.call_args[0][0]
+            self.assertLess(home.index("Valore netto:"), home.index("Posizioni:"))
 
     def test_maybe_refresh_home_only_on_main_without_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4654,11 +4700,26 @@ class BuySellFlowTests(unittest.TestCase):
                         "currency": "USD",
                     },
                 ),
+                patch.object(
+                    watch,
+                    "ibkr_get_positions",
+                    return_value=[
+                        {
+                            "ticker": "AMD",
+                            "position": 1,
+                            "avgCost": 10,
+                            "mktValue": 11,
+                            "currency": "USD",
+                            "unrealizedPnl": 1,
+                        }
+                    ],
+                ),
                 patch.object(watch, "deliver_text") as deliver,
             ):
                 watch.maybe_refresh_home(spath)
             deliver.assert_called_once()
             self.assertIn("Conto: U1", deliver.call_args[0][1])
+            self.assertIn("AMD: 1 @ 10.00", deliver.call_args[0][1])
             self.assertEqual(deliver.call_args[0][2], watch.MENU_MAIN_BUTTONS)
 
     def test_set_workflow_asks_then_writes_watchlist(self) -> None:
