@@ -1511,6 +1511,16 @@ def _float_or_none(raw: Any) -> float | None:
         return None
 
 
+def _share_qty(raw: Any) -> int | None:
+    value = _float_or_none(raw)
+    if value is None:
+        return None
+    qty = int(value)
+    if qty < 1:
+        return None
+    return qty
+
+
 def _fee_amount(raw: Any) -> float:
     value = _float_or_none(raw)
     if value is None:
@@ -1634,6 +1644,14 @@ def apply_telegram_sell(text: str, state_path: Path) -> bool:
 
 
 _ACTIVE_TRAIL_STATUSES = {"buying", "watching", "armed"}
+_STEP_TRAIL_DEAD = {
+    "cancelled",
+    "canceled",
+    "rejected",
+    "expired",
+    "inactive",
+    "apicancelled",
+}
 
 
 def _auto_trails(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1708,25 +1726,33 @@ def ibkr_place_stop(
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR.", None
-    order = {
-        "conid": conid_int,
-        "orderType": "STP",
-        "side": "SELL",
-        "quantity": quantity,
-        "price": stop_price,
-        "tif": "GTC",
-        "outsideRTH": True,
-    }
-    result = ibkr_post(
-        f"/v1/api/iserver/account/{account_id}/orders",
-        {"orders": [order]},
-    )
-    if result is None:
-        return "⚠️ Errore nell'invio dello stop.", None
-    confirmed, err = _confirm_order_replies_detail(result)
-    if confirmed is None:
-        return _order_not_confirmed(ticker, err), None
-    return None, _confirmed_order_id(confirmed)
+    last_err: str | None = "⚠️ Errore nell'invio dello stop."
+    for extra in ({"outsideRTH": True}, {}):
+        order = {
+            "conid": conid_int,
+            "orderType": "STP",
+            "side": "SELL",
+            "quantity": quantity,
+            "price": stop_price,
+            "auxPrice": stop_price,
+            "tif": "GTC",
+            **extra,
+        }
+        result = ibkr_post(
+            f"/v1/api/iserver/account/{account_id}/orders",
+            {"orders": [order]},
+        )
+        if result is None:
+            continue
+        confirmed, err = _confirm_order_replies_detail(result)
+        if confirmed is not None:
+            oid = _confirmed_order_id(confirmed)
+            if oid:
+                return None, oid
+            last_err = "⚠️ Stop inviato ma IBKR non ha dato l'id."
+            continue
+        last_err = _order_not_confirmed(ticker, err)
+    return last_err, None
 
 
 def ibkr_replace_stop(
@@ -1750,7 +1776,9 @@ def ibkr_replace_stop(
             "side": "SELL",
             "quantity": quantity,
             "price": stop_price,
+            "auxPrice": stop_price,
             "tif": "GTC",
+            "outsideRTH": True,
         },
     )
     confirmed, err = _confirm_order_replies_detail(result)
@@ -1767,6 +1795,12 @@ def start_step_trail(
         return "⚠️ Numero di azioni non valido."
     if delta <= 0 or delta > 100:
         return "⚠️ Delta non valido. Usa una percentuale, es. 2."
+    for existing in _active_step_trails(state_path):
+        if str(existing.get("ticker") or "").strip().upper() == ticker:
+            return (
+                f"⚠️ C'è già un Trail attivo su {ticker}. "
+                "Fermalo prima di aprirne un altro."
+            )
     message, order_id = ibkr_place_order_ex(ticker, quantity, "BUY", None)
     if message.startswith("⚠️"):
         return message
@@ -1787,6 +1821,7 @@ def start_step_trail(
         }
     )
     _save_auto_trails(state_path, trails)
+    check_order_fills(state_path)
     return (
         f"{message}\n"
         f"Trail {ticker}: nessuno stop sotto. "
@@ -1875,16 +1910,17 @@ def _on_step_trail_fill(
                 continue
             avg_f = _float_or_none(avg)
             if avg_f is None:
-                avg_f = _float_or_none(order.get("price"))
+                avg_f = _float_or_none(order.get("avgPrice"))
             if avg_f is None:
                 continue
-            try:
-                qty = int(trail.get("quantity") or 0)
-            except (TypeError, ValueError):
-                qty = 0
+            qty = _share_qty(trail.get("quantity")) or 0
+            filled = _share_qty(order.get("filledQuantity"))
+            if filled is not None:
+                qty = filled
             if qty < 1:
                 continue
             trail["buy_order_id"] = order_id
+            trail["quantity"] = qty
             trail["avg_price"] = avg_f
             trail["breakeven"] = step_trail_breakeven(avg_f)
             trail["status"] = "watching"
@@ -1903,13 +1939,72 @@ def _on_step_trail_fill(
                 f"Stop si arma a {arm_at:g}.",
             )
             break
-        if status == "armed" and side == "SELL":
-            stop_id = str(trail.get("stop_order_id") or "")
+        if status in {"armed", "watching"} and side == "SELL":
             same_ticker = str(trail.get("ticker") or "").upper() == ticker
-            if stop_id == order_id or (same_ticker and not stop_id):
-                trail["status"] = "done"
-                changed = True
-                break
+            if not same_ticker:
+                continue
+            stop_id = str(trail.get("stop_order_id") or "")
+            if stop_id and stop_id != order_id:
+                account_id = ibkr_get_account_id()
+                if account_id:
+                    _ibkr_delete_orders(account_id, [stop_id])
+            trail["status"] = "done"
+            trail["stop_order_id"] = None
+            changed = True
+            break
+    if changed:
+        _save_auto_trails(state_path, trails)
+
+
+def _on_step_trail_dead(
+    state_path: Path, order: dict[str, Any], order_id: str, status: Any
+) -> None:
+    trails = _auto_trails(load_state(state_path))
+    if not trails:
+        return
+    changed = False
+    label = str(status or "cancellato")
+    ticker = str(order.get("ticker") or "").upper()
+    for trail in trails:
+        trail_ticker = str(trail.get("ticker") or "").upper()
+        if (
+            str(trail.get("status") or "") == "buying"
+            and str(trail.get("buy_order_id") or "") == order_id
+        ):
+            trail["status"] = "error"
+            changed = True
+            _send_order_message(
+                state_path,
+                f"⚠️ Trail {trail.get('ticker')}: buy {label}, strategia fermata.",
+            )
+            break
+        if (
+            str(trail.get("status") or "") == "armed"
+            and str(trail.get("stop_order_id") or "") == order_id
+        ):
+            trail["stop_order_id"] = None
+            trail["stop_level"] = None
+            trail["status"] = "watching"
+            changed = True
+            _send_order_message(
+                state_path,
+                f"⚠️ Trail {trail.get('ticker')}: stop {label}. "
+                "Lo ripiazzo al prossimo tick se il prezzo è ancora sopra.",
+            )
+            break
+        if (
+            ticker
+            and trail_ticker == ticker
+            and str(trail.get("status") or "") == "buying"
+            and not trail.get("buy_order_id")
+        ):
+            trail["status"] = "error"
+            changed = True
+            _send_order_message(
+                state_path,
+                f"⚠️ Trail {ticker}: buy {label}, strategia fermata.",
+            )
+            break
     if changed:
         _save_auto_trails(state_path, trails)
 
@@ -1941,12 +2036,21 @@ def apply_step_trail_price(state_path: Path, ticker: str, price: float) -> None:
         stop_id = str(trail.get("stop_order_id") or "")
         if stop_id:
             err = ibkr_replace_stop(stop_id, ticker, qty, wanted)
+            if err is not None:
+                account_id = ibkr_get_account_id()
+                if account_id:
+                    _ibkr_delete_orders(account_id, [stop_id])
+                trail["stop_order_id"] = None
+                err, new_id = ibkr_place_stop(ticker, qty, wanted)
+                if err is None and new_id:
+                    trail["stop_order_id"] = new_id
         else:
             err, new_id = ibkr_place_stop(ticker, qty, wanted)
             if err is None and new_id:
                 trail["stop_order_id"] = new_id
-        if err is not None:
-            _send_order_message(state_path, err)
+        if err is not None or not trail.get("stop_order_id"):
+            if err is not None:
+                _send_order_message(state_path, err)
             continue
         first = current is None
         trail["stop_level"] = wanted
@@ -3364,7 +3468,8 @@ def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
             continue
         order_id = str(order["orderId"])
         status = order.get("status")
-        if known.get(order_id) != "Filled" and status == "Filled":
+        prev = known.get(order_id)
+        if prev != "Filled" and status == "Filled":
             fee = _commission_from_trades(order, order_id)
             avg = order.get("avgPrice", order.get("price", "n/d"))
             _send_order_message(
@@ -3378,6 +3483,8 @@ def apply_order_status_updates(orders: list[Any], state_path: Path) -> None:
             state["known_order_status"] = known
             save_state(state_path, state)
             commit_state_to_git()
+        elif prev != status and str(status or "").lower() in _STEP_TRAIL_DEAD:
+            _on_step_trail_dead(state_path, order, order_id, status)
         known[order_id] = status
     state = load_state(state_path)
     state["known_order_status"] = known
