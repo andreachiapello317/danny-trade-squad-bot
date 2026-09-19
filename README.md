@@ -1,27 +1,39 @@
-# BotSquad — router Drive
+# Danny Trade Squad Bot
 
-Python ogni 12 ore mette i post su Drive. Analyst ogni 4 ore apre `Il mio Drive/PatreonPostdacontrollare`, legge le cartelle nuove, instrada. Un post alla volta.
+Bot Telegram collegato a IBKR (via IBeam). Home: Watchlist, Trading, Trading automatico, Conto, Info.
 
-**Drive → Analyst → Sender (Telegram) / Trader (watchlist → Sender → Telegram)**
+Non è consulenza finanziaria.
 
-Ping Analyst: `giro 4 ore`.
+## Watchlist
 
-| Titolo | Destino | Chat |
-| --- | --- | --- |
-| MUST READ | Sender, un ticker = un messaggio + tutte le sue foto | `-1004349690570` |
-| HOW TO | Sender, post intero così com’è, un album | `-1004382873897` |
-| TRENDING STOCK | Sender, un ticker = un messaggio + tutte le sue foto | `-5021603163` |
-| Stock with bullish signal today | Trader (scheda one-shot) → Sender | `-1003929227957` |
-| Altro | post successivo | — |
+Set buy arma un ticker con un **entry sotto il prezzo attuale**. Quando il prezzo tocca o scende sotto quell'entry parte la strategia scelta.
 
-MUST READ e Trending: un ticker, un messaggio, tutte le sue foto. HOW TO intero. Trader: un trade unico, un click; ticket `$TICKER · weekly · ENTRA` su `-1003929227957`. Zero shot: `nessuno shot`, Telegram fermo.
+Oggi l'unica strategia selezionabile è **Trail**:
 
-Niente di nuovo: `nessun post nuovo`.
+1. Compra a mercato (LMT auto ≈ spot × 1.005, `outsideRTH`).
+2. Nessuno stop sotto il prezzo di carico.
+3. Break-even = medio × 1.01 / 0.99 (1% entrata + 1% uscita).
+4. Il delta è in % del BE. Ogni scalino alza lo stop.
 
-Incolla in tre chat Grok: `prompts/analyst-grok.md`, `prompts/sender-grok.md`, `prompts/trader-grok.md`. Python resta su 12 ore.
+I ticket Trader e i vecchi comandi `/set`, `/setbuy`, `/setstop`, `/settarget` non scrivono più livelli. Non partono più alert Telegram di ingresso/stop/target.
 
-`lib/score.ts` è leftover.
+## Avvio locale
 
-## Price watch
+```bash
+cd danny-trade-squad-bot
+python3 -m pip install -r requirements.txt
+cp .env.example .env   # se c'è: TELEGRAM_BOT_TOKEN, IBeam
+python3 server.py
+```
 
-Le schede Trader sul gruppo Telegram diventano alert di prezzo (ingresso / stop / target). **Non gira sul PC:** GitHub Actions ogni 5 minuti, **dalle 15 alle 22 ora italiana**. Cosa fare, una volta: `WATCH.md`.
+Il webhook Flask e il ciclo prezzi girano insieme. Il ciclo controlla gli entry 24/7 (non solo 15–22).
+
+## Test
+
+```bash
+python3 -m unittest test_watch test_server -q
+```
+
+## Deploy
+
+Da questa cartella: `gomain` (Railway/IBeam già previsti dal repo).

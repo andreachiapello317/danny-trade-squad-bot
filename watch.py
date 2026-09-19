@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Ticket Trader → watchlist automatica da Telegram. Prezzo Yahoo vs livelli.
+"""Watchlist: entry sotto prezzo → parte la strategia automatica (ora solo Trail).
 
-Non piazza ordini. Non è consulenza finanziaria.
+Non è consulenza finanziaria.
 """
 
 from __future__ import annotations
@@ -140,13 +140,14 @@ MENU_NAV_BUTTONS = [
     ("◀️ Indietro", "menu:back"),
     ("🏠 Home", "menu:main"),
 ]
-MENU_WATCHLIST_TEXT = "📋 Watchlist\n\nScegli un'azione:"
+MENU_WATCHLIST_TEXT = (
+    "📋 Watchlist\n\n"
+    "Set buy: ticker + entry sotto il prezzo attuale. "
+    "Quando l'entry viene toccato parte la strategia (ora solo Trail)."
+)
 MENU_WATCHLIST_BUTTONS = [
     ("📋 Lista attuale", "action:list"),
-    ("✏️ Set livelli", "action:set"),
     ("🟢 Set buy", "action:setbuy"),
-    ("🎯 Set target", "action:settarget"),
-    ("🛑 Set stop", "action:setstop"),
     ("🗑️ Rimuovi", "action:rm"),
     ("🧹 Svuota", "action:clear"),
 ]
@@ -217,10 +218,7 @@ MENU_ACTION_KINDS = {
     "ordini",
     "buyflow",
     "sellflow",
-    "set",
     "setbuy",
-    "settarget",
-    "setstop",
     "rm",
     "clear",
     "cancel",
@@ -241,10 +239,7 @@ MENU_SLOW_ACTIONS = {
     "stoptrail",
 }
 MENU_FLOW_KINDS = {
-    "set": "SET",
     "setbuy": "SETBUY",
-    "settarget": "SETTARGET",
-    "setstop": "SETSTOP",
     "rm": "RM",
     "clear": "CLEAR",
     "cancel": "CANCEL",
@@ -513,15 +508,22 @@ def fmt_ingresso(item: dict[str, Any]) -> str:
 
 
 def fmt_ticket_line(item: dict[str, Any]) -> str:
+    ticker = str(item.get("ticker") or "?").upper()
+    strategy = str(item.get("strategy") or "").strip().lower()
+    if strategy:
+        entry = item.get("entry")
+        qty = item.get("quantity")
+        delta = item.get("delta")
+        status = str(item.get("status") or "waiting")
+        label = "in attesa" if status == "waiting" else "scattato"
+        return (
+            f"{ticker} entry {fmt_level(_float_or_none(entry))} · "
+            f"{strategy.title()} {qty} az · Δ {fmt_level(_float_or_none(delta))}% · "
+            f"{label}"
+        )
     motivo = (item.get("motivo") or "").strip()
     extra = f" {motivo}" if motivo else ""
-    return (
-        f"{item['ticker']} "
-        f"i {fmt_ingresso(item)} "
-        f"s {fmt_level(item.get('stop'))} "
-        f"t {fmt_level(item.get('target'))}"
-        f"{extra}"
-    )
+    return f"{ticker} (senza strategia){extra}"
 
 
 def fmt_ticket_line_no_motivo(item: dict[str, Any]) -> str:
@@ -2487,10 +2489,7 @@ def _start_guided_flow(
         )
         return
     prompts = {
-        "SET": "Quale ticker vuoi impostare?",
-        "SETBUY": "Quale ticker per l'ingresso?",
-        "SETTARGET": "Quale ticker per il target?",
-        "SETSTOP": "Quale ticker per lo stop?",
+        "SETBUY": "Quale ticker vuoi armare? L'entry deve stare sotto il prezzo attuale.",
         "PRICE": "Di quale ticker vuoi il prezzo?",
     }
     prompt = prompts.get(kind)
@@ -2514,22 +2513,13 @@ def _advance_flow_after_ticker(
 ) -> None:
     kind = str(flow.get("type") or "")
     flow["ticker"] = ticker
-    if kind == "SET":
-        flow["step"] = "ingresso"
+    if kind == "SETBUY":
+        flow["step"] = "entry"
         _save_pending_flow(state_path, flow)
         _send_flow_message(
-            state_path, f"{ticker}: ingresso? (es. 130 o 130-134)"
+            state_path,
+            f"{ticker}: prezzo di entry? Deve essere sotto il prezzo attuale.",
         )
-        return
-    if kind in {"SETBUY", "SETTARGET", "SETSTOP"}:
-        labels = {
-            "SETBUY": "ingresso",
-            "SETTARGET": "target",
-            "SETSTOP": "stop",
-        }
-        flow["step"] = "price"
-        _save_pending_flow(state_path, flow)
-        _send_flow_message(state_path, f"{ticker}: prezzo di {labels[kind]}?")
         return
     if kind == "PRICE":
         _save_pending_flow(state_path, None)
@@ -2660,57 +2650,12 @@ def process_pending_flow_text(
             return True
         _advance_flow_after_ticker(flow, ticker, state_path, wpath)
         return True
-    if step == "ingresso":
-        parsed = _parse_ingresso_input(stripped)
-        if parsed is None:
-            _send_flow_message(
-                state_path,
-                "⚠️ Ingresso non valido, riprova. Es. 130 o 130-134",
-            )
-            return True
-        flow["ingresso_low"], flow["ingresso_high"] = parsed
-        flow["step"] = "stop"
-        _save_pending_flow(state_path, flow)
-        _send_flow_message(state_path, f"{flow.get('ticker')}: stop?")
-        return True
-    if step == "stop" and kind == "SET":
-        value = _parse_flow_number(stripped)
-        if value is None:
-            _send_flow_message(state_path, "⚠️ Stop non valido, riprova.")
-            return True
-        flow["stop"] = value
-        flow["step"] = "target"
-        _save_pending_flow(state_path, flow)
-        _send_flow_message(state_path, f"{flow.get('ticker')}: target?")
-        return True
-    if step == "target":
-        value = _parse_flow_number(stripped)
-        if value is None:
-            _send_flow_message(state_path, "⚠️ Target non valido, riprova.")
-            return True
-        ticker = str(flow.get("ticker") or "").strip().upper()
-        try:
-            low = float(flow.get("ingresso_low"))
-            high = float(flow.get("ingresso_high"))
-            stop = float(flow.get("stop"))
-        except (TypeError, ValueError):
-            _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
-            _save_pending_flow(state_path, None)
-            return True
-        _upsert_set_levels(wpath, ticker, low, high, stop, value)
-        ing = f"{low:g}" if low == high else f"{low:g}-{high:g}"
-        _save_pending_flow(state_path, None)
-        _send_flow_message(
-            state_path,
-            f"✅ {ticker} impostato: ing {ing}  stop {stop:g}  tgt {value:g}",
-        )
-        return True
     if step == "quantity":
         value = _parse_flow_number(stripped)
         if value is None:
             _send_flow_message(state_path, "⚠️ Numero non valido, riprova.")
             return True
-        if kind == "TRAIL":
+        if kind in {"TRAIL", "SETBUY"}:
             qty = int(value)
             if qty < 1:
                 _send_flow_message(state_path, "⚠️ Numero non valido, riprova.")
@@ -2744,9 +2689,53 @@ def process_pending_flow_text(
             _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
             _save_pending_flow(state_path, None)
             return True
+        if kind == "SETBUY":
+            entry = _float_or_none(flow.get("entry"))
+            strategy = str(flow.get("strategy") or "trail")
+            if entry is None or qty < 1:
+                _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+                _save_pending_flow(state_path, None)
+                return True
+            upsert_strategy_trigger(wpath, ticker, entry, strategy, qty, value)
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path,
+                f"✅ {ticker} in watchlist: entry {entry:g} · "
+                f"{strategy.title()} {qty} az · Δ {value:g}%. "
+                "Parte da solo quando il prezzo tocca l'entry.",
+            )
+            return True
         _save_pending_flow(state_path, None)
         _send_order_message(
             state_path, start_step_trail(ticker, qty, value, state_path)
+        )
+        return True
+    if step == "entry" and kind == "SETBUY":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            _send_flow_message(state_path, "⚠️ Prezzo non valido, riprova.")
+            return True
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        spot = ibkr_get_price(ticker)
+        if spot is None:
+            _send_flow_message(
+                state_path,
+                f"⚠️ Impossibile leggere il prezzo di {ticker}. Riprova.",
+            )
+            return True
+        if value >= spot:
+            _send_flow_message(
+                state_path,
+                f"⚠️ L'entry deve stare sotto il prezzo attuale ({spot:g}).",
+            )
+            return True
+        flow["entry"] = value
+        flow["step"] = "strategy"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            f"{ticker}: quale strategia al tocco dell'entry?",
+            [("📉 Trail", "strategy:trail")],
         )
         return True
     if step == "price":
@@ -2758,24 +2747,6 @@ def process_pending_flow_text(
         if kind == "MODIFY":
             _save_pending_flow(state_path, None)
             _send_order_message(state_path, ibkr_modify_order(ticker, value))
-            return True
-        if kind == "SETBUY":
-            _upsert_setbuy(wpath, ticker, value)
-            _save_pending_flow(state_path, None)
-            _send_flow_message(
-                state_path, f"✅ {ticker} ingresso {value:g}"
-            )
-            return True
-        if kind in {"SETTARGET", "SETSTOP"}:
-            command = "settarget" if kind == "SETTARGET" else "setstop"
-            apply_telegram_set_field(
-                f"/{command} {ticker} {value}", wpath, state_path
-            )
-            label = "target" if kind == "SETTARGET" else "stop"
-            _save_pending_flow(state_path, None)
-            _send_flow_message(
-                state_path, f"✅ {ticker} {label} {value:g}"
-            )
             return True
         flow["price"] = value
         _save_pending_flow(state_path, flow)
@@ -2917,6 +2888,18 @@ def process_callback_query(
         if not ticker:
             return None
         _advance_flow_after_ticker(flow, ticker, state_path, wpath)
+        return None
+    if data.startswith("strategy:") and step == "strategy":
+        name = data.split(":", 1)[1].strip().lower()
+        if name != "trail":
+            return None
+        flow["strategy"] = "trail"
+        flow["step"] = "quantity"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            f"{flow.get('ticker')}: quante azioni comprare quando scatta?",
+        )
         return None
     if data.startswith("days:") and step == "days":
         try:
@@ -3751,12 +3734,23 @@ def _ticker_for_conid(conid: str) -> str | None:
 
 
 def trail_md_wanted(state_path: Path) -> dict[str, str]:
-    """conid IBKR → ticker, per i Trail watching/armed."""
+    """conid IBKR → ticker, per Trail e entry in attesa."""
     wanted: dict[str, str] = {}
     for trail in _auto_trails(load_state(state_path)):
         if str(trail.get("status") or "") not in {"watching", "armed"}:
             continue
         ticker = str(trail.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        conid = ibkr_lookup_conid(ticker)
+        if conid:
+            wanted[str(conid)] = ticker
+    for item in load_watchlist(DEFAULT_WATCHLIST):
+        if str(item.get("status") or "") != "waiting":
+            continue
+        if not item.get("strategy"):
+            continue
+        ticker = str(item.get("ticker") or "").strip().upper()
         if not ticker:
             continue
         conid = ibkr_lookup_conid(ticker)
@@ -3802,6 +3796,7 @@ def handle_ibkr_ws_message(
         ticker = _ticker_for_conid(conid)
     if ticker:
         apply_step_trail_price(state_path, ticker, price)
+        apply_watchlist_trigger_price(DEFAULT_WATCHLIST, state_path, ticker, price)
 
 
 def _open_ibkr_ws() -> Any:
@@ -3973,250 +3968,20 @@ def apply_telegram_clear(text: str, watchlist_path: Path) -> list[str] | None:
     return tickers
 
 
-def _add_locked_fields(ticket: dict[str, Any], *fields: str) -> None:
-    locked = list(ticket.get("locked_fields") or [])
-    for field in fields:
-        if field not in locked:
-            locked.append(field)
-    ticket["locked_fields"] = locked
-
-
-def _multiline_command_lines(text: str, command: str) -> list[str] | None:
-    """Body lines if the first line is only /command and more lines follow."""
-    stripped = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not stripped:
-        return None
-    lines = stripped.split("\n")
-    first = lines[0].strip()
-    rest_of_first = re.sub(rf"^/{re.escape(command)}\b", "", first, flags=re.I).strip()
-    if rest_of_first or len(lines) < 2:
-        return None
-    return [ln.strip() for ln in lines[1:] if ln.strip()]
-
-
-def _line_error_label(line: str) -> str:
-    token = line.split(None, 1)[0] if line.split() else line
-    return token.lstrip("$").upper()
-
-
-def _send_set_summary(
-    ok: list[str], err: list[str], state_path: Path | None = None
-) -> None:
-    parts: list[str] = []
-    if ok:
-        parts.append(f"✅ Impostati: {', '.join(ok)}")
-    if err:
-        parts.append(f"⚠️ Errori: {', '.join(err)}")
-    if not parts:
-        return
-    body = "\n".join(parts)
-    if state_path is None:
-        send_telegram(body)
-        return
-    deliver_text(state_path, body, with_nav=True)
-
-
-def _parse_set_levels(
-    match: re.Match[str],
-) -> tuple[str, float, float, float, float] | None:
-    try:
-        ticker = match.group(1).upper()
-        if not is_valid_symbol(ticker):
-            return None
-        ingresso_low = parse_num(match.group(3))
-        high_raw = match.group(4)
-        ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
-        if ingresso_low > ingresso_high:
-            ingresso_low, ingresso_high = ingresso_high, ingresso_low
-        stop = parse_num(match.group(5))
-        target = parse_num(match.group(6))
-    except (TypeError, ValueError, IndexError):
-        return None
-    return ticker, ingresso_low, ingresso_high, stop, target
-
-
-def _upsert_set_levels(
-    watchlist_path: Path,
-    ticker: str,
-    ingresso_low: float,
-    ingresso_high: float,
-    stop: float,
-    target: float,
-) -> None:
-    items = load_watchlist(watchlist_path)
-    found = False
-    next_items: list[dict[str, Any]] = []
-    for it in items:
-        if (it.get("ticker") or "").upper() == ticker:
-            updated = dict(it)
-            updated["ingresso_low"] = ingresso_low
-            updated["ingresso_high"] = ingresso_high
-            updated["stop"] = stop
-            updated["target"] = target
-            _add_locked_fields(
-                updated, "ingresso_low", "ingresso_high", "stop", "target"
-            )
-            next_items.append(updated)
-            found = True
-        else:
-            next_items.append(it)
-    if not found:
-        next_items.append(
-            {
-                "ticker": ticker,
-                "tf": "",
-                "ingresso_low": ingresso_low,
-                "ingresso_high": ingresso_high,
-                "stop": stop,
-                "target": target,
-                "motivo": "",
-            }
-        )
-        _add_locked_fields(
-            next_items[-1], "ingresso_low", "ingresso_high", "stop", "target"
-        )
-    save_watchlist(watchlist_path, next_items)
-    print(
-        f"Set  {ticker}  ing {ingresso_low:g}-{ingresso_high:g}  "
-        f"stop {stop:g}  tgt {target:g}",
-        flush=True,
-    )
-
-
 def apply_telegram_set(
     text: str, watchlist_path: Path, state_path: Path | None = None
 ) -> str | list[str] | None:
-    body = _multiline_command_lines(text, "set")
-    if body is not None:
-        ok: list[str] = []
-        err: list[str] = []
-        for line in body:
-            m = SET_LINE_RE.match(line)
-            parsed = _parse_set_levels(m) if m else None
-            if parsed is None:
-                err.append(_line_error_label(line))
-                continue
-            ticker, ingresso_low, ingresso_high, stop, target = parsed
-            _upsert_set_levels(
-                watchlist_path, ticker, ingresso_low, ingresso_high, stop, target
-            )
-            ok.append(ticker)
-        _send_set_summary(ok, err, state_path)
-        return ok
-    m = SET_RE.match(text.strip())
-    if not m:
-        return None
-    ticker = m.group(1).upper()
-    ingresso_low = parse_num(m.group(3))
-    high_raw = m.group(4)
-    ingresso_high = parse_num(high_raw) if high_raw else ingresso_low
-    if ingresso_low > ingresso_high:
-        ingresso_low, ingresso_high = ingresso_high, ingresso_low
-    stop = parse_num(m.group(5))
-    target = parse_num(m.group(6))
-    _upsert_set_levels(watchlist_path, ticker, ingresso_low, ingresso_high, stop, target)
-    return ticker
-
-
-def _upsert_setbuy(watchlist_path: Path, ticker: str, price: float) -> None:
-    items = load_watchlist(watchlist_path)
-    found = False
-    next_items: list[dict[str, Any]] = []
-    for it in items:
-        if (it.get("ticker") or "").upper() == ticker:
-            updated = dict(it)
-            updated["ingresso_low"] = price
-            updated["ingresso_high"] = price
-            _add_locked_fields(updated, "ingresso_low", "ingresso_high")
-            next_items.append(updated)
-            found = True
-        else:
-            next_items.append(it)
-    if not found:
-        blank: dict[str, Any] = {
-            "ticker": ticker,
-            "tf": "",
-            "ingresso_low": price,
-            "ingresso_high": price,
-            "stop": None,
-            "target": None,
-            "motivo": "",
-        }
-        _add_locked_fields(blank, "ingresso_low", "ingresso_high")
-        next_items.append(blank)
-    save_watchlist(watchlist_path, next_items)
-    print(f"setbuy  {ticker}  {price:g}", flush=True)
+    """Livelli /set /settarget /setstop non esistono più."""
+    del text, watchlist_path, state_path
+    return None
 
 
 def apply_telegram_set_field(
     text: str, watchlist_path: Path, state_path: Path | None = None
 ) -> str | list[str] | None:
-    body = _multiline_command_lines(text, "setbuy")
-    if body is not None:
-        ok: list[str] = []
-        err: list[str] = []
-        for line in body:
-            m = SETBUY_LINE_RE.match(line)
-            ticker = ""
-            price: float | None = None
-            if m:
-                ticker = m.group(1).upper()
-                try:
-                    price = parse_num(m.group(2))
-                except (TypeError, ValueError):
-                    price = None
-            if not m or not ticker or price is None or not is_valid_symbol(ticker):
-                err.append(_line_error_label(line))
-                continue
-            _upsert_setbuy(watchlist_path, ticker, price)
-            ok.append(ticker)
-        _send_set_summary(ok, err, state_path)
-        return ok
-    m = SET_FIELD_RE.match(text.strip())
-    if not m:
-        return None
-    command = m.group(1).lower()
-    ticker = m.group(2).upper()
-    price = parse_num(m.group(3))
-    if command == "setbuy":
-        _upsert_setbuy(watchlist_path, ticker, price)
-        return ticker
-    items = load_watchlist(watchlist_path)
-    found = False
-    next_items: list[dict[str, Any]] = []
-    for it in items:
-        if (it.get("ticker") or "").upper() == ticker:
-            updated = dict(it)
-            if command == "settarget":
-                updated["target"] = price
-                _add_locked_fields(updated, "target")
-            else:
-                updated["stop"] = price
-                _add_locked_fields(updated, "stop")
-            next_items.append(updated)
-            found = True
-        else:
-            next_items.append(it)
-    if not found:
-        blank: dict[str, Any] = {
-            "ticker": ticker,
-            "tf": "",
-            "ingresso_low": None,
-            "ingresso_high": None,
-            "stop": None,
-            "target": None,
-            "motivo": "",
-        }
-        if command == "settarget":
-            blank["target"] = price
-            _add_locked_fields(blank, "target")
-        else:
-            blank["stop"] = price
-            _add_locked_fields(blank, "stop")
-        next_items.append(blank)
-    save_watchlist(watchlist_path, next_items)
-    print(f"{command}  {ticker}  {price:g}", flush=True)
-    return ticker
+    """I comandi /setbuy /settarget /setstop non scrivono più livelli."""
+    del text, watchlist_path, state_path
+    return None
 
 
 def apply_telegram_remove(text: str, watchlist_path: Path) -> str | None:
@@ -4615,32 +4380,8 @@ def process_single_message(
                     if gone:
                         removed.append(gone)
                     elif not is_noise_text(text):
-                        tickets = parse_tickets(text)
-                        items = load_watchlist(watchlist_path)
-                        for ticket in tickets:
-                            ticker = str(ticket.get("ticker") or "").upper()
-                            if not is_valid_symbol(ticker):
-                                removed.append(
-                                    f"{ticker} scartato (non è un'azione/ETF)"
-                                )
-                                continue
-                            key = (ticket["ticker"], ticket.get("tf") or "")
-                            existing = next(
-                                (
-                                    it
-                                    for it in items
-                                    if (it.get("ticker"), it.get("tf") or "") == key
-                                ),
-                                None,
-                            )
-                            if existing is not None:
-                                ticket = merge_ticket(existing, ticket)
-                            items, changed = upsert_if_changed(items, ticket)
-                            if changed:
-                                added.append(str(ticket["ticker"]))
-                                print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-                        if tickets:
-                            save_watchlist(watchlist_path, items)
+                        # I ticket Trader non finiscono più in watchlist.
+                        pass
     if should_delete_chat_message(text) and isinstance(message_id, int):
         delete_telegram_message(message_id)
     return added, removed
@@ -4702,7 +4443,6 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
         chat_id = chat_raw
 
     client = TelegramClient(StringSession(session), api_id, api_hash)
-    count = 0
     max_seen = last_id
     try:
         client.start()
@@ -4725,50 +4465,13 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
                     removed.extend(cleared)
                     items = load_watchlist(watchlist_path)
                 else:
-                    set_ticker = apply_telegram_set(text, watchlist_path, state_path)
-                    if set_ticker is not None:
-                        if isinstance(set_ticker, str):
-                            added.append(set_ticker)
+                    gone = apply_telegram_remove(text, watchlist_path)
+                    if gone:
+                        removed.append(gone)
                         items = load_watchlist(watchlist_path)
-                    else:
-                        field_ticker = apply_telegram_set_field(text, watchlist_path, state_path)
-                        if field_ticker is not None:
-                            if isinstance(field_ticker, str):
-                                added.append(field_ticker)
-                            items = load_watchlist(watchlist_path)
-                        else:
-                            gone = apply_telegram_remove(text, watchlist_path)
-                            if gone:
-                                removed.append(gone)
-                                items = load_watchlist(watchlist_path)
-                            elif not is_noise_text(text):
-                                tickets = parse_tickets(text)
-                                for ticket in tickets:
-                                    ticker = str(ticket.get("ticker") or "").upper()
-                                    if not is_valid_symbol(ticker):
-                                        removed.append(
-                                            f"{ticker} scartato (non è un'azione/ETF)"
-                                        )
-                                        continue
-                                    key = (ticket["ticker"], ticket.get("tf") or "")
-                                    existing = next(
-                                        (
-                                            it
-                                            for it in items
-                                            if (it.get("ticker"), it.get("tf") or "") == key
-                                        ),
-                                        None,
-                                    )
-                                    if existing is not None:
-                                        ticket = merge_ticket(existing, ticket)
-                                    items, changed = upsert_if_changed(items, ticket)
-                                    if changed:
-                                        added.append(str(ticket["ticker"]))
-                                        print(f"Ticket  {fmt_ticket_line(ticket)}", flush=True)
-                                        count += 1
             if should_delete_chat_message(text) and isinstance(mid, int):
                 delete_telegram_message(mid)
-        if added or count:
+        if added or removed:
             save_watchlist(watchlist_path, items)
         send_watchlist_summary(added, removed, watchlist_path, state_path)
         if max_seen:
@@ -4786,7 +4489,7 @@ def ingest_telegram_userbot(watchlist_path: Path, state_path: Path) -> int:
             client.disconnect()
         except Exception:
             pass
-    return count
+    return len(added) + len(removed)
 
 
 def alert_key(item: dict[str, Any], kind: str) -> tuple[str, str, str]:
@@ -4924,17 +4627,9 @@ def maybe_alert(
     fired: dict[tuple[str, str, str], str | None],
     state_path: Path,
 ) -> None:
-    key = alert_key(item, kind)
-    if not active:
-        return
-    today = alert_day()
-    if fired.get(key) == today:
-        return
-    print(line, flush=True)
-    mid = send_telegram(line)
-    fired[key] = today
-    if isinstance(mid, int):
-        record_sent_alert(state_path, mid)
+    """Gli alert Telegram di ingresso/stop/target non esistono più."""
+    del item, kind, line, active, fired, state_path
+    return
 
 
 GIT_SYNC_REMOTE = (
@@ -5009,84 +4704,95 @@ def commit_state_to_git() -> None:
         print(f"Git sync: {exc}", file=sys.stderr)
 
 
+def upsert_strategy_trigger(
+    watchlist_path: Path,
+    ticker: str,
+    entry: float,
+    strategy: str,
+    quantity: int,
+    delta: float,
+) -> None:
+    ticker = ticker.strip().upper()
+    items = load_watchlist(watchlist_path)
+    next_items = [
+        item
+        for item in items
+        if str(item.get("ticker") or "").strip().upper() != ticker
+    ]
+    next_items.append(
+        {
+            "ticker": ticker,
+            "entry": entry,
+            "strategy": strategy,
+            "quantity": quantity,
+            "delta": delta,
+            "status": "waiting",
+        }
+    )
+    save_watchlist(watchlist_path, next_items)
+
+
+def fire_watchlist_triggers(
+    items: list[dict[str, Any]],
+    prices: dict[str, float],
+    state_path: Path,
+    watchlist_path: Path | None = None,
+) -> None:
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
+    changed = False
+    for item in items:
+        if str(item.get("status") or "") != "waiting":
+            continue
+        if str(item.get("strategy") or "").strip().lower() != "trail":
+            continue
+        ticker = str(item.get("ticker") or "").strip().upper()
+        entry = _float_or_none(item.get("entry"))
+        qty = _share_qty(item.get("quantity"))
+        delta = _float_or_none(item.get("delta"))
+        price = prices.get(ticker)
+        if not ticker or entry is None or qty is None or delta is None or price is None:
+            continue
+        if price > entry + 1e-9:
+            continue
+        item["status"] = "fired"
+        changed = True
+        result = start_step_trail(ticker, qty, delta, state_path)
+        _send_order_message(
+            state_path,
+            f"🎯 {ticker} ha toccato entry {entry:g} @ {price:g}.\n{result}",
+        )
+    if changed:
+        save_watchlist(wpath, items)
+
+
+def apply_watchlist_trigger_price(
+    watchlist_path: Path, state_path: Path, ticker: str, price: float
+) -> None:
+    ticker = ticker.strip().upper()
+    items = load_watchlist(watchlist_path)
+    fire_watchlist_triggers(items, {ticker: price}, state_path, watchlist_path)
+
+
 def cycle(
     items: list[dict[str, Any]],
     fired: dict[tuple[str, str, str], str | None],
     state_path: Path,
     lock: threading.Lock | None = None,
+    watchlist_path: Path | None = None,
 ) -> None:
+    del fired
     tickers = list(dict.fromkeys(it["ticker"] for it in items if it.get("ticker")))
     prices = fetch_prices(tickers)
-    ranges = fetch_day_ranges(tickers)
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     held = lock if lock is not None else nullcontext()
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     with held:
-        expire_sent_alerts(state_path)
         for it in items:
-            ticker = it["ticker"]
-            price = prices.get(ticker)
-            day_low, day_high = _day_bounds(ranges, ticker)
+            ticker = it.get("ticker") or "?"
+            price = prices.get(str(ticker))
             px = f"{price:.2f}" if price is not None else "n/d"
-            print(
-                f"{now}  {ticker:<6} {px:>8}  "
-                f"ing {fmt_ingresso(it):<12} "
-                f"stop {fmt_level(it.get('stop')):<8} "
-                f"tgt {fmt_level(it.get('target'))}",
-                flush=True,
-            )
-            if price is None:
-                continue
-            motivo = (it.get("motivo") or "").strip()
-            suffix = f"  · {motivo}" if motivo else ""
-
-            lo, hi = it.get("ingresso_low"), it.get("ingresso_high")
-            spot_in = in_ingresso(price, lo, hi)
-            in_band = in_ingresso(price, lo, hi, day_low, day_high)
-            maybe_alert(
-                it,
-                "ingresso",
-                (
-                    f"ALERT {ticker} ingresso {price:.2f} ({fmt_ingresso(it)})"
-                    f"{_intraday_note(spot_in, in_band, price)}{suffix}"
-                ),
-                in_band,
-                fired,
-                state_path,
-            )
-
-            stop = it.get("stop")
-            if stop is not None:
-                stop_lv = float(stop)
-                spot_stop = price <= stop_lv
-                hit_stop = spot_stop or (day_low is not None and day_low <= stop_lv)
-                maybe_alert(
-                    it,
-                    "stop",
-                    (
-                        f"ALERT {ticker} stop {price:.2f} (<= {fmt_level(stop)})"
-                        f"{_intraday_note(spot_stop, hit_stop, price)}{suffix}"
-                    ),
-                    hit_stop,
-                    fired,
-                    state_path,
-                )
-
-            target = it.get("target")
-            if target is not None:
-                target_lv = float(target)
-                spot_tgt = price >= target_lv
-                hit_tgt = spot_tgt or (day_high is not None and day_high >= target_lv)
-                maybe_alert(
-                    it,
-                    "target",
-                    (
-                        f"ALERT {ticker} target {price:.2f} (>= {fmt_level(target)})"
-                        f"{_intraday_note(spot_tgt, hit_tgt, price)}{suffix}"
-                    ),
-                    hit_tgt,
-                    fired,
-                    state_path,
-                )
+            print(f"{now}  {ticker:<6} {px:>8}  {fmt_ticket_line(it)}", flush=True)
+        fire_watchlist_triggers(items, prices, state_path, wpath)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -5101,36 +4807,26 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(MISSING_TOKEN_MSG, flush=True)
     else:
         print(
-            f"Telegram chat {telegram_chat_id()}: ticket da soli. "
-            "Se non arrivano: bot nel gruppo, Group Privacy OFF su @BotFather, un /start nel gruppo.",
+            f"Telegram chat {telegram_chat_id()}: Set buy arma un entry. "
+            "Quando il prezzo lo tocca parte Trail. "
+            "Bot nel gruppo, Group Privacy OFF su @BotFather, un /start nel gruppo.",
             flush=True,
         )
     print(
-        "Prezzi vs livelli del ticket. Finestra 15–22 ora italiana. Non è consulenza. Ctrl+C esce.",
+        "Watchlist: entry sotto spot → Trail. Non è consulenza. Ctrl+C esce.",
         flush=True,
     )
     try:
         while True:
-            if not args.ignore_window and not in_watch_window():
-                local = rome_now()
-                print(
-                    f"Fuori finestra ({local.strftime('%H:%M')} ora italiana). "
-                    "Prossimo controllo dalle 15:00.",
-                    flush=True,
-                )
-                if args.once:
-                    return 0
-                time.sleep(interval)
-                continue
             ingest_telegram(path, state_path)
             ingest_telegram_userbot(path, state_path)
             expire_sent_alerts(state_path)
             items = load_watchlist(path)
             fired.update(load_fired(load_state(state_path)))
             if not items:
-                print("Watchlist vuota. In attesa dei ticket Trader su Telegram.", flush=True)
+                print("Watchlist vuota. Usa Set buy per armare un entry.", flush=True)
             else:
-                cycle(items, fired, state_path)
+                cycle(items, fired, state_path, watchlist_path=path)
             persist_fired(state_path, fired)
             if args.once:
                 break
@@ -5155,9 +4851,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="watch.py",
         description=(
-            "Ticket Trader da Telegram → watchlist. "
-            "Controlla il prezzo vs ingresso/stop/target. "
-            "Non piazza ordini. Non è consulenza finanziaria."
+            "Watchlist Telegram/IBKR: Set buy arma un entry sotto spot. "
+            "Al tocco parte Trail. Non è consulenza finanziaria."
         ),
     )
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -5193,7 +4888,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--ignore-window",
         action="store_true",
-        help="Controlla anche fuori dalle 15–22 ora italiana",
+        help="Compatibilità: il ciclo entry gira sempre, 24/7",
     )
     run_p.add_argument(
         "--state",

@@ -43,7 +43,7 @@ class WebhookTests(unittest.TestCase):
         proc.assert_not_called()
         summary.assert_not_called()
 
-    def test_processes_ticket_and_sends_summary(self) -> None:
+    def test_processes_ticket_without_writing_watchlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -56,17 +56,16 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "WATCHLIST_PATH", wpath),
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "delete_telegram_message"),
+                patch.object(watch, "delete_telegram_message") as delete,
                 patch.object(server, "send_watchlist_summary") as summary,
                 patch.object(server, "commit_state_to_git") as sync,
             ):
                 resp = client.post("/webhook", json=payload)
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.get_data(as_text=True), "ok")
-            items = json.loads(wpath.read_text(encoding="utf-8"))
-            self.assertEqual(items[0]["ticker"], "AMD")
-            summary.assert_called_once()
-            self.assertEqual(summary.call_args[0][0], ["AMD"])
+            self.assertEqual(watch.load_watchlist(wpath), [])
+            delete.assert_called_once_with(44)
+            summary.assert_not_called()
             sync.assert_not_called()
 
     def test_processes_callback_query_and_skips_message_path(self) -> None:
@@ -255,14 +254,14 @@ class WebhookTests(unittest.TestCase):
     def test_price_loop_keeps_going_after_error(self) -> None:
         calls = {"n": 0}
 
-        def boom() -> bool:
+        def boom(*_args: object, **_kwargs: object) -> list:
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("fail")
             raise KeyboardInterrupt()
 
         with (
-            patch.object(server, "in_scheduled_window", side_effect=boom),
+            patch.object(server, "load_watchlist", side_effect=boom),
             patch.object(server, "time") as time_mod,
         ):
             time_mod.sleep.return_value = None
@@ -273,10 +272,27 @@ class WebhookTests(unittest.TestCase):
 
     def test_price_loop_runs_fills_outside_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(
+                wpath,
+                [
+                    {
+                        "ticker": "AMD",
+                        "entry": 120,
+                        "strategy": "trail",
+                        "quantity": 3,
+                        "delta": 2,
+                        "status": "waiting",
+                    }
+                ],
+            )
+            watch.save_state(spath, {})
             with (
+                patch.object(server, "WATCHLIST_PATH", wpath),
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(server, "in_scheduled_window", return_value=False),
+                patch.object(server, "cycle") as cyc,
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "check_step_trails") as trails,
                 patch.object(server, "check_fyi_notifications") as fyi,
@@ -289,6 +305,7 @@ class WebhookTests(unittest.TestCase):
                 time_mod.sleep.side_effect = KeyboardInterrupt()
                 with self.assertRaises(KeyboardInterrupt):
                     server.price_loop()
+            cyc.assert_called_once()
             fills.assert_called_once_with(spath)
             trails.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)

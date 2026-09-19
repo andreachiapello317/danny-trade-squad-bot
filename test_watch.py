@@ -187,23 +187,36 @@ class ShouldDeleteChatMessageTests(unittest.TestCase):
 
 
 class FmtTicketLineTests(unittest.TestCase):
-    def test_compact_line_with_emoji_and_missing(self) -> None:
+    def test_strategy_line_and_plain_ticker(self) -> None:
         self.assertEqual(
             watch.fmt_ticket_line(
                 {
                     "ticker": "AMD",
-                    "ingresso_low": 485.34,
-                    "ingresso_high": 499.34,
-                    "stop": 465.33,
-                    "target": 535.35,
-                    "motivo": "⚠️",
+                    "entry": 120,
+                    "strategy": "trail",
+                    "quantity": 5,
+                    "delta": 2,
+                    "status": "waiting",
                 }
             ),
-            "AMD i 485.34-499.34 s 465.33 t 535.35 ⚠️",
+            "AMD entry 120 · Trail 5 az · Δ 2% · in attesa",
         )
         self.assertEqual(
-            watch.fmt_ticket_line({"ticker": "HOOD"}),
-            "HOOD i — s — t —",
+            watch.fmt_ticket_line(
+                {
+                    "ticker": "AMD",
+                    "entry": 120,
+                    "strategy": "trail",
+                    "quantity": 5,
+                    "delta": 2,
+                    "status": "fired",
+                }
+            ),
+            "AMD entry 120 · Trail 5 az · Δ 2% · scattato",
+        )
+        self.assertEqual(
+            watch.fmt_ticket_line({"ticker": "HOOD", "motivo": "⚠️"}),
+            "HOOD (senza strategia) ⚠️",
         )
 
 
@@ -231,7 +244,7 @@ class TelegramExtractTests(unittest.TestCase):
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0]["ticker"], "AMD")
 
-    def test_offset_persisted_and_watchlist_written(self) -> None:
+    def test_offset_persisted_and_tickets_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -243,14 +256,9 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 n = watch.ingest_telegram(wpath, spath)
-            send.assert_called_once()
-            body = send.call_args[0][0]
-            self.assertIn("✅ AMD aggiunto/aggiornato", body)
-            self.assertIn("AMD", body)
-            self.assertIn("i 130-134", body)
+            send.assert_not_called()
             self.assertEqual(n, 1)
-            items = json.loads(wpath.read_text(encoding="utf-8"))
-            self.assertEqual(items[0]["ticker"], "AMD")
+            self.assertEqual(watch.load_watchlist(wpath), [])
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["telegram_offset"], 43)
 
@@ -269,10 +277,7 @@ class TelegramExtractTests(unittest.TestCase):
                 n = watch.ingest_telegram(wpath, spath)
             self.assertEqual(n, 1)
             self.assertEqual(watch.load_watchlist(wpath), [])
-            body = send.call_args[0][0]
-            self.assertIn("❌ KOSPI scartato (non è un'azione/ETF)", body)
-            self.assertNotIn("rimosso", body)
-            self.assertNotIn("✅ KOSPI", body)
+            send.assert_not_called()
 
     def test_ingest_keeps_existing_levels_on_ticker_only_ticket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -336,10 +341,10 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 n = watch.ingest_telegram(wpath, spath)
             self.assertEqual(n, 1)
-            send.assert_called_once()
+            send.assert_not_called()
             item = watch.load_watchlist(wpath)[0]
             self.assertEqual(item["ingresso_low"], 134.26)
-            self.assertEqual(item["stop"], 120.0)
+            self.assertEqual(item["stop"], 122.78)
             self.assertEqual(item["target"], 162.96)
             self.assertEqual(item["motivo"], "Screener automatico (4/4 ✅)")
 
@@ -356,14 +361,10 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 n = watch.ingest_telegram(wpath, spath)
             self.assertEqual(n, 1)
-            send.assert_called()
-            body = send.call_args[0][0]
-            self.assertIn("✅ NVDA aggiunto/aggiornato", body)
-            item = watch.load_watchlist(wpath)[0]
-            self.assertEqual(item["ticker"], "NVDA")
-            self.assertIsNone(item["ingresso_low"])
+            send.assert_not_called()
+            self.assertEqual(watch.load_watchlist(wpath), [])
 
-    def test_process_single_message_upserts_ticket_and_deletes(self) -> None:
+    def test_process_single_message_ignores_ticket_and_deletes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -372,12 +373,12 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "delete_telegram_message") as delete,
             ):
                 added, removed = watch.process_single_message(TICKET, 77, wpath, spath)
-            self.assertEqual(added, ["AMD"])
+            self.assertEqual(added, [])
             self.assertEqual(removed, [])
             delete.assert_called_once_with(77)
-            self.assertEqual(watch.load_watchlist(wpath)[0]["ticker"], "AMD")
+            self.assertEqual(watch.load_watchlist(wpath), [])
 
-    def test_process_single_message_rejects_non_equity(self) -> None:
+    def test_process_single_message_ignores_non_equity_ticket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -389,7 +390,7 @@ class TelegramExtractTests(unittest.TestCase):
                     TICKET.replace("$AMD", "$KOSPI"), 8, wpath, spath
                 )
             self.assertEqual(added, [])
-            self.assertEqual(removed, ["KOSPI scartato (non è un'azione/ETF)"])
+            self.assertEqual(removed, [])
             self.assertEqual(watch.load_watchlist(wpath), [])
 
     def test_apply_telegram_balance_sends_ledger(self) -> None:
@@ -2823,13 +2824,12 @@ class TelegramExtractTests(unittest.TestCase):
             kept = [m["message_id"] for m in watch.load_state(spath)["order_messages"]]
             self.assertEqual(kept, [1])
 
-    def test_set_ignores_symbol_filter(self) -> None:
+    def test_legacy_set_commands_are_noops(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             with patch.object(watch, "classify_ticker", return_value="INDEX"):
-                self.assertEqual(watch.apply_telegram_set("/set KOSPI 100 90 120", wpath), "KOSPI")
-            item = watch.load_watchlist(wpath)[0]
-            self.assertEqual(item["ticker"], "KOSPI")
+                self.assertIsNone(watch.apply_telegram_set("/set KOSPI 100 90 120", wpath))
+            self.assertEqual(watch.load_watchlist(wpath), [])
 
     def test_list_sends_and_returns_true(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2840,12 +2840,11 @@ class TelegramExtractTests(unittest.TestCase):
                 [
                     {
                         "ticker": "AMD",
-                        "tf": "daily",
-                        "ingresso_low": 130,
-                        "ingresso_high": 134,
-                        "stop": 124,
-                        "target": 148,
-                        "motivo": "⚠️",
+                        "entry": 120,
+                        "strategy": "trail",
+                        "quantity": 5,
+                        "delta": 2,
+                        "status": "waiting",
                     }
                 ],
             )
@@ -2860,7 +2859,7 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(send.call_count, 2)
             self.assertEqual(delete.call_count, 2)
             body = send.call_args_list[0][0][0]
-            self.assertEqual(body, "AMD i 130-134 s 124 t 148 ⚠️")
+            self.assertEqual(body, "AMD entry 120 · Trail 5 az · Δ 2% · in attesa")
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["summary_message_id"], 22)
             watch.save_watchlist(wpath, [])
@@ -2877,12 +2876,11 @@ class TelegramExtractTests(unittest.TestCase):
                 [
                     {
                         "ticker": "AMD",
-                        "tf": "daily",
-                        "ingresso_low": 130,
-                        "ingresso_high": 134,
-                        "stop": 124,
-                        "target": 148,
-                        "motivo": "✅",
+                        "entry": 120,
+                        "strategy": "trail",
+                        "quantity": 5,
+                        "delta": 2,
+                        "status": "waiting",
                     }
                 ],
             )
@@ -2894,18 +2892,11 @@ class TelegramExtractTests(unittest.TestCase):
                 watch.refresh_watchlist_summary(wpath, spath)
             delete.assert_called_once_with(11)
             body = send.call_args[0][0]
-            self.assertIn("AMD", body)
-            self.assertIn("i 130-134", body)
-            self.assertIn("s 124", body)
-            self.assertIn("t 148", body)
-            self.assertTrue(body.rstrip().endswith("✅"))
-            self.assertNotIn(" ing ", body)
+            self.assertEqual(body, "AMD entry 120 · Trail 5 az · Δ 2% · in attesa")
+            self.assertNotIn("ing ", body)
             self.assertNotIn("stop ", body)
             self.assertNotIn("tgt ", body)
             self.assertNotIn("Screener automatico", body)
-            self.assertNotIn("ATR", body)
-            self.assertNotIn("RSI", body)
-            self.assertNotIn("📊 Screener tecnico", body)
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["summary_message_id"], 22)
             self.assertEqual(state["telegram_offset"], 4)
@@ -2922,184 +2913,55 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(watch.apply_telegram_clear("/RESET", wpath), [])
             self.assertIsNone(watch.apply_telegram_clear("/rm AMD", wpath))
 
-    def test_set_range_and_single_ingresso(self) -> None:
+    def test_legacy_set_commands_do_not_write_watchlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             watch.save_watchlist(
                 wpath,
                 [{"ticker": "CRCL", "tf": "daily", "motivo": "keep", "ingresso_low": 1}],
             )
-            self.assertEqual(
-                watch.apply_telegram_set("/set CRCL 75-90 70 103", wpath),
-                "CRCL",
-            )
+            self.assertIsNone(watch.apply_telegram_set("/set CRCL 75-90 70 103", wpath))
             item = watch.load_watchlist(wpath)[0]
-            self.assertEqual(item["tf"], "daily")
-            self.assertEqual(item["motivo"], "keep")
-            self.assertEqual(item["ingresso_low"], 75.0)
-            self.assertEqual(item["ingresso_high"], 90.0)
-            self.assertEqual(item["stop"], 70.0)
-            self.assertEqual(item["target"], 103.0)
-            self.assertEqual(
-                item["locked_fields"],
-                ["ingresso_low", "ingresso_high", "stop", "target"],
-            )
-            self.assertEqual(watch.apply_telegram_set("/set $hood 75 70 103", wpath), "HOOD")
-            hood = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "HOOD")
-            self.assertEqual(hood["ingresso_low"], 75.0)
-            self.assertEqual(hood["ingresso_high"], 75.0)
-            self.assertEqual(hood["tf"], "")
-            self.assertEqual(
-                hood["locked_fields"],
-                ["ingresso_low", "ingresso_high", "stop", "target"],
-            )
+            self.assertEqual(item["ingresso_low"], 1)
+            self.assertIsNone(watch.apply_telegram_set("/set $hood 75 70 103", wpath))
+            self.assertEqual(len(watch.load_watchlist(wpath)), 1)
             self.assertIsNone(watch.apply_telegram_set("ciao", wpath))
 
-    def test_set_field_updates_only_that_level(self) -> None:
+    def test_legacy_set_field_commands_do_not_write_watchlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
-            watch.save_watchlist(
-                wpath,
-                [
-                    {
-                        "ticker": "AMD",
-                        "tf": "daily",
-                        "ingresso_low": 130.0,
-                        "ingresso_high": 134.0,
-                        "stop": 124.0,
-                        "target": 148.0,
-                        "motivo": "keep",
-                    }
-                ],
-            )
-            self.assertEqual(watch.apply_telegram_set_field("/setbuy AMD 132.5", wpath), "AMD")
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(amd["ingresso_low"], 132.5)
-            self.assertEqual(amd["ingresso_high"], 132.5)
-            self.assertEqual(amd["stop"], 124.0)
-            self.assertEqual(amd["target"], 148.0)
-            self.assertEqual(amd["motivo"], "keep")
-            self.assertEqual(amd["locked_fields"], ["ingresso_low", "ingresso_high"])
-            self.assertEqual(watch.apply_telegram_set_field("/settarget $amd 160", wpath), "AMD")
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(amd["target"], 160.0)
-            self.assertEqual(amd["ingresso_low"], 132.5)
-            self.assertEqual(amd["locked_fields"], ["ingresso_low", "ingresso_high", "target"])
-            self.assertEqual(watch.apply_telegram_set_field("/SETSTOP AMD 120", wpath), "AMD")
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(amd["stop"], 120.0)
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(
-                amd["locked_fields"],
-                ["ingresso_low", "ingresso_high", "target", "stop"],
-            )
-            self.assertEqual(watch.apply_telegram_set_field("/setbuy AMD 132.5", wpath), "AMD")
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(
-                amd["locked_fields"],
-                ["ingresso_low", "ingresso_high", "target", "stop"],
-            )
-            self.assertEqual(watch.apply_telegram_set_field("/setbuy HOOD 75", wpath), "HOOD")
-            hood = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "HOOD")
-            self.assertEqual(hood["ingresso_low"], 75.0)
-            self.assertEqual(hood["ingresso_high"], 75.0)
-            self.assertEqual(hood["locked_fields"], ["ingresso_low", "ingresso_high"])
-            self.assertIsNone(hood["stop"])
-            self.assertIsNone(hood["target"])
+            original = {
+                "ticker": "AMD",
+                "tf": "daily",
+                "ingresso_low": 130.0,
+                "ingresso_high": 134.0,
+                "stop": 124.0,
+                "target": 148.0,
+                "motivo": "keep",
+            }
+            watch.save_watchlist(wpath, [original])
+            self.assertIsNone(watch.apply_telegram_set_field("/setbuy AMD 132.5", wpath))
+            self.assertIsNone(watch.apply_telegram_set_field("/settarget $amd 160", wpath))
+            self.assertIsNone(watch.apply_telegram_set_field("/SETSTOP AMD 120", wpath))
+            self.assertIsNone(watch.apply_telegram_set_field("/setbuy HOOD 75", wpath))
             self.assertIsNone(watch.apply_telegram_set_field("/set AMD", wpath))
             self.assertIsNone(watch.apply_telegram_set_field("ciao", wpath))
+            self.assertEqual(watch.load_watchlist(wpath), [original])
 
-    def test_set_multi_applies_each_valid_row(self) -> None:
+    def test_legacy_multiline_set_commands_are_noops(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
-            text = "/set\nAMD 500 480 550\nTSLA 350 330 380\n"
-            with (
-                patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                self.assertEqual(
-                    watch.apply_telegram_set(text, wpath),
-                    ["AMD", "TSLA"],
-                )
-            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA")
-            items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
-            self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
-            self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
-            self.assertEqual(items["AMD"]["stop"], 480.0)
-            self.assertEqual(items["AMD"]["target"], 550.0)
-            self.assertEqual(
-                items["AMD"]["locked_fields"],
-                ["ingresso_low", "ingresso_high", "stop", "target"],
-            )
-            self.assertEqual(items["TSLA"]["ingresso_low"], 350.0)
-            self.assertEqual(items["TSLA"]["stop"], 330.0)
-            self.assertEqual(items["TSLA"]["target"], 380.0)
-
-    def test_set_multi_skips_bad_rows_and_keeps_single_line(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            text = "/set\nAMD 500 480 550\nNOT A TICKER\nTSLA 350 330 380\nBAD\n"
-            with (
-                patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                self.assertEqual(
-                    watch.apply_telegram_set(text, wpath),
-                    ["AMD", "TSLA"],
-                )
-            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA\n⚠️ Errori: NOT, BAD")
-            tickers = [it["ticker"] for it in watch.load_watchlist(wpath)]
-            self.assertEqual(tickers, ["AMD", "TSLA"])
-            self.assertEqual(
-                watch.apply_telegram_set("/set CRCL 75-90 70 103", wpath),
-                "CRCL",
-            )
-            crcl = next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "CRCL")
-            self.assertEqual(crcl["ingresso_low"], 75.0)
-            self.assertEqual(crcl["ingresso_high"], 90.0)
-
-    def test_setbuy_multi_and_other_fields_stay_single(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wpath = Path(tmp) / "watchlist.json"
-            text = "/setbuy\nAMD 500\nTSLA 350\nFOO\n"
-            with (
-                patch.object(watch, "is_valid_symbol", return_value=True),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                self.assertEqual(
-                    watch.apply_telegram_set_field(text, wpath),
-                    ["AMD", "TSLA"],
-                )
-            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA\n⚠️ Errori: FOO")
-            items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
-            self.assertEqual(items["AMD"]["ingresso_low"], 500.0)
-            self.assertEqual(items["AMD"]["ingresso_high"], 500.0)
-            self.assertEqual(items["AMD"]["locked_fields"], ["ingresso_low", "ingresso_high"])
-            self.assertEqual(items["TSLA"]["ingresso_low"], 350.0)
             with patch.object(watch, "send_telegram") as send:
-                self.assertEqual(
-                    watch.apply_telegram_set_field("/settarget\nAMD 160\nTSLA 400\n", wpath),
-                    "AMD",
+                self.assertIsNone(
+                    watch.apply_telegram_set("/set\nAMD 500 480 550\nTSLA 350 330 380\n", wpath)
                 )
-                self.assertEqual(
-                    watch.apply_telegram_set_field("/setstop\nAMD 120\nTSLA 300\n", wpath),
-                    "AMD",
+                self.assertIsNone(
+                    watch.apply_telegram_set_field("/setbuy\nAMD 500\nTSLA 350\n", wpath)
                 )
-                send.assert_not_called()
-            amd = watch.load_watchlist(wpath)[0]
-            self.assertEqual(amd["target"], 160.0)
-            self.assertEqual(amd["stop"], 120.0)
-            self.assertEqual(len(watch.load_watchlist(wpath)), 2)
-            self.assertIsNone(
-                next(it for it in watch.load_watchlist(wpath) if it["ticker"] == "TSLA").get("target")
-            )
-            self.assertEqual(
-                watch.apply_telegram_set_field("/settarget AMD 160", wpath),
-                "AMD",
-            )
-            self.assertEqual(watch.load_watchlist(wpath)[0]["target"], 160.0)
+            send.assert_not_called()
+            self.assertEqual(watch.load_watchlist(wpath), [])
 
-    def test_process_single_message_handles_set_multi_without_digest(self) -> None:
+    def test_process_single_message_ignores_legacy_set_multi(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
@@ -3112,11 +2974,8 @@ class TelegramExtractTests(unittest.TestCase):
                 added, removed = watch.process_single_message(text, 9, wpath, spath)
             self.assertEqual(added, [])
             self.assertEqual(removed, [])
-            self.assertEqual(sent_text(send), "✅ Impostati: AMD, TSLA")
-            self.assertEqual(
-                [it["ticker"] for it in watch.load_watchlist(wpath)],
-                ["AMD", "TSLA"],
-            )
+            send.assert_not_called()
+            self.assertEqual(watch.load_watchlist(wpath), [])
 
     def test_remove_returns_ticker_or_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3189,12 +3048,9 @@ class TelegramExtractTests(unittest.TestCase):
             ):
                 watch.ingest_telegram(wpath, spath)
             delete.assert_called_once_with(501)
-            items = json.loads(wpath.read_text(encoding="utf-8"))
-            self.assertEqual(items[0]["ticker"], "NVDA")
-            self.assertEqual(items[0]["ingresso_low"], 180.0)
-            self.assertEqual(items[0]["ingresso_high"], 180.0)
+            self.assertEqual(watch.load_watchlist(wpath), [])
             state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["summary_message_id"], 900)
+            self.assertNotIn("summary_message_id", state)
 
     def test_expire_sent_alerts_deletes_only_old_alerts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3224,13 +3080,15 @@ class TelegramExtractTests(unittest.TestCase):
             self.assertEqual(len(state["sent_alerts"]), 1)
             self.assertEqual(state["sent_alerts"][0]["message_id"], 2)
 
-    def test_maybe_alert_records_sent_alert(self) -> None:
+    def test_maybe_alert_is_noop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spath = Path(tmp) / "watch_state.json"
             item = {"ticker": "AMD", "tf": "daily"}
             fired: dict[tuple[str, str, str], str | None] = {}
-            today = watch.alert_day()
-            with patch.object(watch, "send_telegram", return_value=321):
+            with (
+                patch.object(watch, "send_telegram") as send,
+                patch.object(watch, "deliver_text") as deliver,
+            ):
                 watch.maybe_alert(
                     item,
                     "ingresso",
@@ -3239,58 +3097,11 @@ class TelegramExtractTests(unittest.TestCase):
                     fired,
                     spath,
                 )
-            self.assertEqual(fired[("AMD", "daily", "ingresso")], today)
-            state = json.loads(spath.read_text(encoding="utf-8"))
-            self.assertEqual(state["sent_alerts"][0]["message_id"], 321)
-            self.assertIn("T", state["sent_alerts"][0]["sent_at"])
-
-    def test_maybe_alert_once_per_calendar_day(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            item = {"ticker": "AMD", "tf": "daily"}
-            fired: dict[tuple[str, str, str], str | None] = {}
-            rome = ZoneInfo("Europe/Rome")
-            day1 = datetime(2026, 9, 16, 16, 0, tzinfo=rome)
-            day2 = datetime(2026, 9, 17, 16, 0, tzinfo=rome)
-            with (
-                patch.object(watch, "rome_now", return_value=day1),
-                patch.object(watch, "send_telegram", return_value=1) as send,
-            ):
                 watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
-                watch.maybe_alert(item, "stop", "ALERT AMD stop", False, fired, spath)
-                watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
-            self.assertEqual(send.call_count, 1)
-            self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-16")
-            with (
-                patch.object(watch, "rome_now", return_value=day2),
-                patch.object(watch, "send_telegram", return_value=2) as send,
-            ):
-                watch.maybe_alert(item, "stop", "ALERT AMD stop", True, fired, spath)
-            send.assert_called_once()
-            self.assertEqual(fired[("AMD", "daily", "stop")], "2026-09-17")
-
-    def test_maybe_alert_sends_new_message_not_the_bot_surface(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            watch.save_state(
-                spath,
-                {
-                    "bot_message_id": 70,
-                    "pending_flow": {"type": "BUY", "step": "ticker"},
-                },
-            )
-            item = {"ticker": "AMD", "tf": "daily"}
-            fired: dict[tuple[str, str, str], str | None] = {}
-            with (
-                patch.object(watch, "send_telegram", return_value=321) as send,
-                patch.object(watch, "deliver_text") as deliver,
-            ):
-                watch.maybe_alert(
-                    item, "ingresso", "ALERT AMD ingresso 130", True, fired, spath
-                )
-            send.assert_called_once_with("ALERT AMD ingresso 130")
+            send.assert_not_called()
             deliver.assert_not_called()
-            self.assertEqual(watch.load_state(spath)["bot_message_id"], 70)
+            self.assertEqual(fired, {})
+            self.assertFalse(spath.exists())
 
     def test_fired_roundtrip(self) -> None:
         fired = {
@@ -3370,9 +3181,8 @@ class TelegramExtractTests(unittest.TestCase):
                 os.environ.pop("TELEGRAM_API_ID", None)
                 os.environ.pop("TELEGRAM_API_HASH", None)
                 os.environ.pop("TELEGRAM_USER_SESSION", None)
-            self.assertEqual(n, 1)
-            items = json.loads(wpath.read_text(encoding="utf-8"))
-            self.assertEqual(items[0]["ticker"], "AMD")
+            self.assertEqual(n, 0)
+            self.assertEqual(watch.load_watchlist(wpath), [])
             state = json.loads(spath.read_text(encoding="utf-8"))
             self.assertEqual(state["userbot_last_id"], 11)
 
@@ -3456,76 +3266,7 @@ class DayRangeTests(unittest.TestCase):
                 {"AMD": (10.5, 13.25), "NVDA": (10.5, 13.25)},
             )
 
-    def test_cycle_uses_day_range_and_notes_intraday_touch(self) -> None:
-        item = {
-            "ticker": "AMD",
-            "tf": "daily",
-            "ingresso_low": 130.0,
-            "ingresso_high": 134.0,
-            "stop": 124.0,
-            "target": 148.0,
-            "motivo": "",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            fired: dict[tuple[str, str, str], bool] = {}
-            with (
-                patch.object(watch, "fetch_prices", return_value={"AMD": 140.0}),
-                patch.object(watch, "fetch_day_ranges", return_value={"AMD": (120.0, 135.0)}),
-                patch.object(watch, "send_telegram") as send,
-                patch.object(watch, "expire_sent_alerts"),
-            ):
-                watch.cycle([item], fired, spath)
-            texts = [call[0][0] for call in send.call_args_list]
-            self.assertTrue(any("ingresso" in t and "toccato in giornata, ora 140.00" in t for t in texts))
-            self.assertTrue(any("stop" in t and "toccato in giornata, ora 140.00" in t for t in texts))
-            self.assertFalse(any("target" in t for t in texts))
-
-    def test_cycle_fetches_without_holding_lock(self) -> None:
-        item = {
-            "ticker": "AMD",
-            "tf": "daily",
-            "ingresso_low": 130.0,
-            "ingresso_high": 134.0,
-            "stop": 124.0,
-            "target": 148.0,
-            "motivo": "",
-        }
-        lock = threading.Lock()
-        held_during_fetch: list[bool] = []
-        held_during_send: list[bool] = []
-
-        def fake_prices(tickers: list[str]) -> dict[str, float | None]:
-            held_during_fetch.append(lock.locked())
-            return {"AMD": 132.0}
-
-        def fake_ranges(tickers: list[str]) -> dict[str, tuple[float, float] | None]:
-            held_during_fetch.append(lock.locked())
-            return {"AMD": None}
-
-        def fake_send(
-            text: str,
-            chat_id_override: str | None = None,
-            reply_markup: dict | None = None,
-        ) -> int | None:
-            held_during_send.append(lock.locked())
-            return 1
-
-        with tempfile.TemporaryDirectory() as tmp:
-            spath = Path(tmp) / "watch_state.json"
-            fired: dict[tuple[str, str, str], bool] = {}
-            with (
-                patch.object(watch, "fetch_prices", side_effect=fake_prices),
-                patch.object(watch, "fetch_day_ranges", side_effect=fake_ranges),
-                patch.object(watch, "send_telegram", side_effect=fake_send),
-                patch.object(watch, "expire_sent_alerts"),
-            ):
-                watch.cycle([item], fired, spath, lock=lock)
-        self.assertEqual(held_during_fetch, [False, False])
-        self.assertTrue(held_during_send)
-        self.assertTrue(all(held_during_send))
-
-    def test_cycle_falls_back_to_spot_when_range_missing(self) -> None:
+    def test_cycle_does_not_send_level_alerts(self) -> None:
         item = {
             "ticker": "AMD",
             "tf": "daily",
@@ -3540,15 +3281,149 @@ class DayRangeTests(unittest.TestCase):
             fired: dict[tuple[str, str, str], bool] = {}
             with (
                 patch.object(watch, "fetch_prices", return_value={"AMD": 132.0}),
-                patch.object(watch, "fetch_day_ranges", return_value={"AMD": None}),
                 patch.object(watch, "send_telegram") as send,
-                patch.object(watch, "expire_sent_alerts"),
             ):
                 watch.cycle([item], fired, spath)
-            texts = [call[0][0] for call in send.call_args_list]
-            self.assertEqual(len(texts), 1)
-            self.assertIn("ingresso 132.00", texts[0])
-            self.assertNotIn("toccato in giornata", texts[0])
+            send.assert_not_called()
+            self.assertEqual(fired, {})
+
+    def test_cycle_fetches_without_holding_lock(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "entry": 120.0,
+            "strategy": "trail",
+            "quantity": 3,
+            "delta": 2.0,
+            "status": "waiting",
+        }
+        lock = threading.Lock()
+        held_during_fetch: list[bool] = []
+        held_during_start: list[bool] = []
+
+        def fake_prices(tickers: list[str]) -> dict[str, float | None]:
+            held_during_fetch.append(lock.locked())
+            return {"AMD": 119.0}
+
+        def fake_start(*_args: object, **_kwargs: object) -> str:
+            held_during_start.append(lock.locked())
+            return "✅ Trail AMD avviato"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            fired: dict[tuple[str, str, str], bool] = {}
+            with (
+                patch.object(watch, "fetch_prices", side_effect=fake_prices),
+                patch.object(watch, "start_step_trail", side_effect=fake_start),
+                patch.object(watch, "send_telegram", return_value=1),
+            ):
+                watch.cycle([item], fired, spath, lock=lock, watchlist_path=wpath)
+        self.assertEqual(held_during_fetch, [False])
+        self.assertTrue(held_during_start)
+        self.assertTrue(all(held_during_start))
+
+    def test_cycle_fires_trail_when_price_touches_entry(self) -> None:
+        item = {
+            "ticker": "AMD",
+            "entry": 120.0,
+            "strategy": "trail",
+            "quantity": 3,
+            "delta": 2.0,
+            "status": "waiting",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            fired: dict[tuple[str, str, str], bool] = {}
+            with (
+                patch.object(watch, "fetch_prices", return_value={"AMD": 119.5}),
+                patch.object(
+                    watch, "start_step_trail", return_value="✅ Trail AMD avviato"
+                ) as start,
+                patch.object(watch, "send_telegram", return_value=9) as send,
+            ):
+                watch.cycle([item], fired, spath, watchlist_path=wpath)
+            start.assert_called_once_with("AMD", 3, 2.0, spath)
+            self.assertIn("ha toccato entry 120", sent_text(send))
+            self.assertEqual(watch.load_watchlist(wpath)[0]["status"], "fired")
+
+
+class WatchlistTrailTriggerTests(unittest.TestCase):
+    def _item(self, **overrides: object) -> dict:
+        data: dict = {
+            "ticker": "AMD",
+            "entry": 120.0,
+            "strategy": "trail",
+            "quantity": 4,
+            "delta": 2.0,
+            "status": "waiting",
+        }
+        data.update(overrides)
+        return data
+
+    def test_upsert_strategy_trigger_replaces_same_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            watch.upsert_strategy_trigger(wpath, "amd", 120, "trail", 3, 2)
+            watch.upsert_strategy_trigger(wpath, "AMD", 110, "trail", 5, 1.5)
+            items = watch.load_watchlist(wpath)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["entry"], 110)
+            self.assertEqual(items[0]["quantity"], 5)
+            self.assertEqual(items[0]["delta"], 1.5)
+            self.assertEqual(items[0]["status"], "waiting")
+
+    def test_fire_only_when_price_reaches_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            items = [self._item()]
+            with (
+                patch.object(watch, "start_step_trail") as start,
+                patch.object(watch, "send_telegram"),
+            ):
+                watch.fire_watchlist_triggers(items, {"AMD": 120.01}, spath, wpath)
+            start.assert_not_called()
+            self.assertEqual(items[0]["status"], "waiting")
+            with (
+                patch.object(
+                    watch, "start_step_trail", return_value="✅ Trail AMD"
+                ) as start,
+                patch.object(watch, "send_telegram", return_value=1) as send,
+            ):
+                watch.fire_watchlist_triggers(items, {"AMD": 120.0}, spath, wpath)
+            start.assert_called_once_with("AMD", 4, 2.0, spath)
+            self.assertIn("ha toccato entry 120", sent_text(send))
+            self.assertEqual(watch.load_watchlist(wpath)[0]["status"], "fired")
+
+    def test_ws_tick_starts_waiting_trail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(wpath, [self._item()])
+            tick = json.dumps({"topic": "smd+4391", "conid": 4391, "31": "119.4"})
+            with (
+                patch.object(watch, "DEFAULT_WATCHLIST", wpath),
+                patch.object(
+                    watch, "start_step_trail", return_value="✅ Trail AMD"
+                ) as start,
+                patch.object(watch, "send_telegram", return_value=2),
+            ):
+                watch.handle_ibkr_ws_message(tick, spath, {"4391": "AMD"})
+            start.assert_called_once_with("AMD", 4, 2.0, spath)
+            self.assertEqual(watch.load_watchlist(wpath)[0]["status"], "fired")
+
+    def test_trail_md_wanted_includes_waiting_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            spath = Path(tmp) / "watch_state.json"
+            watch.save_watchlist(wpath, [self._item()])
+            watch.save_state(spath, {"auto_trails": []})
+            with (
+                patch.object(watch, "DEFAULT_WATCHLIST", wpath),
+                patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            ):
+                self.assertEqual(watch.trail_md_wanted(spath), {"4391": "AMD"})
 
 
 class BuySellFlowTests(unittest.TestCase):
@@ -4380,13 +4255,10 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(edit.call_count, 5)
             watchlist_buttons = edit.call_args_list[0][0][3]
             self.assertEqual(
-                [data for _, data in watchlist_buttons[:7]],
+                [data for _, data in watchlist_buttons[:4]],
                 [
                     "action:list",
-                    "action:set",
                     "action:setbuy",
-                    "action:settarget",
-                    "action:setstop",
                     "action:rm",
                     "action:clear",
                 ],
@@ -4398,7 +4270,8 @@ class BuySellFlowTests(unittest.TestCase):
                     ("🏠 Home", "menu:main"),
                 ],
             )
-            self.assertIn("Scegli un'azione", edit.call_args_list[0][0][2])
+            self.assertIn("Set buy", edit.call_args_list[0][0][2])
+            self.assertIn("entry sotto il prezzo attuale", edit.call_args_list[0][0][2])
             self.assertEqual(
                 [data for _, data in edit.call_args_list[1][0][3][:4]],
                 [
@@ -4492,8 +4365,11 @@ class BuySellFlowTests(unittest.TestCase):
                     {"action": "sellflow"},
                 )
                 self.assertEqual(
-                    watch.process_callback_query("action:set", 1, "cba5", spath),
-                    {"action": "set"},
+                    watch.process_callback_query("action:setbuy", 1, "cba5", spath),
+                    {"action": "setbuy"},
+                )
+                self.assertIsNone(
+                    watch.process_callback_query("action:set", 1, "cba5b", spath)
                 )
                 self.assertEqual(
                     watch.process_callback_query("action:history", 1, "cba6", spath),
@@ -4556,7 +4432,7 @@ class BuySellFlowTests(unittest.TestCase):
                 watch.apply_menu_action("ordini", wpath, spath)
                 watch.apply_menu_action("buyflow", wpath, spath)
                 watch.apply_menu_action("sellflow", wpath, spath)
-                watch.apply_menu_action("set", wpath, spath)
+                watch.apply_menu_action("setbuy", wpath, spath)
                 watch.apply_menu_action("history", wpath, spath)
             lst.assert_called_once_with("/list", wpath, spath)
             bal.assert_called_once_with("/saldo", spath)
@@ -4566,7 +4442,7 @@ class BuySellFlowTests(unittest.TestCase):
             sell.assert_called_once_with("/vendi", spath)
             self.assertEqual(
                 [call.args[0] for call in guided.call_args_list],
-                ["SET", "HISTORY"],
+                ["SETBUY", "HISTORY"],
             )
 
     def test_process_single_message_starts_flow_before_inline_buy(self) -> None:
@@ -4889,14 +4765,14 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertIn("AMD: 1 @ 10.00", deliver.call_args[0][1])
             self.assertEqual(deliver.call_args[0][2], watch.MENU_MAIN_BUTTONS)
 
-    def test_set_workflow_asks_then_writes_watchlist(self) -> None:
+    def test_setbuy_workflow_asks_entry_then_trail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wpath = Path(tmp) / "watchlist.json"
             spath = Path(tmp) / "watch_state.json"
             with patch.object(watch, "send_telegram") as send:
-                watch.apply_menu_action("set", wpath, spath)
-            self.assertEqual(sent_text(send), "Quale ticker vuoi impostare?")
-            self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "SET")
+                watch.apply_menu_action("setbuy", wpath, spath)
+            self.assertIn("Quale ticker vuoi armare?", sent_text(send))
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["type"], "SETBUY")
             with (
                 patch.object(watch, "is_valid_symbol", return_value=True),
                 patch.object(watch, "send_telegram") as send,
@@ -4904,23 +4780,43 @@ class BuySellFlowTests(unittest.TestCase):
                 self.assertTrue(
                     watch.process_pending_flow_text("AMD", spath, wpath)
                 )
-            self.assertIn("ingresso?", sent_text(send))
+            self.assertIn("prezzo di entry?", sent_text(send))
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=148.2),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_pending_flow_text("148.2", spath, wpath)
+            self.assertIn("sotto il prezzo attuale", sent_text(send))
+            with (
+                patch.object(watch, "ibkr_get_price", return_value=148.2),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_pending_flow_text("120", spath, wpath)
+            self.assertIn("quale strategia", sent_text(send).lower())
+            self.assertEqual(watch.load_state(spath)["pending_flow"]["step"], "strategy")
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_callback_query(
+                    "strategy:trail", 1, "cbs", spath, 70, wpath
+                )
+            self.assertIn("quante azioni", sent_text(send).lower())
             with patch.object(watch, "send_telegram") as send:
-                watch.process_pending_flow_text("130-134", spath, wpath)
-            self.assertIn("stop?", sent_text(send))
+                watch.process_pending_flow_text("5", spath, wpath)
+            self.assertIn("delta in %", sent_text(send).lower())
             with patch.object(watch, "send_telegram") as send:
-                watch.process_pending_flow_text("124", spath, wpath)
-            self.assertIn("target?", sent_text(send))
-            with patch.object(watch, "send_telegram") as send:
-                watch.process_pending_flow_text("148", spath, wpath)
-            self.assertIn("✅ AMD impostato", sent_text(send))
+                watch.process_pending_flow_text("2", spath, wpath)
+            self.assertIn("✅ AMD in watchlist", sent_text(send))
+            self.assertIn("entry 120", sent_text(send))
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
             item = watch.load_watchlist(wpath)[0]
             self.assertEqual(item["ticker"], "AMD")
-            self.assertEqual(item["ingresso_low"], 130.0)
-            self.assertEqual(item["ingresso_high"], 134.0)
-            self.assertEqual(item["stop"], 124.0)
-            self.assertEqual(item["target"], 148.0)
+            self.assertEqual(item["entry"], 120.0)
+            self.assertEqual(item["strategy"], "trail")
+            self.assertEqual(item["quantity"], 5)
+            self.assertEqual(item["delta"], 2.0)
+            self.assertEqual(item["status"], "waiting")
 
     def test_flowticker_and_history_and_clear_buttons(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4958,7 +4854,7 @@ class BuySellFlowTests(unittest.TestCase):
                         "flowticker:AMD", 1, "cbt", spath, 70, wpath
                     )
                 )
-            self.assertIn("prezzo di ingresso?", sent_text(send))
+            self.assertIn("prezzo di entry?", sent_text(send))
             self.assertEqual(watch.load_state(spath)["pending_flow"]["ticker"], "AMD")
             watch.save_state(
                 spath, {"pending_flow": {"type": "HISTORY", "step": "days"}}
