@@ -130,10 +130,8 @@
     "2026091618405756"
   ],
   "menu_message_id": 1785,
-  "menu_page": "conto",
-  "menu_nav_stack": [
-    "main"
-  ],
+  "menu_page": "main",
+  "menu_nav_stack": [],
   "bot_message_id": 1785,
   "flow_message_id": 1785
 }
