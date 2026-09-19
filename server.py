@@ -34,7 +34,6 @@ from watch import (
     load_fired,
     load_state,
     load_watchlist,
-    maybe_send_daily_summary,
     payload_text,
     persist_fired,
     process_callback_query,
@@ -73,8 +72,6 @@ def price_loop() -> None:
                     cycle(items, fired, STATE_PATH, lock=STATE_LOCK)
                 with STATE_LOCK:
                     persist_fired(STATE_PATH, fired)
-                    items = load_watchlist(WATCHLIST_PATH)
-                    maybe_send_daily_summary(items, STATE_PATH)
                     check_order_fills(STATE_PATH)
                     check_fyi_notifications(STATE_PATH)
                     ensure_reply_suppression()

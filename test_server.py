@@ -230,7 +230,6 @@ class WebhookTests(unittest.TestCase):
                 patch.object(server, "STATE_PATH", spath),
                 patch.object(server, "in_scheduled_window", return_value=True),
                 patch.object(server, "cycle") as cyc,
-                patch.object(server, "maybe_send_daily_summary") as daily,
                 patch.object(server, "check_order_fills") as fills,
                 patch.object(server, "check_fyi_notifications") as fyi,
                 patch.object(server, "ensure_reply_suppression") as suppress,
@@ -244,7 +243,6 @@ class WebhookTests(unittest.TestCase):
                     server.price_loop()
             cyc.assert_called_once()
             self.assertEqual(cyc.call_args.kwargs.get("lock"), server.STATE_LOCK)
-            daily.assert_called_once()
             fills.assert_called_once_with(spath)
             fyi.assert_called_once_with(spath)
             suppress.assert_called_once_with()
