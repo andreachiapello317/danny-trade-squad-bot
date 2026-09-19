@@ -142,10 +142,8 @@
     "2026091841691370"
   ],
   "menu_message_id": 1783,
-  "menu_page": "watchlist",
-  "menu_nav_stack": [
-    "main"
-  ],
+  "menu_page": "main",
+  "menu_nav_stack": [],
   "bot_message_id": 1783,
   "flow_message_id": 1783
 }
