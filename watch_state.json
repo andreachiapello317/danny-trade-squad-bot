@@ -26,9 +26,35 @@
     "META||ingresso": "2026-09-17"
   },
   "sent_alerts": [],
-  "summary_message_id": 1783,
+  "summary_message_id": 1785,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:53:56.212901+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:01.958232+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:03.889561+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:06.669616+00:00",
+      "ttl_seconds": 120
+    },
+    {
+      "message_id": 1785,
+      "sent_at": "2026-09-19T16:54:15.408131+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -112,20 +138,14 @@
     "844840918": "Cancelled",
     "1169398424": "Filled",
     "1169398497": "Filled",
-    "1395799702": "PendingCancel"
+    "1395799702": "PendingCancel",
+    "1395799703": "PreSubmitted"
   },
-  "pending_flow": {
-    "type": "BUY",
-    "step": "ticker",
-    "ticker": null,
-    "size_type": null,
-    "quantity": null,
-    "price_type": null
-  },
-  "positions_message_id": 1783,
-  "orders_message_id": 1783,
-  "balance_message_id": 1783,
-  "price_message_id": 1783,
+  "pending_flow": null,
+  "positions_message_id": 1785,
+  "orders_message_id": 1785,
+  "balance_message_id": 1785,
+  "price_message_id": 1785,
   "known_fyi_ids": [
     "2026091618785743",
     "2026091611588154",
@@ -135,9 +155,11 @@
     "2026091841691370",
     "2026091618405756"
   ],
-  "menu_message_id": 1783,
-  "menu_page": "main",
-  "menu_nav_stack": [],
-  "bot_message_id": 1783,
-  "flow_message_id": 1783
+  "menu_message_id": 1785,
+  "menu_page": "trading",
+  "menu_nav_stack": [
+    "main"
+  ],
+  "bot_message_id": 1785,
+  "flow_message_id": 1785
 }
