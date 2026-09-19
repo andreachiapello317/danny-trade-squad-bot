@@ -122,6 +122,34 @@ HISTORY_RE = re.compile(r"^/storico\s+(\d+)\s*$", re.I)
 TRAIL_RE = re.compile(
     r"^/trail\s+\$?([A-Za-z]{1,8})\s+(\d+)\s+([\d.]+)\s*$", re.I
 )
+START_RE = re.compile(r"^/(start|menu)\s*$", re.I)
+MENU_WATCHLIST_TEXT = (
+    "📋 Watchlist\n\n"
+    "/set TICKER INGRESSO STOP TARGET\n"
+    "Esempio: /set AMD 130-134 124 148\n\n"
+    "/setbuy TICKER PREZZO\n"
+    "/settarget TICKER PREZZO\n"
+    "/setstop TICKER PREZZO\n"
+    "/rm TICKER\n"
+    "/clear"
+)
+MENU_TRADING_TEXT = (
+    "💰 Trading\n\n"
+    "/annulla TICKER\n"
+    "/modifica TICKER PREZZO\n"
+    "/trail TICKER QTY AMT"
+)
+MENU_CONTO_TEXT = (
+    "📊 Conto\n\n"
+    "/storico N\n"
+    "Esempio: /storico 7"
+)
+MENU_INFO_TEXT = (
+    "ℹ️ Info\n\n"
+    "/prezzo TICKER\n"
+    "Esempio: /prezzo AMD\n\n"
+    "/info TICKER"
+)
 
 
 def parse_num(raw: str) -> float:
@@ -556,6 +584,43 @@ def chat_matches(chat: Any, want: str) -> bool:
     if not isinstance(chat, dict):
         return False
     return str(chat.get("id", "")).strip() == str(want).strip()
+
+
+def apply_telegram_start(text: str) -> bool:
+    if not START_RE.match(text.strip()):
+        return False
+    send_telegram_buttons(
+        "🤖 Danny Trade Squad Bot\n\nScegli una categoria:",
+        [
+            ("📋 Watchlist", "menu:watchlist"),
+            ("💰 Trading", "menu:trading"),
+            ("📊 Conto", "menu:conto"),
+            ("ℹ️ Info", "menu:info"),
+        ],
+    )
+    return True
+
+
+def apply_menu_action(
+    kind: str, watchlist_path: Path, state_path: Path
+) -> None:
+    if kind == "list":
+        apply_telegram_list("/list", watchlist_path, state_path)
+        return
+    if kind == "saldo":
+        apply_telegram_balance("/saldo", state_path)
+        return
+    if kind == "posizioni":
+        apply_telegram_positions("/posizioni", state_path)
+        return
+    if kind == "ordini":
+        apply_telegram_orders("/ordini", state_path)
+        return
+    if kind == "buyflow":
+        apply_telegram_buy_flow_start("/compra", state_path)
+        return
+    if kind == "sellflow":
+        apply_telegram_sell_flow_start("/vendi", state_path)
 
 
 def apply_telegram_list(text: str, watchlist_path: Path, state_path: Path) -> bool:
@@ -1285,25 +1350,73 @@ def process_pending_flow_text(text: str, state_path: Path) -> bool:
     return False
 
 
+def _handle_start_menu_callback(data: str) -> dict[str, Any] | None:
+    kind = data.split(":", 1)[1].strip()
+    if kind == "watchlist":
+        send_telegram_buttons(
+            MENU_WATCHLIST_TEXT,
+            [("📋 Lista attuale", "action:list")],
+        )
+        return None
+    if kind == "trading":
+        send_telegram_buttons(
+            MENU_TRADING_TEXT,
+            [
+                ("🟢 Compra", "action:buyflow"),
+                ("🔴 Vendi", "action:sellflow"),
+            ],
+        )
+        return None
+    if kind == "conto":
+        send_telegram_buttons(
+            MENU_CONTO_TEXT,
+            [
+                ("💰 Saldo", "action:saldo"),
+                ("📊 Posizioni", "action:posizioni"),
+                ("📋 Ordini", "action:ordini"),
+            ],
+        )
+        return None
+    if kind == "info":
+        send_telegram(MENU_INFO_TEXT)
+        return None
+    return None
+
+
 def process_callback_query(
     callback_data: str,
     chat_id: Any,
     callback_query_id: str,
     state_path: Path,
 ) -> dict[str, Any] | None:
-    """Aggiorna pending_flow. Non chiama IBKR.
+    """Aggiorna pending_flow o il menu /start. Non chiama IBKR.
 
     Ritorna None se non serve altro, altrimenti un'azione da eseguire
     fuori dal lock:
 
     - {"action": "execute_order", "flow": {...}} → _execute_flow_order
     - {"action": "sell_all", "ticker": str, "price": float|None} → ibkr_sell_all
+    - {"action": "list"|"saldo"|"posizioni"|"ordini"|"buyflow"|"sellflow"}
     """
     answer_callback_query(callback_query_id)
+    data = callback_data.strip()
+    if data.startswith("menu:"):
+        return _handle_start_menu_callback(data)
+    if data.startswith("action:"):
+        kind = data.split(":", 1)[1].strip()
+        if kind in {
+            "list",
+            "saldo",
+            "posizioni",
+            "ordini",
+            "buyflow",
+            "sellflow",
+        }:
+            return {"action": kind}
+        return None
     flow = _pending_flow(load_state(state_path))
     if flow is None:
         return None
-    data = callback_data.strip()
     step = flow.get("step")
     if data.startswith("sellticker:"):
         if str(flow.get("type") or "") != "SELL":
@@ -2650,7 +2763,9 @@ def process_single_message(
 ) -> tuple[list[str], list[str]]:
     added: list[str] = []
     removed: list[str] = []
-    if apply_telegram_buy_flow_start(text, state_path):
+    if apply_telegram_start(text):
+        pass
+    elif apply_telegram_buy_flow_start(text, state_path):
         pass
     elif apply_telegram_sell_flow_start(text, state_path):
         pass
