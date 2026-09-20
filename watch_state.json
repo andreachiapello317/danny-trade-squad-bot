@@ -28,7 +28,13 @@
   "sent_alerts": [],
   "summary_message_id": 1806,
   "last_daily_summary": "2026-09-18",
-  "order_messages": [],
+  "order_messages": [
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-20T12:31:05.695010+00:00",
+      "ttl_seconds": 120
+    }
+  ],
   "known_order_status": {
     "1789535239100": "Filled",
     "820389606": "Cancelled",
@@ -133,10 +139,8 @@
     "2026091944801319"
   ],
   "menu_message_id": 1806,
-  "menu_page": "watchlist",
-  "menu_nav_stack": [
-    "main"
-  ],
+  "menu_page": "main",
+  "menu_nav_stack": [],
   "bot_message_id": 1806,
   "flow_message_id": 1806,
   "quote_fields": [
