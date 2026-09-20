@@ -7,7 +7,7 @@ Non è un sistema di alert.
 Dal menu Telegram → Watchlist:
 
 - **Set buy**: un ticker, entry sotto spot, strategia, azioni, delta.
-- **Upload buy**: lista `TICKER PREZZO` (anche in massa). Solo watchlist, niente strategia.
+- **Upload buy**: lista `TICKER PREZZO` (anche in massa: `AMD 120`, `AMD $120`, `NVDA:140`). Solo watchlist, niente strategia. Un nuovo upload sullo stesso ticker riarma l'entry.
 - **Gestisci buy**: selezioni i ticker, scegli la strategia (oggi Trail), importo in **$ per titolo**, poi delta %. Le azioni sono `ceil($ / spot)`, minimo 1.
 
 Quando il prezzo tocca l'entry, parte la strategia scelta.

@@ -104,9 +104,31 @@ SETBUY_LINE_RE = re.compile(
     re.I,
 )
 UPLOAD_PAIR_RE = re.compile(
-    rf"\$?([A-Za-z]{{1,8}}(?:[.\-][A-Za-z]{{1,4}})?)\s+{NUM}",
+    rf"\$?([A-Za-z]{{1,8}}(?:[.\-][A-Za-z]{{1,4}})?)"
+    rf"(?:\s*[:=]\s*|\s+)\$?\s*{NUM}",
     re.I,
 )
+_UPLOAD_NOISE = frozenset(
+    {
+        "INGRESSO",
+        "ENTRY",
+        "STOP",
+        "TARGET",
+        "TICKER",
+        "PREZZO",
+        "PRICE",
+        "BUY",
+        "SET",
+        "LIST",
+        "USD",
+        "EUR",
+        "AZIONE",
+        "AZIONI",
+        "WATCHLIST",
+    }
+)
+MANAGE_PICK_PAGE_SIZE = 8
+TELEGRAM_BUTTON_CAP = 90
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 BUY_RE = re.compile(
@@ -117,7 +139,9 @@ SELL_RE = re.compile(
 )
 BUY_FLOW_START_RE = re.compile(r"^/compra\s*$", re.I)
 SELL_FLOW_START_RE = re.compile(r"^/vendi\s*$", re.I)
-FLOW_TICKER_RE = re.compile(r"^\$?([A-Za-z]{1,8})$")
+FLOW_TICKER_RE = re.compile(
+    r"^\$?([A-Za-z]{1,8}(?:[.\-][A-Za-z]{1,4})?)$"
+)
 CANCEL_ORDER_RE = re.compile(r"^/annulla\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 MODIFY_ORDER_RE = re.compile(
     r"^/modifica\s+\$?([A-Za-z]{1,8})\s+([\d.]+)\s*$", re.I
@@ -294,6 +318,18 @@ def parse_num(raw: str) -> float:
     return float(raw.strip().replace(",", "."))
 
 
+def _is_upload_leftover(token: str) -> bool:
+    if not token or token in _UPLOAD_NOISE:
+        return False
+    if FLOW_TICKER_RE.match(token):
+        return True
+    try:
+        parse_num(token)
+    except ValueError:
+        return False
+    return True
+
+
 def parse_upload_buy_pairs(text: str) -> tuple[list[tuple[str, float]], list[str]]:
     """Estrae (ticker, entry) da una lista libera. Errori = token non validi."""
     ok: list[tuple[str, float]] = []
@@ -302,7 +338,7 @@ def parse_upload_buy_pairs(text: str) -> tuple[list[tuple[str, float]], list[str
     leftover = UPLOAD_PAIR_RE.sub(" ", text or "")
     for raw in leftover.replace(",", " ").replace(";", " ").split():
         token = raw.strip().lstrip("$").upper()
-        if token:
+        if _is_upload_leftover(token):
             err.append(token)
     for match in UPLOAD_PAIR_RE.finditer(text or ""):
         ticker = match.group(1).upper()
@@ -2419,31 +2455,84 @@ def _manage_selected(flow: dict[str, Any]) -> list[str]:
     return selected
 
 
+def _manage_page_count(total: int) -> int:
+    if total <= 0:
+        return 1
+    return max(1, math.ceil(total / MANAGE_PICK_PAGE_SIZE))
+
+
+def _clamp_manage_page(page: int, total: int) -> int:
+    return max(0, min(page, _manage_page_count(total) - 1))
+
+
+def _manage_page(flow: dict[str, Any], total: int) -> int:
+    try:
+        page = int(flow.get("page") or 0)
+    except (TypeError, ValueError):
+        page = 0
+    return _clamp_manage_page(page, total)
+
+
 def _manage_pick_buttons(
-    items: list[dict[str, Any]], selected: list[str]
+    items: list[dict[str, Any]], selected: list[str], page: int = 0
 ) -> list[tuple[str, str]]:
     chosen = {name.upper() for name in selected}
+    total = len(items)
+    page = _clamp_manage_page(page, total)
+    start = page * MANAGE_PICK_PAGE_SIZE
+    chunk = items[start : start + MANAGE_PICK_PAGE_SIZE]
     buttons: list[tuple[str, str]] = []
-    for item in items:
+    for item in chunk:
         ticker = str(item.get("ticker") or "").strip().upper()
         if not ticker:
             continue
         entry = fmt_level(_float_or_none(item.get("entry")))
         mark = "✓ " if ticker in chosen else ""
         buttons.append((f"{mark}{ticker} {entry}", f"pickbuy:{ticker}"))
+    pages = _manage_page_count(total)
+    if pages > 1:
+        if page > 0:
+            buttons.append(("« Prec", "pickbuy:prev"))
+        if page < pages - 1:
+            buttons.append(("Succ »", "pickbuy:next"))
     if items:
         buttons.append(("Tutti", "pickbuy:all"))
         buttons.append(("Continua", "pickbuy:go"))
     return buttons
 
 
-def _manage_pick_prompt(selected: list[str]) -> str:
+def _manage_pick_prompt(
+    selected: list[str], page: int = 0, total: int = 0
+) -> str:
     if selected:
-        return (
+        text = (
             "Gestisci buy: tocca i ticker da armare, poi Continua.\n"
             f"Selezionati: {', '.join(selected)}"
         )
-    return "Gestisci buy: tocca i ticker da armare, poi Continua."
+    else:
+        text = "Gestisci buy: tocca i ticker da armare, poi Continua."
+    pages = _manage_page_count(total)
+    if total > MANAGE_PICK_PAGE_SIZE:
+        text += f"\nPagina {page + 1}/{pages}"
+    return text
+
+
+def _send_manage_pick(
+    flow: dict[str, Any],
+    state_path: Path,
+    watchlist_path: Path,
+    text: str | None = None,
+) -> None:
+    items = _watchlist_entry_items(watchlist_path)
+    selected = _manage_selected(flow)
+    page = _manage_page(flow, len(items))
+    flow["page"] = page
+    _save_pending_flow(state_path, flow)
+    _send_flow_message(
+        state_path,
+        text or _manage_pick_prompt(selected, page, len(items)),
+        _manage_pick_buttons(items, selected, page),
+    )
 
 
 def _apply_manage_buy(
@@ -2466,6 +2555,10 @@ def _apply_manage_buy(
         str(item.get("ticker") or "").strip().upper(): item
         for item in load_watchlist(watchlist_path)
     }
+    actives = {
+        str(trail.get("ticker") or "").strip().upper()
+        for trail in _active_step_trails(state_path)
+    }
     lines: list[str] = []
     for ticker in selected:
         item = by_ticker.get(ticker)
@@ -2482,9 +2575,12 @@ def _apply_manage_buy(
             watchlist_path, ticker, entry, strategy, qty, delta
         )
         spend = qty * spot
+        extra = ""
+        if ticker in actives:
+            extra = " · ⚠️ Trail già attivo"
         lines.append(
             f"✅ {ticker}: {qty} az · entry {entry:g} · "
-            f"~{spend:g}$ @ {spot:g}"
+            f"~{spend:g}$ @ {spot:g}{extra}"
         )
     _save_pending_flow(state_path, None)
     if not lines:
@@ -2517,7 +2613,10 @@ def _order_tickers(limit_only: bool = False) -> list[str] | None:
 
 
 def _flow_ticker_buttons(tickers: list[str]) -> list[tuple[str, str]]:
-    return [(ticker, f"flowticker:{ticker}") for ticker in tickers]
+    return [
+        (ticker, f"flowticker:{ticker}")
+        for ticker in tickers[:TELEGRAM_BUTTON_CAP]
+    ]
 
 
 def _parse_ingresso_input(text: str) -> tuple[float, float] | None:
@@ -2614,7 +2713,13 @@ def _finish_armed_strategy(
     if kind == "SETBUY":
         entry = _float_or_none(flow.get("entry"))
         strategy = str(flow.get("strategy") or "").strip().lower()
-        if not ticker or entry is None or qty is None or delta is None:
+        if (
+            not ticker
+            or entry is None
+            or qty is None
+            or delta is None
+            or strategy not in AUTO_STRATEGIES
+        ):
             _save_pending_flow(state_path, None)
             _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
             return
@@ -2803,11 +2908,12 @@ def _start_guided_flow(
         flow = _new_pending_flow("MANAGEBUY")
         flow["step"] = "pick"
         flow["selected"] = []
+        flow["page"] = 0
         _save_pending_flow(state_path, flow)
         _send_flow_message(
             state_path,
-            _manage_pick_prompt([]),
-            _manage_pick_buttons(items, []),
+            _manage_pick_prompt([], 0, len(items)),
+            _manage_pick_buttons(items, [], 0),
         )
         return
     if kind == "TRAIL":
@@ -2932,8 +3038,9 @@ def _advance_flow_after_ticker(
 
 
 def _parse_flow_number(text: str) -> float | None:
+    cleaned = text.strip().replace("$", "").replace("%", "").strip()
     try:
-        value = parse_num(text.strip())
+        value = parse_num(cleaned)
     except ValueError:
         return None
     if value <= 0:
@@ -3048,12 +3155,11 @@ def process_pending_flow_text(
         _prompt_strategy_param(flow, nxt, state_path)
         return True
     if step == "pick" and kind == "MANAGEBUY":
-        _send_flow_message(
+        _send_manage_pick(
+            flow,
             state_path,
+            wpath,
             "Tocca i ticker dai bottoni, poi Continua.",
-            _manage_pick_buttons(
-                _watchlist_entry_items(wpath), _manage_selected(flow)
-            ),
         )
         return True
     if _collect_strategy_param_text(flow, stripped, state_path, wpath):
@@ -3270,12 +3376,14 @@ def process_callback_query(
         ]
         choice = data.split(":", 1)[1].strip()
         selected = _manage_selected(flow)
+        page = _manage_page(flow, len(items))
         if choice == "go":
             if not selected:
-                _send_flow_message(
+                _send_manage_pick(
+                    flow,
                     state_path,
+                    wpath,
                     "⚠️ Seleziona almeno un ticker, poi Continua.",
-                    _manage_pick_buttons(items, selected),
                 )
                 return None
             flow["step"] = "strategy"
@@ -3287,8 +3395,13 @@ def process_callback_query(
                 auto_strategy_pick_buttons(),
             )
             return None
-        if choice == "all":
+        if choice == "prev":
+            flow["page"] = max(0, page - 1)
+        elif choice == "next":
+            flow["page"] = _clamp_manage_page(page + 1, len(items))
+        elif choice == "all":
             selected = list(available)
+            flow["selected"] = selected
         else:
             ticker = choice.upper()
             if ticker not in available:
@@ -3297,13 +3410,8 @@ def process_callback_query(
                 selected = [name for name in selected if name != ticker]
             else:
                 selected.append(ticker)
-        flow["selected"] = selected
-        _save_pending_flow(state_path, flow)
-        _send_flow_message(
-            state_path,
-            _manage_pick_prompt(selected),
-            _manage_pick_buttons(items, selected),
-        )
+            flow["selected"] = selected
+        _send_manage_pick(flow, state_path, wpath)
         return None
     if data.startswith("strategy:") and step == "strategy":
         name = data.split(":", 1)[1].strip().lower()
@@ -5182,8 +5290,8 @@ def upsert_watchlist_entry(
         updated = dict(item)
         updated["ticker"] = ticker
         updated["entry"] = entry
-        if not updated.get("status"):
-            updated["status"] = "waiting"
+        updated["status"] = "waiting"
+        updated.pop("last_error", None)
         next_items.append(updated)
         found = True
     if not found:
@@ -5292,6 +5400,8 @@ def cycle(
     held = lock if lock is not None else nullcontext()
     wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     with held:
+        if watchlist_path is not None and wpath.exists():
+            items = load_watchlist(wpath)
         for it in items:
             ticker = it.get("ticker") or "?"
             price = prices.get(str(ticker))
