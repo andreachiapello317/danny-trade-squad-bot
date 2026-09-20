@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import hmac
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -41,7 +40,6 @@ from watch import (
     process_single_message,
     rome_now,
     run_ibkr_order_socket,
-    save_watchlist,
     send_watchlist_summary,
     telegram_chat_id,
     update_payload,
@@ -110,6 +108,7 @@ def start_ibkr_order_socket() -> None:
         target=run_ibkr_order_socket,
         kwargs={
             "state_path": STATE_PATH,
+            "watchlist_path": WATCHLIST_PATH,
             "stop": _ws_stop,
             "lock": STATE_LOCK,
         },
@@ -119,59 +118,9 @@ def start_ibkr_order_socket() -> None:
     _ws_thread.start()
 
 
-def _commit_watchlist_reset() -> None:
-    """Committa solo watchlist.json. Non tocca watch_state.json."""
-    try:
-        path = Path(WATCHLIST_PATH).resolve()
-        repo_root = Path.cwd().resolve()
-        try:
-            path.relative_to(repo_root)
-        except ValueError:
-            return
-        if path.name != "watchlist.json":
-            return
-        rel = os.path.relpath(path, repo_root)
-
-        def run(args: list[str]) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                args,
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-        run(["git", "add", "-f", "--", rel])
-        diff = run(["git", "diff", "--staged", "--quiet", "--", rel])
-        if diff.returncode == 0:
-            return
-        commit = run(
-            [
-                "git",
-                "-c",
-                "user.name=watch-bot",
-                "-c",
-                "user.email=watch-bot@users.noreply.github.com",
-                "commit",
-                "-m",
-                "Azzera watchlist al deploy [skip ci]",
-                "--",
-                rel,
-            ]
-        )
-        if commit.returncode != 0:
-            print(f"Commit watchlist reset: {commit.stderr.strip()}", file=sys.stderr)
-            return
-        push = run(["git", "push"])
-        if push.returncode != 0:
-            print(f"Push watchlist reset: {push.stderr.strip()}", file=sys.stderr)
-    except Exception as exc:
-        print(f"Commit watchlist reset: {exc}", file=sys.stderr)
-
-
 def reset_watchlist_on_boot() -> None:
-    save_watchlist(WATCHLIST_PATH, [])
-    _commit_watchlist_reset()
+    """Non svuota più: Set buy deve restare dopo restart/deploy."""
+    return
 
 
 def run_callback_action(
@@ -261,13 +210,11 @@ def webhook() -> tuple[str, int]:
 
 
 if os.environ.get("SERVER_SOFTWARE", "").lower().startswith("gunicorn"):
-    reset_watchlist_on_boot()
     start_price_loop()
     start_ibkr_order_socket()
 
 
 if __name__ == "__main__":
-    reset_watchlist_on_boot()
     start_price_loop()
     start_ibkr_order_socket()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

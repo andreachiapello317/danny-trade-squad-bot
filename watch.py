@@ -103,6 +103,10 @@ SETBUY_LINE_RE = re.compile(
     rf"^\$?([A-Za-z]{{1,8}})\s+{NUM}\s*$",
     re.I,
 )
+UPLOAD_PAIR_RE = re.compile(
+    rf"\$?([A-Za-z]{{1,8}}(?:[.\-][A-Za-z]{{1,4}})?)\s+{NUM}",
+    re.I,
+)
 BALANCE_RE = re.compile(r"^/saldo\s*$", re.I)
 PRICE_RE = re.compile(r"^/prezzo\s+\$?([A-Za-z]{1,8})\s*$", re.I)
 BUY_RE = re.compile(
@@ -142,13 +146,16 @@ MENU_NAV_BUTTONS = [
 ]
 MENU_WATCHLIST_TEXT = (
     "📋 Watchlist\n\n"
-    "Set buy: ticker e prezzo sotto lo spot, poi scegli la "
-    "strategia di trading automatico. Oggi c'è solo Trail "
-    "(azioni + delta %). Quando l'entry viene toccato parte da sola."
+    "Set buy: un ticker, entry sotto spot, strategia. "
+    "Upload buy: lista ticker + entry, solo watchlist. "
+    "Gestisci buy: seleziona i ticker e assegna la strategia "
+    "(importo in $ per titolo, minimo 1 azione)."
 )
 MENU_WATCHLIST_BUTTONS = [
     ("📋 Lista attuale", "action:list"),
     ("🟢 Set buy", "action:setbuy"),
+    ("📤 Upload buy", "action:uploadbuy"),
+    ("⚙️ Gestisci buy", "action:managebuy"),
     ("🗑️ Rimuovi", "action:rm"),
     ("🧹 Svuota", "action:clear"),
 ]
@@ -247,6 +254,8 @@ MENU_ACTION_KINDS = {
     "buyflow",
     "sellflow",
     "setbuy",
+    "uploadbuy",
+    "managebuy",
     "rm",
     "clear",
     "cancel",
@@ -268,6 +277,8 @@ MENU_SLOW_ACTIONS = {
 }
 MENU_FLOW_KINDS = {
     "setbuy": "SETBUY",
+    "uploadbuy": "UPLOADBUY",
+    "managebuy": "MANAGEBUY",
     "rm": "RM",
     "clear": "CLEAR",
     "cancel": "CANCEL",
@@ -281,6 +292,43 @@ MENU_FLOW_KINDS = {
 
 def parse_num(raw: str) -> float:
     return float(raw.strip().replace(",", "."))
+
+
+def parse_upload_buy_pairs(text: str) -> tuple[list[tuple[str, float]], list[str]]:
+    """Estrae (ticker, entry) da una lista libera. Errori = token non validi."""
+    ok: list[tuple[str, float]] = []
+    seen: set[str] = set()
+    err: list[str] = []
+    leftover = UPLOAD_PAIR_RE.sub(" ", text or "")
+    for raw in leftover.replace(",", " ").replace(";", " ").split():
+        token = raw.strip().lstrip("$").upper()
+        if token:
+            err.append(token)
+    for match in UPLOAD_PAIR_RE.finditer(text or ""):
+        ticker = match.group(1).upper()
+        try:
+            entry = parse_num(match.group(2))
+        except (TypeError, ValueError):
+            err.append(match.group(1).upper())
+            continue
+        if entry <= 0 or not is_valid_symbol(ticker):
+            err.append(ticker)
+            continue
+        if ticker in seen:
+            ok = [(name, price) for name, price in ok if name != ticker]
+        else:
+            seen.add(ticker)
+        ok.append((ticker, entry))
+    return ok, err
+
+
+def shares_from_dollars(dollars: float, spot: float) -> int:
+    """Azioni per coprire almeno `dollars`, arrotondate per eccesso. Minimo 1."""
+    if dollars <= 0:
+        return 1
+    if spot <= 0:
+        return 1
+    return max(1, math.ceil(dollars / spot - 1e-12))
 
 
 def clip_text(text: str, limit: int = TELEGRAM_MAX_LEN) -> str:
@@ -549,6 +597,9 @@ def fmt_ticket_line(item: dict[str, Any]) -> str:
             f"{strategy.title()} {qty} az · Δ {fmt_level(_float_or_none(delta))}% · "
             f"{label}"
         )
+    entry = _float_or_none(item.get("entry"))
+    if entry is not None:
+        return f"{ticker} entry {fmt_level(entry)} · senza strategia"
     motivo = (item.get("motivo") or "").strip()
     extra = f" {motivo}" if motivo else ""
     return f"{ticker} (senza strategia){extra}"
@@ -2343,6 +2394,109 @@ def _watchlist_tickers(watchlist_path: Path) -> list[str]:
     return tickers
 
 
+def _watchlist_entry_items(watchlist_path: Path) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in load_watchlist(watchlist_path):
+        ticker = str(item.get("ticker") or "").strip().upper()
+        entry = _float_or_none(item.get("entry"))
+        if not ticker or entry is None or ticker in seen:
+            continue
+        seen.add(ticker)
+        items.append(item)
+    return items
+
+
+def _manage_selected(flow: dict[str, Any]) -> list[str]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in flow.get("selected") or []:
+        ticker = str(raw or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        selected.append(ticker)
+    return selected
+
+
+def _manage_pick_buttons(
+    items: list[dict[str, Any]], selected: list[str]
+) -> list[tuple[str, str]]:
+    chosen = {name.upper() for name in selected}
+    buttons: list[tuple[str, str]] = []
+    for item in items:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        entry = fmt_level(_float_or_none(item.get("entry")))
+        mark = "✓ " if ticker in chosen else ""
+        buttons.append((f"{mark}{ticker} {entry}", f"pickbuy:{ticker}"))
+    if items:
+        buttons.append(("Tutti", "pickbuy:all"))
+        buttons.append(("Continua", "pickbuy:go"))
+    return buttons
+
+
+def _manage_pick_prompt(selected: list[str]) -> str:
+    if selected:
+        return (
+            "Gestisci buy: tocca i ticker da armare, poi Continua.\n"
+            f"Selezionati: {', '.join(selected)}"
+        )
+    return "Gestisci buy: tocca i ticker da armare, poi Continua."
+
+
+def _apply_manage_buy(
+    flow: dict[str, Any], state_path: Path, watchlist_path: Path
+) -> None:
+    selected = _manage_selected(flow)
+    strategy = str(flow.get("strategy") or "").strip().lower()
+    dollars = _float_or_none(flow.get("dollars"))
+    delta = _float_or_none(flow.get("delta"))
+    if not selected or strategy not in AUTO_STRATEGIES or dollars is None or delta is None:
+        _save_pending_flow(state_path, None)
+        _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+        return
+    if dollars <= 0 or delta <= 0 or delta > 100:
+        _send_flow_message(
+            state_path, "⚠️ Valore non valido. Riprova dollari o delta."
+        )
+        return
+    by_ticker = {
+        str(item.get("ticker") or "").strip().upper(): item
+        for item in load_watchlist(watchlist_path)
+    }
+    lines: list[str] = []
+    for ticker in selected:
+        item = by_ticker.get(ticker)
+        entry = _float_or_none((item or {}).get("entry"))
+        if item is None or entry is None:
+            lines.append(f"⚠️ {ticker}: non è in watchlist.")
+            continue
+        spot = ibkr_get_price(ticker)
+        if spot is None or spot <= 0:
+            lines.append(f"⚠️ {ticker}: prezzo IBKR non disponibile.")
+            continue
+        qty = shares_from_dollars(dollars, spot)
+        upsert_strategy_trigger(
+            watchlist_path, ticker, entry, strategy, qty, delta
+        )
+        spend = qty * spot
+        lines.append(
+            f"✅ {ticker}: {qty} az · entry {entry:g} · "
+            f"~{spend:g}$ @ {spot:g}"
+        )
+    _save_pending_flow(state_path, None)
+    if not lines:
+        _send_flow_message(state_path, "⚠️ Nessun ticker aggiornato.")
+        return
+    label = AUTO_STRATEGIES.get(strategy, {}).get("label") or strategy.title()
+    _send_flow_message(
+        state_path,
+        f"{label} · {dollars:g}$ a titolo · Δ {delta:g}%\n" + "\n".join(lines),
+    )
+
+
 def _order_tickers(limit_only: bool = False) -> list[str] | None:
     orders = ibkr_get_active_orders()
     if orders is None:
@@ -2436,9 +2590,13 @@ def _begin_strategy_params(flow: dict[str, Any], state_path: Path) -> None:
 def _parse_strategy_param(param: dict[str, Any], raw: float) -> Any | None:
     kind = str(param.get("kind") or "")
     if kind == "shares":
-        qty = int(raw)
+        if abs(raw - round(raw)) > 1e-9:
+            return None
+        qty = int(round(raw))
         return qty if qty >= 1 else None
-    if kind in {"percent", "number"}:
+    if kind == "percent":
+        return raw if 0 < raw <= 100 else None
+    if kind == "number":
         return raw if raw > 0 else None
     return raw
 
@@ -2450,6 +2608,9 @@ def _finish_armed_strategy(
     ticker = str(flow.get("ticker") or "").strip().upper()
     qty = _share_qty(flow.get("quantity"))
     delta = _float_or_none(flow.get("delta"))
+    if kind == "MANAGEBUY":
+        _apply_manage_buy(flow, state_path, watchlist_path)
+        return
     if kind == "SETBUY":
         entry = _float_or_none(flow.get("entry"))
         strategy = str(flow.get("strategy") or "").strip().lower()
@@ -2457,21 +2618,41 @@ def _finish_armed_strategy(
             _save_pending_flow(state_path, None)
             _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
             return
+        if delta <= 0 or delta > 100:
+            _send_flow_message(
+                state_path, "⚠️ Delta non valido. Usa una percentuale, es. 2."
+            )
+            return
         upsert_strategy_trigger(
             watchlist_path, ticker, entry, strategy, qty, delta
         )
         _save_pending_flow(state_path, None)
         label = AUTO_STRATEGIES.get(strategy, {}).get("label") or strategy.title()
+        extra = ""
+        if any(
+            str(trail.get("ticker") or "").strip().upper() == ticker
+            for trail in _active_step_trails(state_path)
+        ):
+            extra = (
+                f"\n⚠️ C'è già un Trail attivo su {ticker}: "
+                "quando l'entry scatta non ne parte un secondo."
+            )
         _send_flow_message(
             state_path,
             f"✅ {ticker} in watchlist: entry {entry:g} · "
             f"{label} {qty} az · Δ {delta:g}%. "
-            "Parte da solo quando il prezzo tocca l'entry.",
+            "Parte da solo quando il prezzo tocca l'entry."
+            f"{extra}",
         )
         return
     if qty is None or delta is None:
         _save_pending_flow(state_path, None)
         _send_flow_message(state_path, "⚠️ Ordine incompleto, ricomincia.")
+        return
+    if delta <= 0 or delta > 100:
+        _send_flow_message(
+            state_path, "⚠️ Delta non valido. Usa una percentuale, es. 2."
+        )
         return
     _save_pending_flow(state_path, None)
     _send_order_message(
@@ -2488,7 +2669,10 @@ def _collect_strategy_param_text(
     strategy = str(flow.get("strategy") or "").strip().lower()
     if not strategy:
         return False
-    param = _strategy_param_for_step(strategy, str(flow.get("step") or ""))
+    step = str(flow.get("step") or "")
+    if strategy == "trail" and step == "amount":
+        step = "delta"
+    param = _strategy_param_for_step(strategy, step)
     if param is None:
         return False
     raw = _parse_flow_number(stripped)
@@ -2595,6 +2779,35 @@ def _start_guided_flow(
             state_path,
             "Quale ticker vuoi togliere?",
             _flow_ticker_buttons(tickers),
+        )
+        return
+    if kind == "UPLOADBUY":
+        flow = _new_pending_flow("UPLOADBUY")
+        flow["step"] = "list"
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            "Incolla ticker e prezzo Set buy, anche in massa.\n"
+            "Esempio:\nAMD 120\nNVDA 140\nTSLA 180",
+        )
+        return
+    if kind == "MANAGEBUY":
+        items = _watchlist_entry_items(watchlist_path)
+        if not items:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(
+                state_path,
+                "📭 Nessun entry in watchlist. Usa Upload buy o Set buy.",
+            )
+            return
+        flow = _new_pending_flow("MANAGEBUY")
+        flow["step"] = "pick"
+        flow["selected"] = []
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            _manage_pick_prompt([]),
+            _manage_pick_buttons(items, []),
         )
         return
     if kind == "TRAIL":
@@ -2802,6 +3015,47 @@ def process_pending_flow_text(
             return True
         _advance_flow_after_ticker(flow, ticker, state_path, wpath)
         return True
+    if step == "list" and kind == "UPLOADBUY":
+        pairs, err = parse_upload_buy_pairs(stripped)
+        if not pairs:
+            _send_flow_message(
+                state_path,
+                "⚠️ Nessun ticker valido. Es. AMD 120 oppure NVDA 140",
+            )
+            return True
+        for ticker, entry in pairs:
+            upsert_watchlist_entry(wpath, ticker, entry)
+        _save_pending_flow(state_path, None)
+        names = ", ".join(ticker for ticker, _ in pairs)
+        extra = f"\n⚠️ Ignorati: {', '.join(err)}" if err else ""
+        _send_flow_message(
+            state_path,
+            f"✅ {len(pairs)} ticker in watchlist: {names}. "
+            "Usa Gestisci buy per assegnare la strategia."
+            f"{extra}",
+        )
+        return True
+    if step == "dollars" and kind == "MANAGEBUY":
+        value = _parse_flow_number(stripped)
+        if value is None:
+            _send_flow_message(state_path, "⚠️ Importo non valido, riprova.")
+            return True
+        flow["dollars"] = value
+        nxt = _next_strategy_param(str(flow.get("strategy") or "trail"), "quantity")
+        if nxt is None:
+            _finish_armed_strategy(flow, state_path, wpath)
+            return True
+        _prompt_strategy_param(flow, nxt, state_path)
+        return True
+    if step == "pick" and kind == "MANAGEBUY":
+        _send_flow_message(
+            state_path,
+            "Tocca i ticker dai bottoni, poi Continua.",
+            _manage_pick_buttons(
+                _watchlist_entry_items(wpath), _manage_selected(flow)
+            ),
+        )
+        return True
     if _collect_strategy_param_text(flow, stripped, state_path, wpath):
         return True
     if step == "quantity":
@@ -2847,7 +3101,7 @@ def process_pending_flow_text(
             auto_strategy_pick_buttons(),
         )
         return True
-    if step == "strategy" and kind == "SETBUY":
+    if step == "strategy" and kind in {"SETBUY", "MANAGEBUY"}:
         _send_flow_message(
             state_path,
             "Scegli una strategia di trading automatico dai bottoni.",
@@ -3005,11 +3259,66 @@ def process_callback_query(
             return None
         _advance_flow_after_ticker(flow, ticker, state_path, wpath)
         return None
+    if data.startswith("pickbuy:") and str(flow.get("type") or "") == "MANAGEBUY":
+        if step != "pick":
+            return None
+        items = _watchlist_entry_items(wpath)
+        available = [
+            str(item.get("ticker") or "").strip().upper()
+            for item in items
+            if item.get("ticker")
+        ]
+        choice = data.split(":", 1)[1].strip()
+        selected = _manage_selected(flow)
+        if choice == "go":
+            if not selected:
+                _send_flow_message(
+                    state_path,
+                    "⚠️ Seleziona almeno un ticker, poi Continua.",
+                    _manage_pick_buttons(items, selected),
+                )
+                return None
+            flow["step"] = "strategy"
+            _save_pending_flow(state_path, flow)
+            _send_flow_message(
+                state_path,
+                f"{', '.join(selected)}: quale strategia di "
+                "trading automatico vuoi assegnare?",
+                auto_strategy_pick_buttons(),
+            )
+            return None
+        if choice == "all":
+            selected = list(available)
+        else:
+            ticker = choice.upper()
+            if ticker not in available:
+                return None
+            if ticker in selected:
+                selected = [name for name in selected if name != ticker]
+            else:
+                selected.append(ticker)
+        flow["selected"] = selected
+        _save_pending_flow(state_path, flow)
+        _send_flow_message(
+            state_path,
+            _manage_pick_prompt(selected),
+            _manage_pick_buttons(items, selected),
+        )
+        return None
     if data.startswith("strategy:") and step == "strategy":
         name = data.split(":", 1)[1].strip().lower()
         if name not in AUTO_STRATEGIES:
             return None
         flow["strategy"] = name
+        if str(flow.get("type") or "") == "MANAGEBUY":
+            flow["step"] = "dollars"
+            _save_pending_flow(state_path, flow)
+            _send_flow_message(
+                state_path,
+                "Quanto in dollari per ogni ticker? "
+                "Arrotondo per eccesso alle azioni (minimo 1).",
+            )
+            return None
         _begin_strategy_params(flow, state_path)
         return None
     if data.startswith("days:") and step == "days":
@@ -3844,8 +4153,11 @@ def _ticker_for_conid(conid: str) -> str | None:
     return None
 
 
-def trail_md_wanted(state_path: Path) -> dict[str, str]:
+def trail_md_wanted(
+    state_path: Path, watchlist_path: Path | None = None
+) -> dict[str, str]:
     """conid IBKR → ticker, per Trail e entry in attesa."""
+    wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     wanted: dict[str, str] = {}
     for trail in _auto_trails(load_state(state_path)):
         if str(trail.get("status") or "") not in {"watching", "armed"}:
@@ -3856,7 +4168,7 @@ def trail_md_wanted(state_path: Path) -> dict[str, str]:
         conid = ibkr_lookup_conid(ticker)
         if conid:
             wanted[str(conid)] = ticker
-    for item in load_watchlist(DEFAULT_WATCHLIST):
+    for item in load_watchlist(wpath):
         if str(item.get("status") or "") != "waiting":
             continue
         if not item.get("strategy"):
@@ -3871,9 +4183,12 @@ def trail_md_wanted(state_path: Path) -> dict[str, str]:
 
 
 def sync_trail_md_subs(
-    sock: Any, subscribed: set[str], state_path: Path
+    sock: Any,
+    subscribed: set[str],
+    state_path: Path,
+    watchlist_path: Path | None = None,
 ) -> dict[str, str]:
-    wanted = trail_md_wanted(state_path)
+    wanted = trail_md_wanted(state_path, watchlist_path)
     for conid in list(subscribed - set(wanted)):
         try:
             sock.send(f"umd+{conid}+{{}}")
@@ -3892,6 +4207,7 @@ def handle_ibkr_ws_message(
     raw: Any,
     state_path: Path,
     conid_tickers: dict[str, str] | None = None,
+    watchlist_path: Path | None = None,
 ) -> None:
     orders = orders_from_ws_message(raw)
     if orders:
@@ -3907,7 +4223,8 @@ def handle_ibkr_ws_message(
         ticker = _ticker_for_conid(conid)
     if ticker:
         apply_step_trail_price(state_path, ticker, price)
-        apply_watchlist_trigger_price(DEFAULT_WATCHLIST, state_path, ticker, price)
+        wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
+        apply_watchlist_trigger_price(wpath, state_path, ticker, price)
 
 
 def _open_ibkr_ws() -> Any:
@@ -3930,6 +4247,7 @@ def run_ibkr_order_socket(
     stop: threading.Event | None = None,
     pause: float = 5.0,
     lock: threading.Lock | None = None,
+    watchlist_path: Path | None = None,
 ) -> None:
     """WebSocket IBKR: fill ordini + tick prezzi per alzare i Trail."""
     held = lock if lock is not None else nullcontext()
@@ -3947,7 +4265,9 @@ def run_ibkr_order_socket(
             subscribed: set[str] = set()
             md_map: dict[str, str] = {}
             with held:
-                md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                md_map = sync_trail_md_subs(
+                    sock, subscribed, state_path, watchlist_path
+                )
             last_ping = time.monotonic()
             while stop is None or not stop.is_set():
                 now = time.monotonic()
@@ -3956,13 +4276,19 @@ def run_ibkr_order_socket(
                     ibkr_tickle()
                     last_ping = now
                     with held:
-                        md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                        md_map = sync_trail_md_subs(
+                            sock, subscribed, state_path, watchlist_path
+                        )
                 raw = sock.recv()
                 if raw in (None, "", b""):
                     break
                 with held:
-                    handle_ibkr_ws_message(raw, state_path, md_map)
-                    md_map = sync_trail_md_subs(sock, subscribed, state_path)
+                    handle_ibkr_ws_message(
+                        raw, state_path, md_map, watchlist_path
+                    )
+                    md_map = sync_trail_md_subs(
+                        sock, subscribed, state_path, watchlist_path
+                    )
         except Exception as exc:
             print(f"IBKR websocket: {exc}", file=sys.stderr)
         finally:
@@ -4819,13 +5145,56 @@ def _run_auto_strategy(
     ticker: str, item: dict[str, Any], state_path: Path
 ) -> str:
     strategy = str(item.get("strategy") or "").strip().lower()
+    params = item.get("params") if isinstance(item.get("params"), dict) else {}
     if strategy == "trail":
-        qty = _share_qty(item.get("quantity"))
-        delta = _float_or_none(item.get("delta"))
+        qty = _share_qty(
+            item.get("quantity")
+            if item.get("quantity") is not None
+            else params.get("quantity")
+        )
+        delta = _float_or_none(
+            item.get("delta") if item.get("delta") is not None else params.get("delta")
+        )
         if qty is None or delta is None:
             return f"⚠️ Trail incompleto per {ticker}."
         return start_step_trail(ticker, qty, delta, state_path)
     return f"⚠️ Strategia {strategy or '?'} non ancora disponibile."
+
+
+def _auto_start_done(result: str) -> bool:
+    if not result.startswith("⚠️"):
+        return True
+    return "già un Trail attivo" in result
+
+
+def upsert_watchlist_entry(
+    watchlist_path: Path, ticker: str, entry: float
+) -> None:
+    """Salva solo ticker + entry. Non tocca una strategia già impostata."""
+    ticker = ticker.strip().upper()
+    items = load_watchlist(watchlist_path)
+    next_items: list[dict[str, Any]] = []
+    found = False
+    for item in items:
+        if str(item.get("ticker") or "").strip().upper() != ticker:
+            next_items.append(item)
+            continue
+        updated = dict(item)
+        updated["ticker"] = ticker
+        updated["entry"] = entry
+        if not updated.get("status"):
+            updated["status"] = "waiting"
+        next_items.append(updated)
+        found = True
+    if not found:
+        next_items.append(
+            {
+                "ticker": ticker,
+                "entry": entry,
+                "status": "waiting",
+            }
+        )
+    save_watchlist(watchlist_path, next_items)
 
 
 def upsert_strategy_trigger(
@@ -4878,9 +5247,21 @@ def fire_watchlist_triggers(
             continue
         if price > entry + 1e-9:
             continue
-        item["status"] = "fired"
-        changed = True
         result = _run_auto_strategy(ticker, item, state_path)
+        if not _auto_start_done(result):
+            prev = str(item.get("last_error") or "")
+            if prev != result:
+                item["last_error"] = result
+                changed = True
+                _send_order_message(
+                    state_path,
+                    f"🎯 {ticker} ha toccato entry {entry:g} @ {price:g}, "
+                    f"ma la strategia non è partita.\n{result}",
+                )
+            continue
+        item["status"] = "fired"
+        item.pop("last_error", None)
+        changed = True
         _send_order_message(
             state_path,
             f"🎯 {ticker} ha toccato entry {entry:g} @ {price:g}.\n{result}",
