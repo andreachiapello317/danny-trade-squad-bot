@@ -2008,32 +2008,76 @@ def apply_telegram_price(text: str, state_path: Path) -> bool:
     return True
 
 
+# Lista ufficiale IBKR (order reply suppression) + id già visti in sessione.
+# https://www.interactivebrokers.com/docs/web-api/trading/orders/order-reply-suppression
 _IBKR_SUPPRESS_MESSAGE_IDS = [
+    "o0",
     "o163",
     "o354",
     "o382",
     "o383",
     "o403",
     "o451",
+    "o2136",
+    "o2137",
+    "o2165",
+    "o10082",
+    "o10138",
     "o10151",
     "o10152",
     "o10153",
     "o10164",
     "o10223",
+    "o10288",
     "o10331",
+    "o10332",
+    "o10333",
+    "o10334",
+    "o10335",
     "o10336",
+    "p6",
     "p12",
 ]
+_LEARNED_SUPPRESS_IDS: set[str] = set()
+
+
+def _suppress_message_ids() -> list[str]:
+    learned = sorted(_LEARNED_SUPPRESS_IDS - set(_IBKR_SUPPRESS_MESSAGE_IDS))
+    return list(_IBKR_SUPPRESS_MESSAGE_IDS) + learned
+
+
+def _harvest_message_ids(result: dict[str, Any] | list[Any] | None) -> list[str]:
+    ids: list[str] = []
+    for item in _ibkr_payload_items(result):
+        raw = item.get("messageIds")
+        if not isinstance(raw, list):
+            continue
+        for mid in raw:
+            text = str(mid or "").strip()
+            if text:
+                ids.append(text)
+    return ids
 
 
 def ensure_reply_suppression() -> None:
+    """Sopprime le domande IBKR per la sessione: l'ordine viene accettato subito."""
     try:
         ibkr_post(
             "/v1/api/iserver/questions/suppress",
-            {"messageIds": list(_IBKR_SUPPRESS_MESSAGE_IDS)},
+            {"messageIds": _suppress_message_ids()},
         )
     except Exception as exc:
         print(f"IBKR suppress: {exc}", file=sys.stderr)
+
+
+def _learn_suppress_ids(result: dict[str, Any] | list[Any] | None) -> None:
+    ids = _harvest_message_ids(result)
+    known = set(_IBKR_SUPPRESS_MESSAGE_IDS) | _LEARNED_SUPPRESS_IDS
+    fresh = [mid for mid in ids if mid not in known]
+    if not fresh:
+        return
+    _LEARNED_SUPPRESS_IDS.update(fresh)
+    ensure_reply_suppression()
 
 
 def _ibkr_payload_items(
@@ -2108,6 +2152,7 @@ def _confirm_order_replies_detail(
 ) -> tuple[dict[str, Any] | None, str | None]:
     last = result
     for _ in range(8):
+        _learn_suppress_ids(last)
         items = _ibkr_payload_items(last)
         if not items:
             err = _ibkr_error_text(last)
@@ -2204,6 +2249,7 @@ def ibkr_place_order_ex(
             return f"⚠️ Impossibile determinare un prezzo per {ticker}.", None
     else:
         price = round_to_tick(price, tick)
+    ensure_reply_suppression()
     order: dict[str, Any] = {
         "conid": conid_int,
         "orderType": "LMT",
@@ -2254,6 +2300,7 @@ def ibkr_place_cash_order(ticker: str, side: str, cash_amount: float) -> str:
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    ensure_reply_suppression()
     corpo = {
         "conid": conid_int,
         "orderType": "MKT",
@@ -2382,6 +2429,7 @@ def ibkr_place_stop(
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR.", None
     last_err: str | None = "⚠️ Errore nell'invio dello stop."
+    ensure_reply_suppression()
     rules = ibkr_contract_rules(ticker)
     quantity = quantize_shares(
         quantity,
@@ -2436,6 +2484,7 @@ def ibkr_replace_stop(
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    ensure_reply_suppression()
     rules = ibkr_contract_rules(ticker)
     quantity = quantize_shares(
         quantity,
@@ -3152,7 +3201,7 @@ def _arm_preview_text(flow: dict[str, Any], watchlist_path: Path) -> str:
     delta = _float_or_none(flow.get("delta"))
     funds = ibkr_buying_power()
     available = funds.get("excess") or funds.get("buying_power")
-    lines = ["Confermi?"]
+    lines: list[str] = []
     total = 0.0
     sample_ticker = ""
     sample_qty = 0
@@ -3223,30 +3272,9 @@ def _arm_preview_text(flow: dict[str, Any], watchlist_path: Path) -> str:
         lines.append(f"Disponibili {_fmt_money(available)}")
         if total and total > available:
             lines.append(
-                f"⚠️ Stima {total:g}$ > disponibili {available:g}$. "
-                "Puoi confermare lo stesso."
+                f"⚠️ Stima {total:g}$ > disponibili {available:g}$."
             )
     return "\n".join(lines)
-
-
-def _offer_strategy_confirm(
-    flow: dict[str, Any], state_path: Path, watchlist_path: Path
-) -> None:
-    kind = str(flow.get("type") or "")
-    ticker = str(flow.get("ticker") or "").strip().upper()
-    if kind == "TRAIL" and ticker:
-        blocked = ibkr_trading_block(ticker)
-        if blocked:
-            _save_pending_flow(state_path, None)
-            _send_flow_message(state_path, blocked)
-            return
-    flow["step"] = "confirm_arm"
-    _save_pending_flow(state_path, flow)
-    _send_flow_message(
-        state_path,
-        _arm_preview_text(flow, watchlist_path),
-        [("Conferma", "confirm:yes"), ("Annulla", "confirm:no")],
-    )
 
 
 def _order_tickers(limit_only: bool = False) -> list[str] | None:
@@ -3398,12 +3426,14 @@ def _finish_armed_strategy(
                 f"\n⚠️ C'è già un Trail attivo su {ticker}: "
                 "quando l'entry scatta non ne parte un secondo."
             )
+        notes = _arm_preview_text(flow, watchlist_path)
+        extra_notes = f"\n{notes}" if notes else ""
         _send_flow_message(
             state_path,
             f"✅ {ticker} in watchlist: entry {entry:g} · "
             f"{label} {qty} az · Δ {delta:g}%. "
             "Parte da solo quando il prezzo tocca l'entry."
-            f"{extra}",
+            f"{extra}{extra_notes}",
         )
         return
     if qty is None or delta is None:
@@ -3449,7 +3479,7 @@ def _collect_strategy_param_text(
     if nxt is not None:
         _prompt_strategy_param(flow, nxt, state_path)
         return True
-    _offer_strategy_confirm(flow, state_path, watchlist_path)
+    _finish_armed_strategy(flow, state_path, watchlist_path)
     return True
 
 
@@ -3806,7 +3836,7 @@ def process_pending_flow_text(
         flow["dollars"] = value
         nxt = _next_strategy_param(str(flow.get("strategy") or "trail"), "quantity")
         if nxt is None:
-            _offer_strategy_confirm(flow, state_path, wpath)
+            _finish_armed_strategy(flow, state_path, wpath)
             return True
         _prompt_strategy_param(flow, nxt, state_path)
         return True
@@ -3912,21 +3942,6 @@ def process_pending_flow_text(
             return True
         _send_flow_message(
             state_path, "Conferma con Sì o No, oppure usa i bottoni."
-        )
-        return True
-    if step == "confirm_arm" and kind in {"SETBUY", "MANAGEBUY", "TRAIL"}:
-        low = stripped.lower()
-        if low in {"si", "sì", "yes", "s"}:
-            _finish_armed_strategy(flow, state_path, wpath)
-            return True
-        if low in {"no", "n"}:
-            _save_pending_flow(state_path, None)
-            _send_flow_message(state_path, "Annullato.")
-            return True
-        _send_flow_message(
-            state_path,
-            "Conferma con Sì o No, oppure usa i bottoni.",
-            [("Conferma", "confirm:yes"), ("Annulla", "confirm:no")],
         )
         return True
     return False
@@ -4117,20 +4132,6 @@ def process_callback_query(
         elif choice == "no":
             _save_pending_flow(state_path, None)
             _show_named_menu(chat_id, message_id, state_path, "watchlist")
-        return None
-    if data.startswith("confirm:") and str(flow.get("type") or "") in {
-        "SETBUY",
-        "MANAGEBUY",
-        "TRAIL",
-    }:
-        if step != "confirm_arm":
-            return None
-        choice = data.split(":", 1)[1].strip().lower()
-        if choice == "yes":
-            _finish_armed_strategy(flow, state_path, wpath)
-        elif choice == "no":
-            _save_pending_flow(state_path, None)
-            _send_flow_message(state_path, "Annullato.")
         return None
     if data.startswith("sellticker:"):
         if str(flow.get("type") or "") != "SELL":

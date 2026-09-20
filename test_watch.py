@@ -636,6 +636,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(watch, "ibkr_get_price", return_value=100.0),
+            patch.object(watch, "ensure_reply_suppression"),
             patch.object(
                 watch, "ibkr_post", return_value=[{"order_id": 77}]
             ) as post,
@@ -693,6 +694,7 @@ class TelegramExtractTests(unittest.TestCase):
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
             patch.object(watch, "ibkr_get_price", return_value=20.0),
+            patch.object(watch, "ensure_reply_suppression"),
             patch.object(
                 watch,
                 "ibkr_post",
@@ -717,31 +719,41 @@ class TelegramExtractTests(unittest.TestCase):
         post.assert_called_once_with(
             "/v1/api/iserver/questions/suppress",
             {
-                "messageIds": [
-                    "o163",
-                    "o354",
-                    "o382",
-                    "o383",
-                    "o403",
-                    "o451",
-                    "o10151",
-                    "o10152",
-                    "o10153",
-                    "o10164",
-                    "o10223",
-                    "o10331",
-                    "o10336",
-                    "p12",
-                ]
+                "messageIds": watch._suppress_message_ids(),
             },
         )
+        self.assertIn("o163", watch._suppress_message_ids())
+        self.assertIn("o0", watch._suppress_message_ids())
+        self.assertIn("p6", watch._suppress_message_ids())
         with patch.object(watch, "ibkr_post", side_effect=RuntimeError("down")):
             watch.ensure_reply_suppression()
+
+    def test_place_order_suppresses_replies_before_submit(self) -> None:
+        with (
+            patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
+            patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ibkr_get_price", return_value=10.0),
+            patch.object(watch, "ensure_reply_suppression") as suppress,
+            patch.object(watch, "ibkr_post", return_value=[{"order_id": 1}]),
+        ):
+            watch.ibkr_place_order("AMD", 1, "BUY", None)
+        suppress.assert_called()
+
+    def test_learn_unknown_message_id_resuppresses(self) -> None:
+        watch._LEARNED_SUPPRESS_IDS.clear()
+        with patch.object(watch, "ensure_reply_suppression") as suppress:
+            watch._learn_suppress_ids([{"id": "q", "messageIds": ["o163"]}])
+            suppress.assert_not_called()
+            watch._learn_suppress_ids([{"id": "q", "messageIds": ["o99999"]}])
+            suppress.assert_called_once()
+        self.assertIn("o99999", watch._LEARNED_SUPPRESS_IDS)
+        watch._LEARNED_SUPPRESS_IDS.clear()
 
     def test_ibkr_place_cash_order_uses_cashqty(self) -> None:
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="4391"),
             patch.object(watch, "ibkr_get_account_id", return_value="U123"),
+            patch.object(watch, "ensure_reply_suppression"),
             patch.object(
                 watch,
                 "ibkr_post",
@@ -831,6 +843,7 @@ class TelegramExtractTests(unittest.TestCase):
         with (
             patch.object(watch, "ibkr_lookup_conid", return_value="1"),
             patch.object(watch, "ibkr_get_account_id", return_value="U1"),
+            patch.object(watch, "ensure_reply_suppression"),
             patch.object(
                 watch,
                 "ibkr_post",
@@ -984,6 +997,7 @@ class TelegramExtractTests(unittest.TestCase):
                 patch.object(watch, "ibkr_get_account_id", return_value="U123"),
                 patch.object(watch, "ibkr_get_price", return_value=100.0),
                 patch.object(watch, "ibkr_get", return_value=None),
+                patch.object(watch, "ensure_reply_suppression"),
                 patch.object(
                     watch, "ibkr_post", return_value=[{"order_id": 99}]
                 ) as post,
@@ -3626,23 +3640,9 @@ class UploadManageBuyTests(unittest.TestCase):
             ):
                 watch.process_pending_flow_text("2", spath, wpath)
             body = sent_text(send)
-            self.assertIn("Confermi?", body)
             self.assertIn("AMD: 3 az", body)
             self.assertIn("NVDA: 4 az", body)
-            self.assertEqual(
-                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
-            )
-            with (
-                patch.object(watch, "answer_callback_query"),
-                patch.object(watch, "ibkr_get_price", side_effect=fake_price),
-                patch.object(watch, "ibkr_get_book", return_value={}),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                watch.process_callback_query(
-                    "confirm:yes", 1, "p5", spath, 70, wpath
-                )
-            body = sent_text(send)
-            self.assertIn("AMD: 3 az", body)
+            self.assertIsNone(watch.load_state(spath)["pending_flow"])
             items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
             self.assertEqual(items["AMD"]["strategy"], "trail")
             self.assertEqual(items["AMD"]["quantity"], 3)
@@ -3816,7 +3816,6 @@ class IbkrGuardrailTests(unittest.TestCase):
                 ),
             ):
                 text = watch._arm_preview_text(flow, wpath)
-        self.assertIn("Confermi?", text)
         self.assertIn("Disponibili 200$", text)
         self.assertIn(">", text)
 
@@ -3937,26 +3936,12 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(flow["step"], "delta")
             self.assertEqual(flow["quantity"], 3)
             with (
-                patch.object(watch, "ibkr_trading_block", return_value=None),
-                patch.object(watch, "ibkr_get_book", return_value={"last": 100.0}),
-                patch.object(watch, "ibkr_buying_power", return_value={}),
-                patch.object(watch, "ibkr_daily_bars", return_value=[]),
-                patch.object(watch, "send_telegram", return_value=9),
-            ):
-                self.assertTrue(watch.process_pending_flow_text("2", spath, wpath))
-            self.assertEqual(
-                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
-            )
-            with (
                 patch.object(
                     watch, "start_step_trail", return_value="✅ ok"
                 ) as start,
-                patch.object(watch, "answer_callback_query"),
                 patch.object(watch, "send_telegram", return_value=9),
             ):
-                watch.process_callback_query(
-                    "confirm:yes", 1, "ct", spath, 70, wpath
-                )
+                self.assertTrue(watch.process_pending_flow_text("2", spath, wpath))
             start.assert_called_once_with("AMD", 3, 2.0, spath)
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
@@ -5253,17 +5238,6 @@ class BuySellFlowTests(unittest.TestCase):
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.process_pending_flow_text("2", spath, wpath)
-            self.assertIn("Confermi?", sent_text(send))
-            self.assertEqual(
-                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
-            )
-            with (
-                patch.object(watch, "answer_callback_query"),
-                patch.object(watch, "send_telegram") as send,
-            ):
-                watch.process_callback_query(
-                    "confirm:yes", 1, "cby", spath, 70, wpath
-                )
             self.assertIn("✅ AMD in watchlist", sent_text(send))
             self.assertIn("entry 120", sent_text(send))
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
