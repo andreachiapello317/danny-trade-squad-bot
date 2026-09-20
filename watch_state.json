@@ -112,10 +112,10 @@
     "844840918": "Cancelled",
     "1169398424": "Filled",
     "1169398497": "Filled",
-    "1395799702": "PendingCancel",
-    "1395799703": "PendingCancel",
+    "1395799702": "Cancelled",
+    "1395799703": "Cancelled",
     "1395799722": "Cancelled",
-    "1395799723": "PendingCancel"
+    "1395799723": "Cancelled"
   },
   "pending_flow": null,
   "positions_message_id": 1806,
