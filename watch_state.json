@@ -133,8 +133,10 @@
     "2026091944801319"
   ],
   "menu_message_id": 1806,
-  "menu_page": "main",
-  "menu_nav_stack": [],
+  "menu_page": "watchlist",
+  "menu_nav_stack": [
+    "main"
+  ],
   "bot_message_id": 1806,
   "flow_message_id": 1806,
   "quote_fields": [
