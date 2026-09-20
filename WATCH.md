@@ -4,14 +4,13 @@ Non è un sistema di alert.
 
 ## Cosa fa
 
-Dal menu Telegram → Watchlist → **Set buy**:
+Dal menu Telegram → Watchlist:
 
-1. Ticker
-2. Prezzo Set buy **sotto** lo spot IBKR
-3. Strategia di trading automatico (oggi solo Trail)
-4. Se scegli Trail: numero di azioni, poi delta in %
+- **Set buy**: un ticker, entry sotto spot, strategia, azioni, delta.
+- **Upload buy**: lista `TICKER PREZZO` (anche in massa). Solo watchlist, niente strategia.
+- **Gestisci buy**: selezioni i ticker, scegli la strategia (oggi Trail), importo in **$ per titolo**, poi delta %. Le azioni sono `ceil($ / spot)`, minimo 1.
 
-Quando il prezzo tocca l'entry, parte la strategia scelta. Aggiungere un'altra strategia automatica significa solo un bottone in più e i suoi parametri.
+Quando il prezzo tocca l'entry, parte la strategia scelta.
 
 ## Cosa non fa più
 
