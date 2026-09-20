@@ -12,6 +12,8 @@ Dal menu Telegram → Watchlist:
 
 Quando il prezzo tocca l'entry, parte la strategia scelta.
 
+Gli ordini sono automatici: niente conferma Telegram. All’avvio e prima di ogni ordine il bot sopprime le reply IBKR (`/iserver/questions/suppress`), così IBKR accetta subito il ticket. Il Trail **non compra** se il titolo è in halt o il mercato è chiuso. LMT auto usa ask/bid. Stop e limiti sul minTick. Lista: spot / low / close. Home: PnL del giorno e liquidità.
+
 ## Cosa non fa più
 
 - Non importa i ticket `$TICKER` del canale Trader

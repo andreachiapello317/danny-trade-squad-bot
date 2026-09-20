@@ -66,6 +66,7 @@ def in_scheduled_window() -> bool:
 def price_loop() -> None:
     while True:
         try:
+            ensure_reply_suppression()
             with STATE_LOCK:
                 items = load_watchlist(WATCHLIST_PATH)
                 fired = load_fired(load_state(STATE_PATH))
@@ -82,7 +83,6 @@ def price_loop() -> None:
                 check_order_fills(STATE_PATH)
                 check_step_trails(STATE_PATH)
                 check_fyi_notifications(STATE_PATH)
-                ensure_reply_suppression()
                 expire_order_messages(STATE_PATH)
                 maybe_refresh_home(STATE_PATH)
                 commit_state_to_git()
@@ -210,11 +210,13 @@ def webhook() -> tuple[str, int]:
 
 
 if os.environ.get("SERVER_SOFTWARE", "").lower().startswith("gunicorn"):
+    ensure_reply_suppression()
     start_price_loop()
     start_ibkr_order_socket()
 
 
 if __name__ == "__main__":
+    ensure_reply_suppression()
     start_price_loop()
     start_ibkr_order_socket()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
