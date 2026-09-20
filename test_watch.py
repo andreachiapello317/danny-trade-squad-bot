@@ -222,6 +222,13 @@ class FmtTicketLineTests(unittest.TestCase):
             watch.fmt_ticket_line({"ticker": "AMD", "entry": 120, "status": "waiting"}),
             "AMD entry 120 · senza strategia",
         )
+        self.assertEqual(
+            watch.fmt_ticket_line(
+                {"ticker": "AMD", "entry": 120, "status": "waiting"},
+                {"last": 148.2, "low": 146.0, "close": 149.0},
+            ),
+            "AMD entry 120 · spot 148.2 · low 146 · close 149 · senza strategia",
+        )
 
 
 class TelegramExtractTests(unittest.TestCase):
@@ -3613,12 +3620,29 @@ class UploadManageBuyTests(unittest.TestCase):
 
             with (
                 patch.object(watch, "ibkr_get_price", side_effect=fake_price),
+                patch.object(watch, "ibkr_get_book", return_value={}),
+                patch.object(watch, "ibkr_buying_power", return_value={}),
                 patch.object(watch, "send_telegram") as send,
             ):
                 watch.process_pending_flow_text("2", spath, wpath)
             body = sent_text(send)
+            self.assertIn("Confermi?", body)
             self.assertIn("AMD: 3 az", body)
             self.assertIn("NVDA: 4 az", body)
+            self.assertEqual(
+                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "ibkr_get_price", side_effect=fake_price),
+                patch.object(watch, "ibkr_get_book", return_value={}),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_callback_query(
+                    "confirm:yes", 1, "p5", spath, 70, wpath
+                )
+            body = sent_text(send)
+            self.assertIn("AMD: 3 az", body)
             items = {it["ticker"]: it for it in watch.load_watchlist(wpath)}
             self.assertEqual(items["AMD"]["strategy"], "trail")
             self.assertEqual(items["AMD"]["quantity"], 3)
@@ -3689,6 +3713,112 @@ class UploadManageBuyTests(unittest.TestCase):
             self.assertEqual(
                 watch.load_state(spath)["pending_flow"]["ticker"], "BRK.B"
             )
+
+
+class IbkrGuardrailTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        watch._RULES_CACHE.clear()
+
+    def test_round_to_tick_and_shares(self) -> None:
+        self.assertEqual(watch.round_to_tick(1.234, 0.01), 1.23)
+        self.assertEqual(watch.round_to_tick(1.235, 0.01), 1.24)
+        self.assertEqual(watch.round_to_tick(10.003, 0.005), 10.005)
+        self.assertEqual(watch.quantize_shares(3, 1, 1), 3)
+        self.assertEqual(watch.quantize_shares(3, 1, 100), 100)
+
+    def test_parse_trading_hours(self) -> None:
+        friday = datetime(2026, 9, 18, 12, 0, tzinfo=watch.NY_TZ)
+        sunday = datetime(2026, 9, 20, 12, 0, tzinfo=watch.NY_TZ)
+        self.assertTrue(
+            watch._parse_trading_hours("20260918:0400-20260918:2000", friday)
+        )
+        self.assertFalse(
+            watch._parse_trading_hours(
+                "20260919:0930-1600;20260920:CLOSED", sunday
+            )
+        )
+        self.assertTrue(watch._ibkr_last_halted("H148.20"))
+        self.assertTrue(watch._ibkr_last_halted("H 148.20"))
+        self.assertFalse(watch._ibkr_last_halted("148.20"))
+
+    def test_auto_limit_uses_ask_and_bid(self) -> None:
+        with (
+            patch.object(
+                watch,
+                "ibkr_get_book",
+                return_value={"ask": 10.12, "bid": 10.0, "last": 10.05},
+            ),
+            patch.object(
+                watch, "ibkr_contract_rules", return_value={"min_tick": 0.01}
+            ),
+        ):
+            self.assertEqual(watch.ibkr_auto_limit_price("AMD", "BUY"), 10.12)
+            self.assertEqual(watch.ibkr_auto_limit_price("AMD", "SELL"), 10.0)
+
+    def test_trading_block_halt_and_closed(self) -> None:
+        with patch.object(watch, "ibkr_get_book", return_value={"halted": True}):
+            self.assertIn("halt", watch.ibkr_trading_block("AMD") or "")
+        with (
+            patch.object(watch, "ibkr_get_book", return_value={}),
+            patch.object(
+                watch,
+                "ibkr_contract_rules",
+                return_value={"session_open": False},
+            ),
+        ):
+            self.assertIn("chiuso", watch.ibkr_trading_block("AMD") or "")
+        with (
+            patch.object(watch, "ibkr_get_book", return_value={}),
+            patch.object(
+                watch,
+                "ibkr_contract_rules",
+                return_value={"session_open": True},
+            ),
+        ):
+            self.assertIsNone(watch.ibkr_trading_block("AMD"))
+
+    def test_start_step_trail_respects_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spath = Path(tmp) / "watch_state.json"
+            with patch.object(
+                watch,
+                "ibkr_trading_block",
+                return_value="⚠️ AMD è in halt o non negoziabile. Non piazzo l'ordine.",
+            ):
+                msg = watch.start_step_trail("AMD", 2, 2, spath)
+            self.assertIn("halt", msg)
+            self.assertEqual(watch.load_state(spath).get("auto_trails") or [], [])
+
+    def test_buying_power_warns_when_over(self) -> None:
+        flow = {
+            "type": "SETBUY",
+            "ticker": "AMD",
+            "entry": 120.0,
+            "strategy": "trail",
+            "quantity": 10,
+            "delta": 2.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            wpath = Path(tmp) / "watchlist.json"
+            with (
+                patch.object(
+                    watch, "ibkr_get_book", return_value={"last": 148.0, "ask": 148.2}
+                ),
+                patch.object(
+                    watch, "ibkr_buying_power", return_value={"excess": 200.0}
+                ),
+                patch.object(watch, "ibkr_daily_bars", return_value=[]),
+                patch.object(watch, "ibkr_whatif_order", return_value=None),
+                patch.object(
+                    watch,
+                    "ibkr_contract_rules",
+                    return_value={"session_open": True, "min_tick": 0.01},
+                ),
+            ):
+                text = watch._arm_preview_text(flow, wpath)
+        self.assertIn("Confermi?", text)
+        self.assertIn("Disponibili 200$", text)
+        self.assertIn(">", text)
 
 
 class BuySellFlowTests(unittest.TestCase):
@@ -3807,12 +3937,26 @@ class BuySellFlowTests(unittest.TestCase):
             self.assertEqual(flow["step"], "delta")
             self.assertEqual(flow["quantity"], 3)
             with (
-                patch.object(
-                    watch, "start_step_trail", return_value="✅ ok"
-                ) as start,
+                patch.object(watch, "ibkr_trading_block", return_value=None),
+                patch.object(watch, "ibkr_get_book", return_value={"last": 100.0}),
+                patch.object(watch, "ibkr_buying_power", return_value={}),
+                patch.object(watch, "ibkr_daily_bars", return_value=[]),
                 patch.object(watch, "send_telegram", return_value=9),
             ):
                 self.assertTrue(watch.process_pending_flow_text("2", spath, wpath))
+            self.assertEqual(
+                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
+            )
+            with (
+                patch.object(
+                    watch, "start_step_trail", return_value="✅ ok"
+                ) as start,
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram", return_value=9),
+            ):
+                watch.process_callback_query(
+                    "confirm:yes", 1, "ct", spath, 70, wpath
+                )
             start.assert_called_once_with("AMD", 3, 2.0, spath)
             self.assertIsNone(watch.load_state(spath)["pending_flow"])
 
@@ -4922,6 +5066,19 @@ class BuySellFlowTests(unittest.TestCase):
         self.assertIn("Conto: U123", body)
         self.assertIn("Contanti: 1000.5 USD", body)
         self.assertIn("Valore netto: 5000.25 USD", body)
+        with_pnl = watch.format_home_text(
+            {
+                "account_id": "U123",
+                "cashbalance": 1000.5,
+                "netliquidationvalue": 5000.25,
+                "currency": "USD",
+                "daily_pnl": -120.0,
+                "excessliquidity": 8200.0,
+            },
+            None,
+        )
+        self.assertIn("Oggi: -120 USD", with_pnl)
+        self.assertIn("Disponibili: 8200 USD", with_pnl)
         self.assertIn("Posizioni:", body)
         self.assertIn("AMD: 10 @ 100.50", body)
         self.assertNotIn("CASH", body)
@@ -5089,8 +5246,24 @@ class BuySellFlowTests(unittest.TestCase):
             with patch.object(watch, "send_telegram") as send:
                 watch.process_pending_flow_text("5", spath, wpath)
             self.assertIn("delta in %", sent_text(send).lower())
-            with patch.object(watch, "send_telegram") as send:
+            with (
+                patch.object(watch, "ibkr_get_book", return_value={"last": 148.2}),
+                patch.object(watch, "ibkr_buying_power", return_value={"excess": 8000}),
+                patch.object(watch, "ibkr_daily_bars", return_value=[]),
+                patch.object(watch, "send_telegram") as send,
+            ):
                 watch.process_pending_flow_text("2", spath, wpath)
+            self.assertIn("Confermi?", sent_text(send))
+            self.assertEqual(
+                watch.load_state(spath)["pending_flow"]["step"], "confirm_arm"
+            )
+            with (
+                patch.object(watch, "answer_callback_query"),
+                patch.object(watch, "send_telegram") as send,
+            ):
+                watch.process_callback_query(
+                    "confirm:yes", 1, "cby", spath, 70, wpath
+                )
             self.assertIn("✅ AMD in watchlist", sent_text(send))
             self.assertIn("entry 120", sent_text(send))
             self.assertIsNone(watch.load_state(spath)["pending_flow"])

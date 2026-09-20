@@ -44,7 +44,12 @@ DEFAULT_CHAT_ID = "-1004312726798"
 IBKR_BASE_URL = "https://danny-ibeam:5000"
 _CONID_CACHE: dict[str, str] = {}
 _ACCOUNT_ID_CACHE: str | None = None
+_RULES_CACHE: dict[str, dict[str, Any]] = {}
 _IBKR_PRICE_RE = re.compile(r"-?\d+(?:\.\d+)?")
+NY_TZ = ZoneInfo("America/New_York")
+QUOTE_CACHE_KEY = "quote_cache"
+ENTRY_ATR_WARN = 3.0
+VOLUME_DEAD_RATIO = 0.4
 SINGLE_TOUCH_PCT = 0.0015
 WATCH_TZ = ZoneInfo("Europe/Rome")
 WATCH_HOUR_START = 15
@@ -572,10 +577,16 @@ def merge_ticket(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str
 
 def refresh_watchlist_summary(watchlist_path: Path, state_path: Path) -> None:
     items = load_watchlist(watchlist_path)
+    quotes = load_quote_cache(state_path)
     if not items:
         body = "Watchlist vuota."
     else:
-        body = "\n".join(fmt_ticket_line(it) for it in items)
+        body = "\n".join(
+            fmt_ticket_line(
+                it, quotes.get(str(it.get("ticker") or "").strip().upper())
+            )
+            for it in items
+        )
     _send_replacing_message(state_path, "summary_message_id", body)
 
 
@@ -598,7 +609,13 @@ def send_watchlist_summary(
     if not items:
         lines.append("Watchlist vuota.")
     else:
-        lines.extend(fmt_ticket_line(it) for it in items)
+        quotes = load_quote_cache(state_path)
+        lines.extend(
+            fmt_ticket_line(
+                it, quotes.get(str(it.get("ticker") or "").strip().upper())
+            )
+            for it in items
+        )
     _send_replacing_message(state_path, "summary_message_id", "\n".join(lines))
 
 
@@ -619,8 +636,29 @@ def fmt_ingresso(item: dict[str, Any]) -> str:
     return f"{fmt_level(lo)}-{fmt_level(hi)}"
 
 
-def fmt_ticket_line(item: dict[str, Any]) -> str:
+def _fmt_market_tail(quote: dict[str, Any] | None) -> str:
+    if not quote:
+        return ""
+    parts: list[str] = []
+    last = _float_or_none(quote.get("last"))
+    low = _float_or_none(quote.get("low"))
+    close = _float_or_none(quote.get("close"))
+    if last is not None:
+        parts.append(f"spot {fmt_level(last)}")
+    if low is not None:
+        parts.append(f"low {fmt_level(low)}")
+    if close is not None:
+        parts.append(f"close {fmt_level(close)}")
+    if not parts:
+        return ""
+    return " · " + " · ".join(parts)
+
+
+def fmt_ticket_line(
+    item: dict[str, Any], quote: dict[str, Any] | None = None
+) -> str:
     ticker = str(item.get("ticker") or "?").upper()
+    market = _fmt_market_tail(quote)
     strategy = str(item.get("strategy") or "").strip().lower()
     if strategy:
         entry = item.get("entry")
@@ -629,13 +667,13 @@ def fmt_ticket_line(item: dict[str, Any]) -> str:
         status = str(item.get("status") or "waiting")
         label = "in attesa" if status == "waiting" else "scattato"
         return (
-            f"{ticker} entry {fmt_level(_float_or_none(entry))} · "
+            f"{ticker} entry {fmt_level(_float_or_none(entry))}{market} · "
             f"{strategy.title()} {qty} az · Δ {fmt_level(_float_or_none(delta))}% · "
             f"{label}"
         )
     entry = _float_or_none(item.get("entry"))
     if entry is not None:
-        return f"{ticker} entry {fmt_level(entry)} · senza strategia"
+        return f"{ticker} entry {fmt_level(entry)}{market} · senza strategia"
     motivo = (item.get("motivo") or "").strip()
     extra = f" {motivo}" if motivo else ""
     return f"{ticker} (senza strategia){extra}"
@@ -1087,11 +1125,14 @@ def ibkr_account_snapshot() -> dict[str, Any] | None:
             cashbalance = raw.get("cashbalance")
             netliquidationvalue = raw.get("netliquidationvalue")
             currency = str(raw.get("currency") or "")
+    funds = ibkr_buying_power()
     return {
         "account_id": account_id,
         "cashbalance": cashbalance,
         "netliquidationvalue": netliquidationvalue,
         "currency": currency,
+        "daily_pnl": funds.get("daily_pnl"),
+        "excessliquidity": funds.get("excess"),
     }
 
 
@@ -1104,7 +1145,18 @@ def format_account_lines(snapshot: dict[str, Any] | None) -> str:
     nlv = snapshot.get("netliquidationvalue")
     cash_s = "n/d" if cash is None else f"{cash} {currency}".strip()
     nlv_s = "n/d" if nlv is None else f"{nlv} {currency}".strip()
-    return f"Conto: {account_id}\nContanti: {cash_s}\nValore netto: {nlv_s}"
+    lines = [
+        f"Conto: {account_id}",
+        f"Contanti: {cash_s}",
+        f"Valore netto: {nlv_s}",
+    ]
+    daily = _float_or_none(snapshot.get("daily_pnl"))
+    if daily is not None:
+        lines.append(f"Oggi: {daily:+g} {currency}".strip())
+    excess = _float_or_none(snapshot.get("excessliquidity"))
+    if excess is not None:
+        lines.append(f"Disponibili: {excess:g} {currency}".strip())
+    return "\n".join(lines)
 
 
 def _open_positions(positions: list[Any] | None) -> list[dict[str, Any]]:
@@ -1218,7 +1270,9 @@ def ibkr_get_price(ticker: str) -> float | None:
     if not conid:
         return None
     path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields=31"
-    ibkr_get(path)
+    first = ibkr_get(path)
+    if first is None:
+        return None
     time.sleep(1)
     snap = ibkr_get(path)
     if not isinstance(snap, list) or not snap:
@@ -1248,13 +1302,450 @@ def ibkr_get_snapshot(
     if not fields:
         fields = "31"
     path = f"/v1/api/iserver/marketdata/snapshot?conids={conid}&fields={fields}"
-    ibkr_get(path)
+    first = ibkr_get(path)
+    if first is None:
+        return None
     time.sleep(1)
     snap = ibkr_get(path)
     if not isinstance(snap, list) or not snap:
         return None
     first = snap[0]
     return first if isinstance(first, dict) else None
+
+
+SNAPSHOT_QUOTE_FIELDS = (
+    "31",
+    "70",
+    "71",
+    "84",
+    "86",
+    "87",
+    "7184",
+    "7282",
+    "7296",
+)
+
+
+def round_to_tick(price: float, min_tick: float | None) -> float:
+    tick = min_tick if min_tick and min_tick > 0 else 0.01
+    steps = round(price / tick)
+    value = steps * tick
+    decimals = 0
+    t = tick
+    while abs(t - round(t)) > 1e-12 and decimals < 8:
+        t *= 10
+        decimals += 1
+    return round(value, decimals)
+
+
+def quantize_shares(quantity: int, min_size: int = 1, increment: int = 1) -> int:
+    inc = max(1, int(increment or 1))
+    mn = max(1, int(min_size or 1))
+    return max(mn, int(math.ceil(quantity / inc) * inc))
+
+
+def _ibkr_field_number(row: dict[str, Any], field_id: str) -> float | None:
+    raw = row.get(field_id)
+    if raw is None or raw == "":
+        return None
+    match = _IBKR_PRICE_RE.search(str(raw).replace(",", "."))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _ibkr_last_halted(raw: Any) -> bool:
+    text = str(raw or "").strip().upper()
+    if not text.startswith("H"):
+        return False
+    return len(text) == 1 or text[1] in " 0123456789."
+
+
+def _summary_amount(raw: Any, *keys: str) -> float | None:
+    if not isinstance(raw, dict):
+        return None
+    for key in keys:
+        val = raw.get(key)
+        if isinstance(val, dict):
+            val = val.get("amount", val.get("value"))
+        num = _float_or_none(val)
+        if num is not None:
+            return num
+    return None
+
+
+def _extract_named_number(raw: Any, key: str) -> float | None:
+    if isinstance(raw, dict):
+        if key in raw:
+            num = _float_or_none(raw.get(key))
+            if num is not None:
+                return num
+        for value in raw.values():
+            found = _extract_named_number(value, key)
+            if found is not None:
+                return found
+    elif isinstance(raw, list):
+        for item in raw:
+            found = _extract_named_number(item, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _parse_trading_hours(raw: str, now: datetime | None = None) -> bool | None:
+    """True se la sessione (anche extended) è aperta adesso. None se non si capisce."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    local = now.astimezone(NY_TZ) if now else datetime.now(NY_TZ)
+    today = local.strftime("%Y%m%d")
+    chunks = [part.strip() for part in text.replace(",", ";").split(";") if part.strip()]
+    for chunk in chunks:
+        if "CLOSED" in chunk.upper() and chunk.startswith(today):
+            return False
+        match = re.match(
+            rf"{today}:(\d{{4}})(?:-(?:{today}:)?(\d{{4}}))?",
+            chunk,
+        )
+        if not match:
+            continue
+        start = match.group(1)
+        end = match.group(2) or start
+        try:
+            begin = local.replace(
+                hour=int(start[:2]),
+                minute=int(start[2:]),
+                second=0,
+                microsecond=0,
+            )
+            finish = local.replace(
+                hour=int(end[:2]),
+                minute=int(end[2:]),
+                second=0,
+                microsecond=0,
+            )
+        except ValueError:
+            continue
+        if finish < begin:
+            finish += timedelta(days=1)
+        return begin <= local <= finish
+    if any("CLOSED" in chunk.upper() for chunk in chunks):
+        weekday = local.weekday()
+        if weekday >= 5:
+            return False
+    return None
+
+
+def ibkr_contract_rules(ticker: str) -> dict[str, Any]:
+    ticker = ticker.strip().upper()
+    cached = _RULES_CACHE.get(ticker)
+    if cached:
+        return cached
+    rules: dict[str, Any] = {
+        "min_tick": 0.01,
+        "min_size": 1,
+        "size_increment": 1,
+        "session_open": None,
+        "trading_hours": "",
+    }
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        _RULES_CACHE[ticker] = rules
+        return rules
+    data = ibkr_get(f"/v1/api/iserver/contract/{conid}/info-and-rules?isBuy=true")
+    if isinstance(data, dict):
+        nested = data.get("rules") if isinstance(data.get("rules"), dict) else {}
+        tick = _float_or_none(data.get("minTick"))
+        if tick is None:
+            tick = _float_or_none(nested.get("increment"))
+        if tick is not None and tick > 0:
+            rules["min_tick"] = tick
+        size = _share_qty(nested.get("minSize") if nested.get("minSize") is not None else data.get("minSize"))
+        if size:
+            rules["min_size"] = size
+        incr = _share_qty(
+            nested.get("sizeIncrement")
+            if nested.get("sizeIncrement") is not None
+            else data.get("sizeIncrement")
+        )
+        if incr:
+            rules["size_increment"] = incr
+        hours = str(data.get("tradingHours") or nested.get("tradingHours") or "")
+        rules["trading_hours"] = hours
+        rules["session_open"] = _parse_trading_hours(hours)
+    _RULES_CACHE[ticker] = rules
+    return rules
+
+
+def ibkr_get_book(ticker: str) -> dict[str, Any]:
+    row = ibkr_get_snapshot(ticker, list(SNAPSHOT_QUOTE_FIELDS))
+    if not isinstance(row, dict):
+        return {}
+    last_raw = row.get("31")
+    can_raw = str(row.get("7184") or "").strip()
+    can_trade = None
+    if can_raw in {"0", "1"}:
+        can_trade = can_raw == "1"
+    return {
+        "last": _ibkr_field_number(row, "31"),
+        "high": _ibkr_field_number(row, "70"),
+        "low": _ibkr_field_number(row, "71"),
+        "bid": _ibkr_field_number(row, "84"),
+        "ask": _ibkr_field_number(row, "86"),
+        "volume": _ibkr_field_number(row, "87"),
+        "avg_volume": _ibkr_field_number(row, "7282"),
+        "close": _ibkr_field_number(row, "7296"),
+        "halted": _ibkr_last_halted(last_raw) or can_trade is False,
+        "can_trade": can_trade,
+    }
+
+
+def ibkr_snapshot_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
+    wanted = list(dict.fromkeys(t.strip().upper() for t in tickers if t))
+    out: dict[str, dict[str, Any]] = {}
+    conids: list[str] = []
+    conid_to_ticker: dict[str, str] = {}
+    for ticker in wanted:
+        conid = ibkr_lookup_conid(ticker)
+        if not conid:
+            continue
+        conids.append(str(conid))
+        conid_to_ticker[str(conid)] = ticker
+    if not conids:
+        return out
+    fields = ",".join(SNAPSHOT_QUOTE_FIELDS)
+    path = f"/v1/api/iserver/marketdata/snapshot?conids={','.join(conids)}&fields={fields}"
+    first = ibkr_get(path)
+    if first is None:
+        return out
+    time.sleep(1)
+    snap = ibkr_get(path)
+    rows = snap if isinstance(snap, list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        conid = str(row.get("conid") or row.get("c") or "")
+        ticker = conid_to_ticker.get(conid)
+        if not ticker:
+            continue
+        last_raw = row.get("31")
+        can_raw = str(row.get("7184") or "").strip()
+        can_trade = can_raw == "1" if can_raw in {"0", "1"} else None
+        out[ticker] = {
+            "last": _ibkr_field_number(row, "31"),
+            "high": _ibkr_field_number(row, "70"),
+            "low": _ibkr_field_number(row, "71"),
+            "bid": _ibkr_field_number(row, "84"),
+            "ask": _ibkr_field_number(row, "86"),
+            "volume": _ibkr_field_number(row, "87"),
+            "avg_volume": _ibkr_field_number(row, "7282"),
+            "close": _ibkr_field_number(row, "7296"),
+            "halted": _ibkr_last_halted(last_raw) or can_trade is False,
+            "can_trade": can_trade,
+        }
+    return out
+
+
+def load_quote_cache(state_path: Path) -> dict[str, dict[str, Any]]:
+    raw = load_state(state_path).get(QUOTE_CACHE_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, value in raw.items():
+        if isinstance(value, dict):
+            out[str(key).upper()] = value
+    return out
+
+
+def store_quote_cache(state_path: Path, quotes: dict[str, dict[str, Any]]) -> None:
+    if not quotes:
+        return
+    state = load_state(state_path)
+    cached = state.get(QUOTE_CACHE_KEY)
+    merged = dict(cached) if isinstance(cached, dict) else {}
+    for ticker, quote in quotes.items():
+        merged[ticker] = quote
+    state[QUOTE_CACHE_KEY] = merged
+    save_state(state_path, state)
+
+
+def ibkr_auto_limit_price(ticker: str, side: str) -> float | None:
+    book = ibkr_get_book(ticker)
+    tick = float(ibkr_contract_rules(ticker).get("min_tick") or 0.01)
+    if side == "BUY":
+        raw = book.get("ask") or book.get("last")
+        if raw is None:
+            raw = ibkr_get_price(ticker)
+            if raw is None:
+                return None
+            return round_to_tick(raw * 1.005, tick)
+        if book.get("ask") is None:
+            return round_to_tick(raw * 1.005, tick)
+        return round_to_tick(raw, tick)
+    raw = book.get("bid") or book.get("last")
+    if raw is None:
+        raw = ibkr_get_price(ticker)
+        if raw is None:
+            return None
+        return round_to_tick(raw * 0.995, tick)
+    if book.get("bid") is None:
+        return round_to_tick(raw * 0.995, tick)
+    return round_to_tick(raw, tick)
+
+
+def ibkr_trading_block(ticker: str) -> str | None:
+    book = ibkr_get_book(ticker)
+    if book.get("halted") or book.get("can_trade") is False:
+        return f"⚠️ {ticker} è in halt o non negoziabile. Non piazzo l'ordine."
+    rules = ibkr_contract_rules(ticker)
+    if rules.get("session_open") is False:
+        return (
+            f"⚠️ {ticker}: mercato chiuso. "
+            "L'ordine verrebbe accettato e poi cancellato. Riprovo quando apre."
+        )
+    return None
+
+
+def ibkr_daily_bars(ticker: str, period: str = "1m") -> list[dict[str, float]]:
+    conid = ibkr_lookup_conid(ticker)
+    if not conid:
+        return []
+    data = ibkr_get(
+        f"/v1/api/iserver/marketdata/history?conid={conid}&period={period}&bar=1d"
+    )
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        return []
+    bars: list[dict[str, float]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        high = _float_or_none(row.get("h"))
+        low = _float_or_none(row.get("l"))
+        close = _float_or_none(row.get("c"))
+        volume = _float_or_none(row.get("v"))
+        if high is None or low is None or close is None:
+            continue
+        bars.append(
+            {
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume or 0.0,
+            }
+        )
+    return bars
+
+
+def atr_from_bars(bars: list[dict[str, float]], length: int = 14) -> float | None:
+    if len(bars) < 2:
+        return None
+    trs: list[float] = []
+    prev_close = bars[0]["close"]
+    for bar in bars[1:]:
+        high = bar["high"]
+        low = bar["low"]
+        trs.append(max(high - low, abs(high - prev_close), abs(low - prev_close)))
+        prev_close = bar["close"]
+    if not trs:
+        return None
+    window = trs[-length:] if len(trs) >= length else trs
+    return sum(window) / len(window)
+
+
+def entry_distance_notes(
+    ticker: str, entry: float | None, spot: float | None, book: dict[str, Any]
+) -> list[str]:
+    notes: list[str] = []
+    bars = ibkr_daily_bars(ticker)
+    atr = atr_from_bars(bars)
+    if entry is not None and spot is not None and atr and atr > 0:
+        gap = abs(spot - entry)
+        ratio = gap / atr
+        notes.append(f"ATR 14g {atr:g} · entry {ratio:.1f} ATR dal spot")
+        if ratio >= ENTRY_ATR_WARN:
+            notes.append("⚠️ Entry lontana dal prezzo: tocco poco probabile a breve.")
+    volume = _float_or_none(book.get("volume"))
+    avg = _float_or_none(book.get("avg_volume"))
+    if volume is not None and avg and avg > 0:
+        ratio = volume / avg
+        notes.append(f"Volume oggi {ratio:.1f}× la media")
+        if ratio < VOLUME_DEAD_RATIO:
+            notes.append("⚠️ Giorno morto: volume sotto la media.")
+    return notes
+
+
+def ibkr_whatif_order(
+    ticker: str, quantity: int, side: str, price: float | None
+) -> dict[str, Any] | None:
+    conid = ibkr_lookup_conid(ticker)
+    account_id = ibkr_get_account_id()
+    if not conid or not account_id:
+        return None
+    try:
+        conid_int = int(conid)
+    except (TypeError, ValueError):
+        return None
+    limit = price if price is not None else ibkr_auto_limit_price(ticker, side)
+    if limit is None:
+        return None
+    result = ibkr_post(
+        f"/v1/api/iserver/account/{account_id}/orders/whatif",
+        {
+            "orders": [
+                {
+                    "conid": conid_int,
+                    "orderType": "LMT",
+                    "side": side,
+                    "quantity": quantity,
+                    "price": limit,
+                    "tif": "DAY",
+                    "outsideRTH": True,
+                }
+            ]
+        },
+    )
+    if result is None:
+        return None
+    row = result[0] if isinstance(result, list) and result else result
+    if not isinstance(row, dict):
+        return None
+    amount = row.get("amount") if isinstance(row.get("amount"), dict) else row
+    return {
+        "price": limit,
+        "cost": _summary_amount(amount, "amount", "total"),
+        "commission": _summary_amount(amount, "commission"),
+        "warning": str(row.get("warn") or row.get("error") or "").strip(),
+    }
+
+
+def ibkr_buying_power() -> dict[str, float | None]:
+    account_id = ibkr_get_account_id()
+    out: dict[str, float | None] = {
+        "excess": None,
+        "buying_power": None,
+        "daily_pnl": None,
+    }
+    if account_id:
+        summary = ibkr_get(f"/v1/api/portfolio/{account_id}/summary")
+        out["excess"] = _summary_amount(
+            summary, "excessliquidity", "ExcessLiquidity", "availablefunds"
+        )
+        out["buying_power"] = _summary_amount(
+            summary, "buyingpower", "BuyingPower"
+        )
+    pnl = ibkr_get("/v1/api/iserver/account/pnl/partitioned")
+    daily = _extract_named_number(pnl, "dpl")
+    if daily is not None:
+        out["daily_pnl"] = daily
+    if out["excess"] is None:
+        out["excess"] = _extract_named_number(pnl, "el")
+    return out
 
 
 def _quote_selected_fields(raw: Any) -> list[str]:
@@ -1700,15 +2191,19 @@ def ibkr_place_order_ex(
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR.", None
     auto_price = price is None
+    rules = ibkr_contract_rules(ticker)
+    quantity = quantize_shares(
+        quantity,
+        int(rules.get("min_size") or 1),
+        int(rules.get("size_increment") or 1),
+    )
+    tick = _float_or_none(rules.get("min_tick")) or 0.01
     if price is None:
-        spot = ibkr_get_price(ticker)
-        if spot is None:
+        price = ibkr_auto_limit_price(ticker, side)
+        if price is None:
             return f"⚠️ Impossibile determinare un prezzo per {ticker}.", None
-        if side == "BUY":
-            price = spot * 1.005
-        else:
-            price = spot * 0.995
-        price = round(price, 2)
+    else:
+        price = round_to_tick(price, tick)
     order: dict[str, Any] = {
         "conid": conid_int,
         "orderType": "LMT",
@@ -1887,6 +2382,13 @@ def ibkr_place_stop(
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR.", None
     last_err: str | None = "⚠️ Errore nell'invio dello stop."
+    rules = ibkr_contract_rules(ticker)
+    quantity = quantize_shares(
+        quantity,
+        int(rules.get("min_size") or 1),
+        int(rules.get("size_increment") or 1),
+    )
+    stop_price = round_to_tick(stop_price, _float_or_none(rules.get("min_tick")))
     for extra in ({"outsideRTH": True}, {}):
         order = {
             "conid": conid_int,
@@ -1934,6 +2436,13 @@ def ibkr_replace_stop(
         conid_int = int(conid)
     except (TypeError, ValueError):
         return f"⚠️ Impossibile trovare {ticker} su IBKR."
+    rules = ibkr_contract_rules(ticker)
+    quantity = quantize_shares(
+        quantity,
+        int(rules.get("min_size") or 1),
+        int(rules.get("size_increment") or 1),
+    )
+    stop_price = round_to_tick(stop_price, _float_or_none(rules.get("min_tick")))
     result = ibkr_post(
         f"/v1/api/iserver/account/{account_id}/order/{order_id}",
         {
@@ -1967,6 +2476,9 @@ def start_step_trail(
                 f"⚠️ C'è già un Trail attivo su {ticker}. "
                 "Fermalo prima di aprirne un altro."
             )
+    blocked = ibkr_trading_block(ticker)
+    if blocked:
+        return blocked
     message, order_id = ibkr_place_order_ex(ticker, quantity, "BUY", None)
     if message.startswith("⚠️"):
         return message
@@ -2535,6 +3047,48 @@ def _send_manage_pick(
     )
 
 
+def _manage_buy_plan(
+    flow: dict[str, Any], watchlist_path: Path
+) -> list[dict[str, Any]]:
+    selected = _manage_selected(flow)
+    dollars = _float_or_none(flow.get("dollars"))
+    by_ticker = {
+        str(item.get("ticker") or "").strip().upper(): item
+        for item in load_watchlist(watchlist_path)
+    }
+    plan: list[dict[str, Any]] = []
+    for ticker in selected:
+        item = by_ticker.get(ticker)
+        entry = _float_or_none((item or {}).get("entry"))
+        if item is None or entry is None:
+            plan.append({"ticker": ticker, "error": "non è in watchlist."})
+            continue
+        book = ibkr_get_book(ticker)
+        spot = _float_or_none(book.get("ask")) or _float_or_none(book.get("last"))
+        if spot is None:
+            spot = ibkr_get_price(ticker)
+        if spot is None or spot <= 0:
+            plan.append({"ticker": ticker, "error": "prezzo IBKR non disponibile."})
+            continue
+        rules = ibkr_contract_rules(ticker)
+        qty = quantize_shares(
+            shares_from_dollars(dollars or 0, spot),
+            int(rules.get("min_size") or 1),
+            int(rules.get("size_increment") or 1),
+        )
+        plan.append(
+            {
+                "ticker": ticker,
+                "entry": entry,
+                "qty": qty,
+                "spot": spot,
+                "spend": qty * spot,
+                "book": book,
+            }
+        )
+    return plan
+
+
 def _apply_manage_buy(
     flow: dict[str, Any], state_path: Path, watchlist_path: Path
 ) -> None:
@@ -2551,36 +3105,28 @@ def _apply_manage_buy(
             state_path, "⚠️ Valore non valido. Riprova dollari o delta."
         )
         return
-    by_ticker = {
-        str(item.get("ticker") or "").strip().upper(): item
-        for item in load_watchlist(watchlist_path)
-    }
     actives = {
         str(trail.get("ticker") or "").strip().upper()
         for trail in _active_step_trails(state_path)
     }
     lines: list[str] = []
-    for ticker in selected:
-        item = by_ticker.get(ticker)
-        entry = _float_or_none((item or {}).get("entry"))
-        if item is None or entry is None:
-            lines.append(f"⚠️ {ticker}: non è in watchlist.")
+    for row in _manage_buy_plan(flow, watchlist_path):
+        ticker = str(row.get("ticker") or "")
+        if row.get("error"):
+            lines.append(f"⚠️ {ticker}: {row['error']}")
             continue
-        spot = ibkr_get_price(ticker)
-        if spot is None or spot <= 0:
-            lines.append(f"⚠️ {ticker}: prezzo IBKR non disponibile.")
-            continue
-        qty = shares_from_dollars(dollars, spot)
         upsert_strategy_trigger(
-            watchlist_path, ticker, entry, strategy, qty, delta
+            watchlist_path,
+            ticker,
+            float(row["entry"]),
+            strategy,
+            int(row["qty"]),
+            delta,
         )
-        spend = qty * spot
-        extra = ""
-        if ticker in actives:
-            extra = " · ⚠️ Trail già attivo"
+        extra = " · ⚠️ Trail già attivo" if ticker in actives else ""
         lines.append(
-            f"✅ {ticker}: {qty} az · entry {entry:g} · "
-            f"~{spend:g}$ @ {spot:g}{extra}"
+            f"✅ {ticker}: {row['qty']} az · entry {row['entry']:g} · "
+            f"~{row['spend']:g}$ @ {row['spot']:g}{extra}"
         )
     _save_pending_flow(state_path, None)
     if not lines:
@@ -2590,6 +3136,116 @@ def _apply_manage_buy(
     _send_flow_message(
         state_path,
         f"{label} · {dollars:g}$ a titolo · Δ {delta:g}%\n" + "\n".join(lines),
+    )
+
+
+def _fmt_money(value: float | None, suffix: str = "$") -> str:
+    if value is None:
+        return "n/d"
+    return f"{value:g}{suffix}"
+
+
+def _arm_preview_text(flow: dict[str, Any], watchlist_path: Path) -> str:
+    kind = str(flow.get("type") or "")
+    strategy = str(flow.get("strategy") or "trail").strip().lower()
+    label = AUTO_STRATEGIES.get(strategy, {}).get("label") or strategy.title()
+    delta = _float_or_none(flow.get("delta"))
+    funds = ibkr_buying_power()
+    available = funds.get("excess") or funds.get("buying_power")
+    lines = ["Confermi?"]
+    total = 0.0
+    sample_ticker = ""
+    sample_qty = 0
+    if kind == "MANAGEBUY":
+        dollars = _float_or_none(flow.get("dollars"))
+        lines.append(f"{label} · {dollars:g}$ a titolo · Δ {delta:g}%")
+        for row in _manage_buy_plan(flow, watchlist_path):
+            ticker = str(row.get("ticker") or "")
+            if row.get("error"):
+                lines.append(f"⚠️ {ticker}: {row['error']}")
+                continue
+            if not sample_ticker:
+                sample_ticker = ticker
+                sample_qty = int(row["qty"])
+            total += float(row["spend"])
+            lines.append(
+                f"{ticker}: {row['qty']} az · entry {row['entry']:g} · "
+                f"~{row['spend']:g}$ @ {row['spot']:g}"
+            )
+    else:
+        ticker = str(flow.get("ticker") or "").strip().upper()
+        qty = _share_qty(flow.get("quantity")) or 0
+        entry = _float_or_none(flow.get("entry"))
+        sample_ticker = ticker
+        sample_qty = qty
+        book = ibkr_get_book(ticker)
+        spot = _float_or_none(book.get("ask")) or _float_or_none(book.get("last"))
+        if spot is None:
+            spot = ibkr_get_price(ticker)
+        if spot and qty:
+            total = qty * spot
+        if kind == "SETBUY":
+            lines.append(
+                f"{ticker} entry {entry:g} · {label} {qty} az · Δ {delta:g}%"
+            )
+            lines.append("Parte da solo quando il prezzo tocca l'entry.")
+        else:
+            lines.append(f"{ticker} · {label} {qty} az · Δ {delta:g}% · compra ora")
+        if book.get("halted") or book.get("can_trade") is False:
+            lines.append(f"⚠️ {ticker} è in halt o non negoziabile.")
+        rules = ibkr_contract_rules(ticker)
+        if rules.get("session_open") is False:
+            lines.append(
+                f"⚠️ {ticker}: mercato chiuso. "
+                + (
+                    "Arma comunque, compra quando apre."
+                    if kind == "SETBUY"
+                    else "Non piazzo l'ordine ora."
+                )
+            )
+        lines.extend(entry_distance_notes(ticker, entry, spot, book))
+    if sample_ticker and sample_qty:
+        preview = ibkr_whatif_order(sample_ticker, sample_qty, "BUY", None)
+        if preview:
+            bits = [f"What-if {sample_ticker}"]
+            if preview.get("cost") is not None:
+                bits.append(f"~{_fmt_money(preview['cost'])}")
+            if preview.get("commission") is not None:
+                bits.append(f"fee {_fmt_money(preview['commission'])}")
+            lines.append(" · ".join(bits))
+            if preview.get("warning"):
+                lines.append(f"⚠️ {preview['warning']}")
+        elif total:
+            lines.append(f"Stima ~{_fmt_money(total)}")
+    elif total:
+        lines.append(f"Stima ~{_fmt_money(total)}")
+    if available is not None:
+        lines.append(f"Disponibili {_fmt_money(available)}")
+        if total and total > available:
+            lines.append(
+                f"⚠️ Stima {total:g}$ > disponibili {available:g}$. "
+                "Puoi confermare lo stesso."
+            )
+    return "\n".join(lines)
+
+
+def _offer_strategy_confirm(
+    flow: dict[str, Any], state_path: Path, watchlist_path: Path
+) -> None:
+    kind = str(flow.get("type") or "")
+    ticker = str(flow.get("ticker") or "").strip().upper()
+    if kind == "TRAIL" and ticker:
+        blocked = ibkr_trading_block(ticker)
+        if blocked:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, blocked)
+            return
+    flow["step"] = "confirm_arm"
+    _save_pending_flow(state_path, flow)
+    _send_flow_message(
+        state_path,
+        _arm_preview_text(flow, watchlist_path),
+        [("Conferma", "confirm:yes"), ("Annulla", "confirm:no")],
     )
 
 
@@ -2793,7 +3449,7 @@ def _collect_strategy_param_text(
     if nxt is not None:
         _prompt_strategy_param(flow, nxt, state_path)
         return True
-    _finish_armed_strategy(flow, state_path, watchlist_path)
+    _offer_strategy_confirm(flow, state_path, watchlist_path)
     return True
 
 
@@ -3150,7 +3806,7 @@ def process_pending_flow_text(
         flow["dollars"] = value
         nxt = _next_strategy_param(str(flow.get("strategy") or "trail"), "quantity")
         if nxt is None:
-            _finish_armed_strategy(flow, state_path, wpath)
+            _offer_strategy_confirm(flow, state_path, wpath)
             return True
         _prompt_strategy_param(flow, nxt, state_path)
         return True
@@ -3256,6 +3912,21 @@ def process_pending_flow_text(
             return True
         _send_flow_message(
             state_path, "Conferma con Sì o No, oppure usa i bottoni."
+        )
+        return True
+    if step == "confirm_arm" and kind in {"SETBUY", "MANAGEBUY", "TRAIL"}:
+        low = stripped.lower()
+        if low in {"si", "sì", "yes", "s"}:
+            _finish_armed_strategy(flow, state_path, wpath)
+            return True
+        if low in {"no", "n"}:
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, "Annullato.")
+            return True
+        _send_flow_message(
+            state_path,
+            "Conferma con Sì o No, oppure usa i bottoni.",
+            [("Conferma", "confirm:yes"), ("Annulla", "confirm:no")],
         )
         return True
     return False
@@ -3446,6 +4117,20 @@ def process_callback_query(
         elif choice == "no":
             _save_pending_flow(state_path, None)
             _show_named_menu(chat_id, message_id, state_path, "watchlist")
+        return None
+    if data.startswith("confirm:") and str(flow.get("type") or "") in {
+        "SETBUY",
+        "MANAGEBUY",
+        "TRAIL",
+    }:
+        if step != "confirm_arm":
+            return None
+        choice = data.split(":", 1)[1].strip().lower()
+        if choice == "yes":
+            _finish_armed_strategy(flow, state_path, wpath)
+        elif choice == "no":
+            _save_pending_flow(state_path, None)
+            _send_flow_message(state_path, "Annullato.")
         return None
     if data.startswith("sellticker:"):
         if str(flow.get("type") or "") != "SELL":
@@ -5396,17 +6081,28 @@ def cycle(
     del fired
     tickers = list(dict.fromkeys(it["ticker"] for it in items if it.get("ticker")))
     prices = fetch_prices(tickers)
+    quotes = ibkr_snapshot_quotes(tickers)
+    for name, price in prices.items():
+        if price is None:
+            continue
+        bucket = quotes.setdefault(str(name).upper(), {})
+        bucket.setdefault("last", price)
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     held = lock if lock is not None else nullcontext()
     wpath = DEFAULT_WATCHLIST if watchlist_path is None else watchlist_path
     with held:
+        store_quote_cache(state_path, quotes)
         if watchlist_path is not None and wpath.exists():
             items = load_watchlist(wpath)
         for it in items:
             ticker = it.get("ticker") or "?"
             price = prices.get(str(ticker))
             px = f"{price:.2f}" if price is not None else "n/d"
-            print(f"{now}  {ticker:<6} {px:>8}  {fmt_ticket_line(it)}", flush=True)
+            print(
+                f"{now}  {ticker:<6} {px:>8}  "
+                f"{fmt_ticket_line(it, quotes.get(str(ticker).upper()))}",
+                flush=True,
+            )
         fire_watchlist_triggers(items, prices, state_path, wpath)
 
 
