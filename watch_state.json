@@ -58,6 +58,16 @@
       "message_id": 1806,
       "sent_at": "2026-09-21T13:18:41.791124+00:00",
       "ttl_seconds": 120
+    },
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-21T13:21:17.466101+00:00",
+      "ttl_seconds": 60
+    },
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-21T13:21:17.555407+00:00",
+      "ttl_seconds": 60
     }
   ],
   "known_order_status": {
@@ -146,7 +156,8 @@
     "1395799702": "Cancelled",
     "1395799703": "Cancelled",
     "1395799722": "Cancelled",
-    "1395799723": "Cancelled"
+    "1395799723": "Cancelled",
+    "406886879": "Filled"
   },
   "pending_flow": null,
   "positions_message_id": 1806,
@@ -198,6 +209,19 @@
       "stop_level": null,
       "stop_order_id": null,
       "status": "stopped"
+    },
+    {
+      "id": "tr9996877216",
+      "ticker": "SLNH",
+      "quantity": 4,
+      "delta": 2.0,
+      "buy_order_id": "406886879",
+      "avg_price": 1.29,
+      "buy_fee": null,
+      "breakeven": 1.3161,
+      "stop_level": null,
+      "stop_order_id": null,
+      "status": "watching"
     }
   ],
   "quote_cache": {
