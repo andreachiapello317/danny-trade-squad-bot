@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "ticker": "SLNH",
+    "entry": 1.28,
+    "strategy": "trail",
+    "quantity": 4,
+    "delta": 2.0,
+    "params": {
+      "quantity": 4,
+      "delta": 2.0
+    },
+    "status": "waiting"
+  }
+]
