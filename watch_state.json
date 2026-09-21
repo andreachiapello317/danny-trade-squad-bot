@@ -31,42 +31,17 @@
   "order_messages": [
     {
       "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:09.877541+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:15.120849+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:26.815707+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:29.526545+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:33.822535+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
-      "sent_at": "2026-09-21T13:18:41.791124+00:00",
-      "ttl_seconds": 120
-    },
-    {
-      "message_id": 1806,
       "sent_at": "2026-09-21T13:21:17.466101+00:00",
       "ttl_seconds": 60
     },
     {
       "message_id": 1806,
       "sent_at": "2026-09-21T13:21:17.555407+00:00",
+      "ttl_seconds": 60
+    },
+    {
+      "message_id": 1806,
+      "sent_at": "2026-09-21T13:21:19.336577+00:00",
       "ttl_seconds": 60
     }
   ],
@@ -226,12 +201,12 @@
   ],
   "quote_cache": {
     "SLNH": {
-      "last": 1.29,
+      "last": 1.28,
       "high": 0.0,
       "low": 0.0,
-      "bid": 1.28,
+      "bid": 1.27,
       "ask": 1.29,
-      "volume": 555.0,
+      "volume": 556.0,
       "avg_volume": 12.0,
       "close": null,
       "halted": false,
