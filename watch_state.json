@@ -186,16 +186,7 @@
   ],
   "quote_cache": {
     "SLNH": {
-      "last": 1.07,
-      "high": 1.11,
-      "low": 1.05,
-      "bid": 1.07,
-      "ask": 1.1,
-      "volume": 7.35,
-      "avg_volume": 10.1,
-      "close": null,
-      "halted": false,
-      "can_trade": true
+      "last": 1.0700000524520874
     }
   }
 }
